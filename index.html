@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Авторизация</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="login-container">
+    <img src="img/logo_full.png" alt="Логотип" class="logo">
+    <h2>Вход в систему</h2>
+    <form id="loginForm">
+      <div class="autocomplete-container">
+        <input type="text" id="username" name="username" placeholder="Фамилия Имя" required autocomplete="off">
+        <input type="text" id="username-hint" disabled>
+      </div>
+
+      <input type="password" id="password" name="password" placeholder="Пароль" required>
+      
+      <div class="button-group">
+        <button type="submit">Войти</button>
+        <button type="button" id="clearButton">Очистить</button>
+      </div>
+    </form>
+    <p id="message"></p>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
