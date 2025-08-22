@@ -38,9 +38,11 @@ app.post("/login", async (req, res) => {
   const { username, password, deviceKey } = req.body;
   let storeId = null;
 
+  // Шаг 1: Проверить сотрудника по имени и паролю (без учёта регистра имени)
   const { data: employee, error: employeeError } = await supabase
     .from('employees')
-    .ilike('fullname', username)
+    .select('id, fullname')
+    .filter('fullname', 'ilike', username) // ИСПРАВЛЕННЫЙ СИНТАКСИС
     .eq('password', password)
     .single();
 
@@ -48,6 +50,7 @@ app.post("/login", async (req, res) => {
     return res.status(401).json({ success: false, message: "Неверное имя или пароль" });
   }
 
+  // Шаг 2: Определяем магазин
   if (deviceKey) {
     const { data: device } = await supabase.from('devices').select('store_id').eq('device_key', deviceKey).single();
     if (device) storeId = device.store_id;
@@ -62,9 +65,11 @@ app.post("/login", async (req, res) => {
     return res.status(404).json({ success: false, message: "Не удалось определить магазин." });
   }
 
+  // Шаг 3: Получить адрес магазина
   const { data: store, error: storeError } = await supabase.from('stores').select('address').eq('id', storeId).single();
   if (storeError || !store) return res.status(404).json({ success: false, message: "Магазин не найден" });
   
+  // Шаг 4: Зафиксировать смену
   const { error: shiftError } = await supabase.from('shifts').insert({ employee_id: employee.id, store_id: storeId });
   if (shiftError) {
     console.error("Ошибка фиксации смены:", shiftError);
