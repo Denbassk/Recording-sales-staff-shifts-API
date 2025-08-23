@@ -38,11 +38,10 @@ app.post("/login", async (req, res) => {
   const { username, password, deviceKey } = req.body;
   let storeId = null;
 
-  // Шаг 1: Проверить сотрудника по имени и паролю (без учёта регистра имени)
   const { data: employee, error: employeeError } = await supabase
     .from('employees')
     .select('id, fullname')
-    .filter('fullname', 'ilike', username) // ИСПРАВЛЕННЫЙ СИНТАКСИС
+    .filter('fullname', 'ilike', username)
     .eq('password', password)
     .single();
 
@@ -50,7 +49,6 @@ app.post("/login", async (req, res) => {
     return res.status(401).json({ success: false, message: "Неверное имя или пароль" });
   }
 
-  // Шаг 2: Определяем магазин
   if (deviceKey) {
     const { data: device } = await supabase.from('devices').select('store_id').eq('device_key', deviceKey).single();
     if (device) storeId = device.store_id;
@@ -65,11 +63,9 @@ app.post("/login", async (req, res) => {
     return res.status(404).json({ success: false, message: "Не удалось определить магазин." });
   }
 
-  // Шаг 3: Получить адрес магазина
   const { data: store, error: storeError } = await supabase.from('stores').select('address').eq('id', storeId).single();
   if (storeError || !store) return res.status(404).json({ success: false, message: "Магазин не найден" });
   
-  // Шаг 4: Зафиксировать смену
   const { error: shiftError } = await supabase.from('shifts').insert({ employee_id: employee.id, store_id: storeId });
   if (shiftError) {
     console.error("Ошибка фиксации смены:", shiftError);
@@ -83,15 +79,27 @@ app.post("/login", async (req, res) => {
   });
 });
 
-// 3. API для генерации отчёта по сменам
+// 3. API для генерации отчёта по сменам (с исправленной логикой дат)
 app.get("/report/shifts", async (req, res) => {
-  const { date } = req.query;
+  const { date } = req.query; // date приходит в формате 'YYYY-MM-DD'
   if (!date) return res.status(400).json({ error: "Параметр 'date' обязателен." });
+
+  // Определяем начало и конец дня для запроса в UTC
+  const startOfDay = `${date}T00:00:00.000Z`;
+  const endOfDay = `${date}T23:59:59.999Z`;
 
   const { data, error } = await supabase
     .from('shifts')
-    .select(`shift_date, employee_id, employees(fullname), store_id, stores(address)`)
-    .eq('shift_date', date);
+    .select(`
+      started_at,
+      employee_id,
+      employees ( fullname ),
+      store_id,
+      stores ( address )
+    `)
+    // Ищем записи, где started_at попадает в нужный день
+    .gte('started_at', startOfDay)
+    .lte('started_at', endOfDay);
 
   if (error) {
     console.error("Ошибка получения отчёта по сменам:", error);
@@ -103,7 +111,12 @@ app.get("/report/shifts", async (req, res) => {
   }
   
   const headers = "employee_id;fullname;store_id;store_address;shift_date";
-  const rows = data.map(s => `${s.employee_id};${s.employees.fullname};${s.store_id};"${s.stores.address}";${s.shift_date}`);
+  // Дату смены мы берём прямо из started_at
+  const rows = data.map(s => {
+    // Форматируем дату в YYYY-MM-DD для отчёта
+    const shiftDate = new Date(s.started_at).toISOString().split('T')[0];
+    return `${s.employee_id};${s.employees.fullname};${s.store_id};"${s.stores.address}";${shiftDate}`;
+  });
   const csvContent = `${headers}\n${rows.join("\n")}`;
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
