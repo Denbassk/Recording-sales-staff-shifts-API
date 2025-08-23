@@ -7,7 +7,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 // --- Подключение к Supabase ---
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; // Используем сервисный ключ
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
@@ -20,23 +20,19 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // 1. API для получения списка сотрудников
 app.get("/employees", async (req, res) => {
-  const { data, error } = await supabase
-    .from('employees')
-    .select('fullname')
-    .eq('active', true);
-
+  const { data, error } = await supabase.from('employees').select('fullname').eq('active', true);
   if (error) {
     console.error("Ошибка получения сотрудников:", error);
     return res.status(500).json({ error: error.message });
   }
-  
   res.json(data.map(e => e.fullname));
 });
 
-// 2. API для авторизации и фиксации смены
+// 2. API для авторизации и фиксации смены (с логикой для старших продавцов)
 app.post("/login", async (req, res) => {
   const { username, password, deviceKey } = req.body;
   let storeId = null;
+  let storeAddress = null;
 
   const { data: employee, error: employeeError } = await supabase
     .from('employees')
@@ -49,23 +45,36 @@ app.post("/login", async (req, res) => {
     return res.status(401).json({ success: false, message: "Неверное имя или пароль" });
   }
 
-  if (deviceKey) {
-    const { data: device } = await supabase.from('devices').select('store_id').eq('device_key', deviceKey).single();
-    if (device) storeId = device.store_id;
-  }
+  // --- НОВАЯ ЛОГИКА ОПРЕДЕЛЕНИЯ МАГАЗИНА ---
+  let isSeniorSeller = employee.id.startsWith('SProd');
 
-  if (!storeId) {
-    const { data: storeLink } = await supabase.from('employee_store').select('store_id').eq('employee_id', employee.id).single();
-    if (storeLink) storeId = storeLink.store_id;
-  }
+  // Обычный продавец: определяем магазин по устройству или привязке
+  if (!isSeniorSeller) {
+    if (deviceKey) {
+      const { data: device } = await supabase.from('devices').select('store_id').eq('device_key', deviceKey).single();
+      if (device) storeId = device.store_id;
+    }
 
-  if (!storeId) {
-    return res.status(404).json({ success: false, message: "Не удалось определить магазин." });
-  }
+    if (!storeId) {
+      const { data: storeLink } = await supabase.from('employee_store').select('store_id').eq('employee_id', employee.id).single();
+      if (storeLink) storeId = storeLink.store_id;
+    }
 
-  const { data: store, error: storeError } = await supabase.from('stores').select('address').eq('id', storeId).single();
-  if (storeError || !store) return res.status(404).json({ success: false, message: "Магазин не найден" });
+    if (!storeId) {
+      return res.status(404).json({ success: false, message: "Для этого сотрудника не удалось определить магазин." });
+    }
+
+    const { data: store, error: storeError } = await supabase.from('stores').select('address').eq('id', storeId).single();
+    if (storeError || !store) return res.status(404).json({ success: false, message: "Магазин не найден" });
+    storeAddress = store.address;
+
+  } else {
+    // Старший продавец: магазин не определён, но это нормально
+    storeId = null; // Явно указываем, что магазина нет
+    storeAddress = "Старший продавец"; // Текст для отображения
+  }
   
+  // Фиксируем смену (для старшего продавца store_id будет NULL)
   const { error: shiftError } = await supabase.from('shifts').insert({ employee_id: employee.id, store_id: storeId });
   if (shiftError) {
     console.error("Ошибка фиксации смены:", shiftError);
@@ -75,29 +84,22 @@ app.post("/login", async (req, res) => {
   return res.json({
     success: true,
     message: `Добро пожаловать, ${employee.fullname}!`,
-    store: store.address
+    store: storeAddress // Отправляем адрес или статус "Старший продавец"
   });
 });
 
-// 3. API для генерации отчёта по сменам (с исправленной логикой дат)
+
+// 3. API для генерации отчёта по сменам
 app.get("/report/shifts", async (req, res) => {
-  const { date } = req.query; // date приходит в формате 'YYYY-MM-DD'
+  const { date } = req.query;
   if (!date) return res.status(400).json({ error: "Параметр 'date' обязателен." });
 
-  // Определяем начало и конец дня для запроса в UTC
   const startOfDay = `${date}T00:00:00.000Z`;
   const endOfDay = `${date}T23:59:59.999Z`;
 
   const { data, error } = await supabase
     .from('shifts')
-    .select(`
-      started_at,
-      employee_id,
-      employees ( fullname ),
-      store_id,
-      stores ( address )
-    `)
-    // Ищем записи, где started_at попадает в нужный день
+    .select(`started_at, employee_id, employees ( fullname ), store_id, stores ( address )`)
     .gte('started_at', startOfDay)
     .lte('started_at', endOfDay);
 
@@ -111,21 +113,22 @@ app.get("/report/shifts", async (req, res) => {
   }
   
   const headers = "employee_id;fullname;store_id;store_address;shift_date";
-  // Дату смены мы берём прямо из started_at
+  const bom = "\uFEFF";
+  
   const rows = data.map(s => {
-    // Форматируем дату в YYYY-MM-DD для отчёта
     const shiftDate = new Date(s.started_at).toISOString().split('T')[0];
-    return `${s.employee_id};${s.employees.fullname};${s.store_id};"${s.stores.address}";${shiftDate}`;
+    // Для старшего продавца адрес будет null, заменяем его на понятный текст
+    const address = s.stores ? s.stores.address : 'Старший продавец (без привязки)';
+    return `${s.employee_id};${s.employees.fullname};${s.store_id || 'N/A'};"${address}";${shiftDate}`;
   });
   const csvContent = `${headers}\n${rows.join("\n")}`;
-  const bom = "\uFEFF"; // BOM-маркер для UTF-8
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="shifts_report_${date}.csv"`);
   res.status(200).send(bom + csvContent);
 });
 
-// 4. Эндпоинт для "проверки здоровья" (health check) от Fly.io
+// 4. Эндпоинт для "проверки здоровья"
 app.get("/", (req, res) => {
   res.status(200).send("Server is healthy and running.");
 });
