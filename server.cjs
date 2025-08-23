@@ -118,10 +118,11 @@ app.get("/report/shifts", async (req, res) => {
     return `${s.employee_id};${s.employees.fullname};${s.store_id};"${s.stores.address}";${shiftDate}`;
   });
   const csvContent = `${headers}\n${rows.join("\n")}`;
+  const bom = "\uFEFF"; // BOM-маркер для UTF-8
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="shifts_report_${date}.csv"`);
-  res.status(200).send(csvContent);
+  res.status(200).send(bom + csvContent);
 });
 
 // 4. Эндпоинт для "проверки здоровья" (health check) от Fly.io
