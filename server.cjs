@@ -2,6 +2,7 @@
 const express = require("express");
 const path = require("path");
 const bodyParser = require("body-parser");
+const cors = require('cors'); // <-- ДОБАВИТЬ ЭТУ СТРОКУ
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
@@ -11,6 +12,8 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
+
+app.use(cors()); // <-- И ДОБАВИТЬ ЭТУ СТРОКУ
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -72,14 +75,14 @@ app.post("/login", async (req, res) => {
   const today = new Date();
   const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
   const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
-
+  
   const { data: existingShift, error: shiftCheckError } = await supabase
     .from('shifts')
     .select('id')
     .eq('employee_id', employee.id)
     .gte('started_at', startOfDay)
     .lte('started_at', endOfDay);
-
+  
   if (shiftCheckError) {
     return res.status(500).json({ success: false, message: "Ошибка проверки смены в базе." });
   }
