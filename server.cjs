@@ -7,7 +7,7 @@ const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
-const XLSX = require('xlsx'); // <--- Для работы с Excel
+const XLSX = require('xlsx');
 
 // --- Подключение к Supabase ---
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -21,7 +21,7 @@ app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 // =================================================================
-// --- СУЩЕСТВУЮЩИЕ API ЭНДПОИНТЫ ---
+// --- ОСНОВНЫЕ API ЭНДПОИНТЫ ---
 // =================================================================
 
 // 1. API для получения списка сотрудников
@@ -34,7 +34,7 @@ app.get("/employees", async (req, res) => {
   res.json(data.map(e => e.fullname));
 });
 
-// 2. API для авторизации и фиксации смены
+// 2. API для авторизации и фиксации смены (с кастомными сообщениями)
 app.post("/login", async (req, res) => {
   const { username, password, deviceKey } = req.body;
   let storeId = null;
@@ -78,6 +78,8 @@ app.post("/login", async (req, res) => {
   if (shiftCheckError) {
     return res.status(500).json({ success: false, message: "Ошибка проверки смены в базе." });
   }
+  
+  let responseMessage = '';
 
   if (existingShift.length === 0) {
     const shiftDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -86,9 +88,16 @@ app.post("/login", async (req, res) => {
       console.error("Ошибка фиксации смены:", shiftInsertError);
       return res.status(500).json({ success: false, message: "Ошибка на сервере при фиксации смены." });
     }
+    responseMessage = `Добро пожаловать, ${employee.fullname}!`;
+  } else {
+    responseMessage = `Ваша смена на сегодня уже была зафиксирована. Хорошего рабочего дня, ${employee.fullname}!`;
   }
 
-  return res.json({ success: true, message: `Добро пожаловать, ${employee.fullname}!`, store: storeAddress });
+  return res.json({
+    success: true,
+    message: responseMessage,
+    store: storeAddress
+  });
 });
 
 // 3. Эндпоинт для "проверки здоровья"
@@ -97,10 +106,10 @@ app.get("/", (req, res) => {
 });
 
 // =================================================================
-// --- НОВЫЕ API ЭНДПОИНТЫ ДЛЯ РАСЧЕТА ЗАРПЛАТ ---
+// --- API ЭНДПОИНТЫ ДЛЯ РАСЧЕТА ЗАРПЛАТ ---
 // =================================================================
 
-// 4. API для загрузки выручки из EXCEL (финальная версия с фильтрацией и подсчетом итогов)
+// 4. API для загрузки выручки из EXCEL 
 app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
   try {
     const { date } = req.body;
@@ -139,14 +148,11 @@ app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
     }).filter(item => 
       item.store_address && 
       !isNaN(item.revenue) &&
-      // --- НОВОЕ УСЛОВИЕ: Убираем строку, начинающуюся со звездочки ---
       !String(item.store_address).startsWith('* Себестоимость')
     );
 
-    // --- НОВЫЙ БЛОК: Считаем итоговую выручку ---
     const totalRevenue = revenues.reduce((sum, current) => sum + current.revenue, 0);
 
-    // Дальнейший код без изменений...
     const matched = [];
     const unmatched = [];
     for (const item of revenues) {
@@ -159,7 +165,6 @@ app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
       }
     }
     
-    // --- ИЗМЕНЕНИЕ: Добавляем totalRevenue в ответ сервера ---
     res.json({ success: true, message: 'Выручка успешно загружена', revenues, matched, unmatched, totalRevenue });
 
   } catch (error) {
@@ -174,8 +179,8 @@ app.post('/calculate-payroll', async (req, res) => {
     const { date } = req.body;
     const { data: shifts } = await supabase.from('shifts').select(`employee_id, employees (fullname), store_id, stores (address)`).eq('shift_date', date);
     
-    if (!shifts) {
-        return res.json({ success: true, calculations: [], summary: {} });
+    if (!shifts || shifts.length === 0) {
+        return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
     }
 
     const storeShifts = {};
