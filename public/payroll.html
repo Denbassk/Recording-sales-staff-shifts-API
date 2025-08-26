@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Расчет зарплаты - Система управления</title>
     <style>
+        /* ... Ваши обычные стили остаются без изменений ... */
         * {
             margin: 0;
             padding: 0;
@@ -410,6 +411,51 @@
             }
         }
     </style>
+    <style media="print">
+        @page {
+            size: A4;
+            margin: 15mm;
+        }
+        body {
+            background: white !important;
+        }
+        body * {
+            visibility: hidden;
+        }
+        #print-area, #print-area * {
+            visibility: visible;
+        }
+        #print-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+        }
+        .payslip-compact {
+            font-family: Arial, sans-serif;
+            font-size: 9pt;
+            padding-bottom: 10mm;
+            margin-bottom: 10mm;
+            border-bottom: 2px dashed #999;
+            page-break-inside: avoid;
+        }
+        .payslip-compact:last-child {
+            border-bottom: none;
+        }
+        .payslip-compact h3 {
+            text-align: center;
+            font-size: 12pt;
+            margin-bottom: 10px;
+        }
+        .payslip-compact table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 5px 0;
+        }
+        .payslip-compact td {
+            padding: 2px 0;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -431,7 +477,6 @@
                 </button>
             </div>
 
-            <!-- Tab 1: Загрузка выручки -->
             <div id="revenue-tab" class="tab-content active">
                 <div class="control-panel">
                     <div class="control-row">
@@ -467,6 +512,14 @@
                         </thead>
                         <tbody id="revenueTableBody"></tbody>
                     </table>
+
+                    <div class="summary-panel" style="margin-top: 0; text-align: right; padding: 15px;">
+                        <div class="summary-row" style="font-size: 18px;">
+                            <span class="summary-label">Итого выручка:</span>
+                            <span class="summary-value" id="totalRevenueValue">0.00 грн</span>
+                        </div>
+                    </div>
+
                     <div style="text-align: center; margin-top: 20px;">
                         <button class="success" onclick="confirmRevenueSave()" style="margin-right: 10px;">
                             Подтвердить и сохранить
@@ -490,7 +543,6 @@
                 </div>
             </div>
 
-            <!-- Tab 2: Расчет зарплаты -->
             <div id="payroll-tab" class="tab-content">
                 <div class="control-panel">
                     <div class="control-row">
@@ -502,12 +554,6 @@
                             <label>&nbsp;</label>
                             <button onclick="calculatePayroll()">
                                 Рассчитать зарплату
-                            </button>
-                        </div>
-                        <div class="control-group">
-                            <label>&nbsp;</label>
-                            <button class="secondary" onclick="exportToExcel()">
-                                Экспорт в Excel
                             </button>
                         </div>
                     </div>
@@ -552,7 +598,6 @@
                 </div>
             </div>
 
-            <!-- Tab 3: Месячный отчет -->
             <div id="report-tab" class="tab-content">
                 <div class="control-panel">
                     <div class="control-row">
@@ -578,6 +623,10 @@
                             <input type="number" id="reportYear" value="2025" min="2024" max="2030">
                         </div>
                         <div class="control-group">
+                            <label>Рассчитать по дату:</label>
+                            <input type="date" id="reportEndDate">
+                        </div>
+                        <div class="control-group">
                             <label>&nbsp;</label>
                             <button onclick="generateMonthlyReport()">
                                 Сформировать отчет
@@ -585,8 +634,8 @@
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
-                            <button class="secondary" onclick="exportMonthlyReport()">
-                                Экспорт в Excel
+                             <button class="secondary" onclick="printAllPayslips()">
+                                🖨️ Печать ведомостей
                             </button>
                         </div>
                     </div>
@@ -595,8 +644,7 @@
                 <div id="reportStatus" class="status" style="display:none;"></div>
 
                 <div id="monthlyReportContent" style="display:none;">
-                    <!-- Здесь будет динамически генерироваться отчет -->
-                </div>
+                    </div>
             </div>
         </div>
     </div>

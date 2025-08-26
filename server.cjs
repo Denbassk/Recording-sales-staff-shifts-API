@@ -100,7 +100,7 @@ app.get("/", (req, res) => {
 // --- НОВЫЕ API ЭНДПОИНТЫ ДЛЯ РАСЧЕТА ЗАРПЛАТ ---
 // =================================================================
 
-// 4. API для загрузки выручки из EXCEL (версия с диагностикой)
+// 4. API для загрузки выручки из EXCEL (финальная версия с фильтрацией и подсчетом итогов)
 app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
   try {
     const { date } = req.body;
@@ -111,7 +111,7 @@ app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    
+
     const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
     let headerRowIndex = -1;
     for (let i = 0; i < rows.length; i++) {
@@ -128,19 +128,25 @@ app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
 
     const rawData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex });
 
-    // ======================= ДИАГНОСТИКА =======================
-    console.log("--- ДАННЫЕ СРАЗУ ПОСЛЕ ЧТЕНИЯ ИЗ EXCEL ---");
-    console.log(rawData);
-    // =========================================================
-
-    const revenues = rawData.map(row => ({
-      store_address: row['Торговая точка'],
-      revenue: row['Выторг']
-    })).filter(item => 
-      item.store_address && typeof item.revenue === 'number'
+    const revenues = rawData.map(row => {
+      const revenueStr = String(row['Выторг'] || '0');
+      const cleanedStr = revenueStr.replace(/\s/g, '').replace(',', '.');
+      const revenueNum = parseFloat(cleanedStr);
+      return {
+        store_address: row['Торговая точка'],
+        revenue: revenueNum
+      };
+    }).filter(item => 
+      item.store_address && 
+      !isNaN(item.revenue) &&
+      // --- НОВОЕ УСЛОВИЕ: Убираем строку, начинающуюся со звездочки ---
+      !String(item.store_address).startsWith('* Себестоимость')
     );
-    
-    // Остальная часть кода без изменений...
+
+    // --- НОВЫЙ БЛОК: Считаем итоговую выручку ---
+    const totalRevenue = revenues.reduce((sum, current) => sum + current.revenue, 0);
+
+    // Дальнейший код без изменений...
     const matched = [];
     const unmatched = [];
     for (const item of revenues) {
@@ -153,7 +159,8 @@ app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
       }
     }
     
-    res.json({ success: true, message: 'Выручка успешно загружена', revenues, matched, unmatched });
+    // --- ИЗМЕНЕНИЕ: Добавляем totalRevenue в ответ сервера ---
+    res.json({ success: true, message: 'Выручка успешно загружена', revenues, matched, unmatched, totalRevenue });
 
   } catch (error) {
     console.error('Ошибка загрузки выручки из Excel:', error);
