@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Расчет зарплаты</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        .control-panel {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .control-panel input, .control-panel button {
+            padding: 8px 12px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            cursor: pointer;
+            border: none;
+        }
+        button:hover { background: #0056b3; }
+        button.success { background: #28a745; }
+        button.danger { background: #dc3545; }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background: #f4f4f4;
+            font-weight: bold;
+        }
+        tr:nth-child(even) { background: #f9f9f9; }
+        
+        .revenue-input {
+            width: 100px;
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        
+        .summary-panel {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .summary-panel h3 { margin-top: 0; }
+        
+        .loader {
+            display: none;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .tab-button {
+            padding: 10px 20px;
+            background: #e9ecef;
+            border: none;
+            border-radius: 5px 5px 0 0;
+            cursor: pointer;
+        }
+        .tab-button.active {
+            background: white;
+            border-bottom: 2px solid #007bff;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Система расчета заработной платы</h1>
+        
+        <div class="tab-buttons">
+            <button class="tab-button active" onclick="switchTab('revenue')">Загрузка выручки</button>
+            <button class="tab-button" onclick="switchTab('payroll')">Расчет зарплаты</button>
+            <button class="tab-button" onclick="switchTab('report')">Отчет за месяц</button>
+        </div>
+        
+        <!-- Tab 1: Загрузка выручки -->
+        <div id="revenue-tab" class="tab-content active">
+            <div class="control-panel">
+                <label>Дата: </label>
+                <input type="date" id="revenueDate" value="">
+                <label>Файл с выручкой (CSV/Excel): </label>
+                <input type="file" id="revenueFile" accept=".csv,.xlsx,.xls">
+                <button class="success" onclick="uploadRevenueFile()">Загрузить и обработать</button>
+            </div>
+            
+            <div id="revenueStatus" class="status" style="display:none;"></div>
+            
+            <div id="revenuePreview" style="display:none;">
+                <h3>Предпросмотр загруженных данных:</h3>
+                <table id="revenueTable">
+                    <thead>
+                        <tr>
+                            <th>№</th>
+                            <th>Торговая точка</th>
+                            <th>Выручка (грн)</th>
+                            <th>Статус</th>
+                        </tr>
+                    </thead>
+                    <tbody id="revenueTableBody"></tbody>
+                </table>
+                <button class="success" onclick="confirmRevenueSave()">Подтвердить и сохранить</button>
+            </div>
+        </div>
+        
+        <!-- Tab 2: Расчет зарплаты -->
+        <div id="payroll-tab" class="tab-content">
+            <div class="control-panel">
+                <label>Дата для расчета: </label>
+                <input type="date" id="payrollDate" value="">
+                <button onclick="calculatePayroll()">Рассчитать зарплату</button>
+                <button onclick="exportToExcel()">Экспорт в Excel</button>
+            </div>
+            
+            <div id="payrollStatus" class="status" style="display:none;"></div>
+            <div class="loader" id="loader"></div>
+            
+            <table id="payrollTable" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>Сотрудник</th>
+                        <th>Магазин</th>
+                        <th>Выручка магазина</th>
+                        <th>Кол-во продавцов</th>
+                        <th>Базовая ставка</th>
+                        <th>Бонус</th>
+                        <th>Итого за день</th>
+                    </tr>
+                </thead>
+                <tbody id="payrollTableBody"></tbody>
+            </table>
+            
+            <div id="payrollSummary" class="summary-panel" style="display:none;">
+                <h3>Итого за день:</h3>
+                <p>Сотрудников: <span id="totalEmployees">0</span></p>
+                <p>Общая сумма к выплате: <span id="totalPayroll">0</span> грн</p>
+                <p>Налог (23%): <span id="totalTax">0</span> грн</p>
+                <p>К выплате после налогов: <span id="netPayroll">0</span> грн</p>
+            </div>
+        </div>
+        
+        <!-- Tab 3: Месячный отчет -->
+        <div id="report-tab" class="tab-content">
+            <div class="control-panel">
+                <label>Месяц: </label>
+                <select id="reportMonth">
+                    <option value="1">Январь</option>
+                    <option value="2">Февраль</option>
+                    <option value="3">Март</option>
+                    <option value="4">Апрель</option>
+                    <option value="5">Май</option>
+                    <option value="6">Июнь</option>
+                    <option value="7">Июль</option>
+                    <option value="8">Август</option>
+                    <option value="9">Сентябрь</option>
+                    <option value="10">Октябрь</option>
+                    <option value="11">Ноябрь</option>
+                    <option value="12">Декабрь</option>
+                </select>
+                <label>Год: </label>
+                <input type="number" id="reportYear" value="2025" min="2024" max="2030">
+                <button onclick="generateMonthlyReport()">Сформировать отчет</button>
+                <button onclick="exportMonthlyReport()">Экспорт в Excel</button>
+            </div>
+            
+            <div id="reportStatus" class="status" style="display:none;"></div>
+            
+            <div id="monthlyReportContent" style="display:none;">
+                <!-- Здесь будет динамически генерироваться отчет -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'https://shifts-api.fly.dev';
+        
+        // Установка текущей даты
+        document.getElementById('revenueDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('payrollDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('reportMonth').value = new Date().getMonth() + 1;
+        
+        // Переключение вкладок
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tabName + '-tab').classList.add('active');
+        }
+        
+        // Загрузка и обработка файла с выручкой
+        async function uploadRevenueFile() {
+            const date = document.getElementById('revenueDate').value;
+            const fileInput = document.getElementById('revenueFile');
+            const file = fileInput.files[0];
+            
+            if (!date) {
+                showStatus('revenueStatus', 'Выберите дату', 'error');
+                return;
+            }
+            
+            if (!file) {
+                showStatus('revenueStatus', 'Выберите файл с выручкой', 'error');
+                return;
+            }
+            
+            showStatus('revenueStatus', 'Обработка файла...', 'info');
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('date', date);
+            
+            try {
+                const response = await fetch(`${API_BASE}/upload-revenue-file`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayRevenuePreview(result.revenues, result.matched, result.unmatched);
+                    showStatus('revenueStatus', `Обработано записей: ${result.revenues.length}`, 'success');
+                } else {
+                    showStatus('revenueStatus', 'Ошибка обработки файла: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showStatus('revenueStatus', 'Ошибка: ' + error.message, 'error');
+            }
+        }
+        
+        // Отображение предпросмотра загруженных данных
+        function displayRevenuePreview(revenues, matched, unmatched) {
+            const tbody = document.getElementById('revenueTableBody');
+            tbody.innerHTML = '';
+            
+            revenues.forEach((item, index) => {
+                const row = tbody.insertRow();
+                const isMatched = matched.includes(item.store_address);
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${item.store_address}</td>
+                    <td>${item.revenue.toFixed(2)}</td>
+                    <td>${isMatched ? '✅ Найден' : '⚠️ Не найден в БД'}</td>
+                `;
+                if (!isMatched) row.style.backgroundColor = '#fff3cd';
+            });
+            
+            document.getElementById('revenuePreview').style.display = 'block';
+            
+            if (unmatched.length > 0) {
+                showStatus('revenueStatus', `Внимание! ${unmatched.length} магазинов не найдено в БД`, 'error');
+            }
+        }
+        
+        // Подтверждение сохранения выручки
+        async function confirmRevenueSave() {
+            // Здесь уже данные были сохранены при загрузке
+            showStatus('revenueStatus', 'Данные успешно сохранены', 'success');
+            document.getElementById('revenueFile').value = '';
+            document.getElementById('revenuePreview').style.display = 'none';
+        }
+        
+        // Расчет зарплаты
+        async function calculatePayroll() {
+            const date = document.getElementById('payrollDate').value;
+            document.getElementById('loader').style.display = 'block';
+            document.getElementById('payrollTable').style.display = 'none';
+            
+            try {
+                const response = await fetch(`${API_BASE}/calculate-payroll`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date })
+                });
+                
+                const result = await response.json();
+                document.getElementById('loader').style.display = 'none';
+                
+                if (result.success) {
+                    displayPayrollResults(result.calculations, result.summary);
+                    showStatus('payrollStatus', `Зарплата за ${date} успешно рассчитана`, 'success');
+                } else {
+                    showStatus('payrollStatus', 'Ошибка расчета: ' + result.error, 'error');
+                }
+            } catch (error) {
+                document.getElementById('loader').style.display = 'none';
+                showStatus('payrollStatus', 'Ошибка: ' + error.message, 'error');
+            }
+        }
+        
+        // Отображение результатов расчета
+        function displayPayrollResults(calculations, summary) {
+            const tbody = document.getElementById('payrollTableBody');
+            tbody.innerHTML = '';
+            
+            calculations.forEach(calc => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${calc.employee_name}</td>
+                    <td>${calc.store_address}</td>
+                    <td>${calc.revenue.toFixed(2)}</td>
+                    <td>${calc.num_sellers}</td>
+                    <td>${calc.base_rate.toFixed(2)}</td>
+                    <td>${calc.bonus.toFixed(2)}</td>
+                    <td><strong>${calc.total_pay.toFixed(2)}</strong></td>
+                `;
+            });
+            
+            document.getElementById('payrollTable').style.display = 'table';
+            
+            // Обновление итогов
+            const tax = summary.total_payroll * 0.23;
+            const net = summary.total_payroll - tax;
+            
+            document.getElementById('totalEmployees').textContent = summary.total_employees;
+            document.getElementById('totalPayroll').textContent = summary.total_payroll.toFixed(2);
+            document.getElementById('totalTax').textContent = tax.toFixed(2);
+            document.getElementById('netPayroll').textContent = net.toFixed(2);
+            document.getElementById('payrollSummary').style.display = 'block';
+        }
+        
+        // Функция показа статуса
+        function showStatus(elementId, message, type) {
+            const statusEl = document.getElementById(elementId);
+            statusEl.textContent = message;
+            statusEl.className = 'status ' + type;
+            statusEl.style.display = 'block';
+            
+            if (type !== 'error') {
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 5000);
+            }
+        }
+        
+        // Экспорт в Excel
+        function exportToExcel() {
+            // Здесь можно добавить логику экспорта используя библиотеку SheetJS
+            alert('Функция экспорта будет добавлена');
+        }
+        
+        // Месячный отчет
+        async function generateMonthlyReport() {
+            const month = document.getElementById('reportMonth').value;
+            const year = document.getElementById('reportYear').value;
+            
+            // Здесь будет логика генерации месячного отчета
+            showStatus('reportStatus', 'Генерация отчета...', 'info');
+            
+            // TODO: Реализовать запрос к API для получения данных за месяц
+        }
+    </script>
+</body>
+</html>
