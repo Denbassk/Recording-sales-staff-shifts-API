@@ -3,41 +3,15 @@ const API_BASE = window.location.hostname === 'localhost'
     ? 'http://localhost:3000' 
     : 'https://shifts-api.fly.dev';
 
-// Проверка авторизации при загрузке страницы
-function checkAuth() {
-    const token = localStorage.getItem('authToken');
-    const role = localStorage.getItem('userRole');
-    
-    if (!token || !role) {
-        alert('Необходима авторизация!');
-        window.location.href = '/index.html';
-        return false;
-    }
-    
-    if (role !== 'admin' && role !== 'accountant') {
-        alert('У вас нет прав доступа к этой странице!');
-        window.location.href = '/index.html';
-        return false;
-    }
-    
-    return true;
-}
-
-// Функция для добавления токена к запросам
-function getAuthHeaders() {
-    return {
-        'Content-Type': 'application/json',
-        'Authorization': localStorage.getItem('authToken')
-    };
-}
-
-// СУММА ДЛЯ ВЫПЛАТЫ НА КАРТУ (ИЗМЕНЯЙТЕ ЭТУ СУММУ ПРИ ИНДЕКСАЦИИ)
+// СУММА ДЛЯ ВЫПЛАТЫ НА КАРТУ
 const CARD_PAYMENT_AMOUNT = 8600;
 
+// --- БЛОК ДЛЯ АВТОРИЗАЦИИ И НАСТРОЙКИ ДАТ ---
 document.addEventListener('DOMContentLoaded', function() {
-    // Проверяем авторизацию
-    if (!checkAuth()) {
-        return;
+    // ВАЖНО: Эта проверка теперь будет работать с JWT/cookie, а не с localStorage
+    if (!document.cookie.includes('token=')) {
+        window.location.href = '/index.html';
+        return; 
     }
     
     const today = new Date();
@@ -60,12 +34,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     updateEndDateDefault();
-
     reportMonthSelect.addEventListener('change', updateEndDateDefault);
     reportYearInput.addEventListener('change', updateEndDateDefault);
 });
 
-// Переключение вкладок
+async function logout() {
+    await fetch(`${API_BASE}/logout`, { method: 'POST', credentials: 'include' });
+    document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+    window.location.href = '/index.html';
+}
+
+// --- ОБЩИЕ ФУНКЦИИ И УТИЛИТЫ ---
 function switchTab(tabName, button) {
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -73,7 +52,24 @@ function switchTab(tabName, button) {
     document.getElementById(tabName + '-tab').classList.add('active');
 }
 
-// Загрузка и обработка файла с выручкой
+function formatNumber(num) {
+    return new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+}
+
+function showStatus(elementId, message, type) {
+    const statusEl = document.getElementById(elementId);
+    statusEl.textContent = message;
+    statusEl.className = 'status ' + type;
+    statusEl.style.display = 'flex';
+    if (type !== 'info') setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
+}
+
+function hideStatus(elementId) {
+    document.getElementById(elementId).style.display = 'none';
+}
+
+
+// --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
 async function uploadRevenueFile() {
     const date = document.getElementById('revenueDate').value;
     const fileInput = document.getElementById('revenueFile');
@@ -92,12 +88,15 @@ async function uploadRevenueFile() {
     try {
         const response = await fetch(`${API_BASE}/upload-revenue-file`, { 
             method: 'POST', 
-            headers: {
-                'Authorization': localStorage.getItem('authToken')
-            },
-            body: formData 
+            body: formData,
+            credentials: 'include' 
         });
         const result = await response.json();
+        if (response.status === 401 || response.status === 403) {
+            alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
+            window.location.href = '/index.html';
+            return;
+        }
         if (result.success) {
             displayRevenuePreview(result.revenues, result.matched, result.unmatched, result.totalRevenue);
             showStatus('revenueStatus', `Обработано записей: ${result.revenues.length}`, 'success');
@@ -109,7 +108,6 @@ async function uploadRevenueFile() {
     }
 }
 
-// Отображение предпросмотра загруженных данных
 function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
     const tbody = document.getElementById('revenueTableBody');
     tbody.innerHTML = '';
@@ -134,7 +132,6 @@ function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
     }
 }
 
-// Отмена и подтверждение загрузки выручки
 function cancelRevenueUpload() {
     document.getElementById('revenueFile').value = '';
     document.getElementById('revenuePreview').style.display = 'none';
@@ -149,7 +146,8 @@ function confirmRevenueSave() {
     setTimeout(() => { document.getElementById('revenueEmpty').style.display = 'block'; }, 1000);
 }
 
-// Расчет зарплаты за день
+
+// --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
 async function calculatePayroll() {
     const date = document.getElementById('payrollDate').value;
     if (!date) return showStatus('payrollStatus', 'Выберите дату для расчета', 'error');
@@ -161,9 +159,15 @@ async function calculatePayroll() {
     try {
         const response = await fetch(`${API_BASE}/calculate-payroll`, {
             method: 'POST', 
-            headers: getAuthHeaders(), 
-            body: JSON.stringify({ date })
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ date }),
+            credentials: 'include'
         });
+        if (response.status === 401 || response.status === 403) {
+            alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
+            window.location.href = '/index.html';
+            return;
+        }
         const result = await response.json();
         document.getElementById('loader').style.display = 'none';
 
@@ -171,7 +175,7 @@ async function calculatePayroll() {
             displayPayrollResults(result.calculations, result.summary);
             showStatus('payrollStatus', `Зарплата за ${new Date(date).toLocaleDateString('ru-RU')} успешно рассчитана`, 'success');
         } else {
-            showStatus('payrollStatus', 'Ошибка расчета: ' + result.error, 'error');
+            showStatus('payrollStatus', 'Ошибка расчета: ' + (result.message || result.error), 'error');
         }
     } catch (error) {
         document.getElementById('loader').style.display = 'none';
@@ -179,7 +183,6 @@ async function calculatePayroll() {
     }
 }
 
-// Отображение результатов расчета за день
 function displayPayrollResults(calculations, summary) {
     const tbody = document.getElementById('payrollTableBody');
     tbody.innerHTML = '';
@@ -209,22 +212,8 @@ function updatePayrollSummary(totalPayroll, employeeCount) {
     document.getElementById('payrollSummary').style.display = 'block';
 }
 
-// --- Утилиты ---
-function formatNumber(num) {
-    return new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
-}
-function showStatus(elementId, message, type) {
-    const statusEl = document.getElementById(elementId);
-    statusEl.textContent = message;
-    statusEl.className = 'status ' + type;
-    statusEl.style.display = 'flex';
-    if (type !== 'error') setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
-}
-function hideStatus(elementId) {
-    document.getElementById(elementId).style.display = 'none';
-}
 
-// --- БЛОК ДЛЯ МЕСЯЧНЫХ ОТЧЕТОВ ---
+// --- ВКЛАДКА "ОТЧЕТ ЗА МЕСЯЦ" ---
 let adjustmentDebounceTimer;
 
 async function generateMonthlyReport() {
@@ -242,21 +231,25 @@ async function generateMonthlyReport() {
         const dailyPromises = [];
         for (let day = 1; day <= lastDayToCalculate; day++) {
             const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            dailyPromises.push(fetch(`${API_BASE}/calculate-payroll`, {
+            const fetchPromise = fetch(`${API_BASE}/calculate-payroll`, {
                 method: 'POST', 
-                headers: getAuthHeaders(), 
-                body: JSON.stringify({ date })
-            }).then(res => res.json()));
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ date }),
+                credentials: 'include'
+            }).then(res => {
+                if (res.status === 401 || res.status === 403) throw new Error('Auth');
+                return res.json();
+            });
+            dailyPromises.push(fetchPromise);
         }
         
         const dailyResults = await Promise.all(dailyPromises);
         const monthData = dailyResults.flatMap(result => result.success ? result.calculations : []);
 
         const adjustmentsResponse = await fetch(`${API_BASE}/payroll/adjustments/${year}/${month}`, {
-            headers: {
-                'Authorization': localStorage.getItem('authToken')
-            }
+            credentials: 'include'
         });
+        if (adjustmentsResponse.status === 401 || adjustmentsResponse.status === 403) throw new Error('Auth');
         const adjustments = await adjustmentsResponse.json();
 
         if (monthData.length === 0) {
@@ -269,7 +262,12 @@ async function generateMonthlyReport() {
         showStatus('reportStatus', 'Отчет успешно сформирован', 'success');
 
     } catch (error) {
-        showStatus('reportStatus', 'Ошибка генерации отчета: ' + error.message, 'error');
+        if(error.message === 'Auth') {
+            alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
+            window.location.href = '/index.html';
+        } else {
+            showStatus('reportStatus', 'Ошибка генерации отчета: ' + error.message, 'error');
+        }
     }
 }
 
@@ -368,25 +366,22 @@ async function saveAdjustments(row) {
     inputField.style.border = '1px solid orange';
 
     try {
-        await fetch(`${API_BASE}/payroll/adjustments`, {
+        const response = await fetch(`${API_BASE}/payroll/adjustments`, {
             method: 'POST', 
-            headers: getAuthHeaders(), 
-            body: JSON.stringify(payload)
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify(payload),
+            credentials: 'include'
         });
+        if (response.status === 401 || response.status === 403) throw new Error('Auth');
         inputField.style.border = '1px solid green';
     } catch (error) {
+         if(error.message === 'Auth') {
+            alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
+            window.location.href = '/index.html';
+        }
         inputField.style.border = '1px solid red';
     } finally {
         setTimeout(() => { inputField.style.border = '1px solid #ccc'; }, 1500);
-    }
-}
-
-// Функция выхода из системы
-function logout() {
-    if (confirm('Вы действительно хотите выйти из системы?')) {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('userRole');
-        window.location.href = '/index.html';
     }
 }
 
@@ -462,4 +457,5 @@ function printAllPayslips() {
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+}
 }

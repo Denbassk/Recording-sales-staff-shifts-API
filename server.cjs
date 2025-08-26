@@ -4,6 +4,8 @@ const path = require("path");
 const bodyParser = require("body-parser");
 const cors = require('cors');
 const multer = require('multer');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 const upload = multer({ storage: multer.memoryStorage() });
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
@@ -16,77 +18,65 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
 
-app.use(cors());
+// --- Настройка middleware ---
+app.use(cors({ origin: true, credentials: true })); 
 app.use(bodyParser.json());
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
-// =================================================================
-// --- MIDDLEWARE ДЛЯ АВТОРИЗАЦИИ ---
-// =================================================================
 
-// Проверка авторизации
-async function checkAuth(req, res, next) {
-  const token = req.headers['authorization'];
-  
+// --- MIDDLEWARE ДЛЯ ПРОВЕРКИ АВТОРИЗАЦИИ И РОЛЕЙ (НА JWT) ---
+const checkAuth = (req, res, next) => {
+  const token = req.cookies.token;
   if (!token) {
-    return res.status(401).json({ error: 'Нет токена авторизации' });
+    return res.status(401).json({ success: false, message: "Доступ запрещен: нет токена." });
   }
-  
-  // Проверяем токен в базе
-  const { data: session, error } = await supabase
-    .from('sessions')
-    .select('*')
-    .eq('token', token)
-    .gte('expires_at', new Date().toISOString())
-    .single();
-    
-  if (error || !session) {
-    return res.status(401).json({ error: 'Токен недействителен или истек' });
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ success: false, message: "Доступ запрещен: невалидный токен." });
   }
-  
-  req.user = session; // Сохраняем данные пользователя
-  next();
-}
+};
 
-// Проверка роли
-function checkRole(allowedRoles) {
+const checkRole = (roles) => {
   return (req, res, next) => {
-    if (!allowedRoles.includes(req.user.employee_role)) {
-      return res.status(403).json({ error: 'Нет прав доступа для выполнения этой операции' });
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: "Доступ запрещен: недостаточно прав." });
     }
     next();
   };
-}
+};
 
 // =================================================================
 // --- ОСНОВНЫЕ API ЭНДПОИНТЫ ---
 // =================================================================
 
-// 1. API для получения списка сотрудников (публичный для страницы логина)
+// 1. API для получения списка сотрудников (защищено, доступно всем авторизованным)
 app.get("/employees", async (req, res) => {
   const { data, error } = await supabase.from('employees').select('fullname').eq('active', true);
   if (error) {
-    console.error("Ошибка получения сотрудников:", error);
     return res.status(500).json({ error: error.message });
   }
   res.json(data.map(e => e.fullname));
 });
 
-// 2. API для авторизации и фиксации смены (с кастомными сообщениями)
+// 2. API для авторизации (с выдачей JWT в cookie)
 app.post("/login", async (req, res) => {
   const { username, password, deviceKey } = req.body;
-  let storeId = null;
-  let storeAddress = null;
+  
+  const { data: employee, error } = await supabase.from('employees').select('id, fullname, role').filter('fullname', 'ilike', username).eq('password', password).single();
 
-  const { data: employee, error: employeeError } = await supabase
-    .from('employees').select('id, fullname, role').filter('fullname', 'ilike', username).eq('password', password).single();
-
-  if (employeeError || !employee) {
+  if (error || !employee) {
     return res.status(401).json({ success: false, message: "Неверное имя или пароль" });
   }
 
-  const isSeniorSeller = employee.id.startsWith('SProd');
-  if (!isSeniorSeller) {
+  let storeId = null;
+  let storeAddress = null;
+  let responseMessage = '';
+
+  if (employee.role === 'seller') {
     if (deviceKey) {
       const { data: device } = await supabase.from('devices').select('store_id').eq('device_key', deviceKey).single();
       if (device) storeId = device.store_id;
@@ -101,74 +91,52 @@ app.post("/login", async (req, res) => {
     const { data: store, error: storeError } = await supabase.from('stores').select('address').eq('id', storeId).single();
     if (storeError || !store) return res.status(404).json({ success: false, message: "Магазин не найден" });
     storeAddress = store.address;
-  } else {
-    storeId = null;
-    storeAddress = "Старший продавец";
-  }
-  
-  const today = new Date();
-  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-  const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
 
-  const { data: existingShift, error: shiftCheckError } = await supabase
-    .from('shifts').select('id').eq('employee_id', employee.id).gte('started_at', startOfDay).lte('started_at', endOfDay);
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
+    const { data: existingShift } = await supabase.from('shifts').select('id').eq('employee_id', employee.id).gte('started_at', startOfDay).lte('started_at', endOfDay);
     
-  if (shiftCheckError) {
-    return res.status(500).json({ success: false, message: "Ошибка проверки смены в базе." });
-  }
-  
-  let responseMessage = '';
-
-  if (existingShift.length === 0) {
-    const shiftDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const { error: shiftInsertError } = await supabase.from('shifts').insert({ employee_id: employee.id, store_id: storeId, shift_date: shiftDate });
-    if (shiftInsertError) {
-      console.error("Ошибка фиксации смены:", shiftInsertError);
-      return res.status(500).json({ success: false, message: "Ошибка на сервере при фиксации смены." });
+    if (existingShift && existingShift.length === 0) {
+      const shiftDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      await supabase.from('shifts').insert({ employee_id: employee.id, store_id: storeId, shift_date: shiftDate });
+      responseMessage = `Добро пожаловать, ${employee.fullname}!`;
+    } else {
+        responseMessage = `Ваша смена на сегодня уже была зафиксирована. Хорошего рабочего дня, ${employee.fullname}!`;
     }
+
+  } else if (employee.role === 'admin' || employee.role === 'accountant') {
+    storeAddress = "Административная панель";
     responseMessage = `Добро пожаловать, ${employee.fullname}!`;
-  } else {
-    responseMessage = `Ваша смена на сегодня уже была зафиксирована. Хорошего рабочего дня, ${employee.fullname}!`;
   }
 
-  // Генерируем токен сессии
-  const sessionToken = Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  const token = jwt.sign({ id: employee.id, role: employee.role }, process.env.JWT_SECRET, { expiresIn: '8h' });
   
-  // Сохраняем сессию в базе (8 часов жизни)
-  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  const { error: sessionError } = await supabase.from('sessions').insert({
-    token: sessionToken,
-    employee_id: employee.id,
-    employee_role: employee.role || 'seller',
-    expires_at: expiresAt.toISOString()
-  });
-  
-  if (sessionError) {
-    console.error("Ошибка создания сессии:", sessionError);
-    return res.status(500).json({ success: false, message: "Ошибка создания сессии" });
-  }
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'strict' : 'lax' });
 
   return res.json({
     success: true,
     message: responseMessage,
     store: storeAddress,
-    token: sessionToken,
-    role: employee.role || 'seller'
+    role: employee.role
   });
 });
 
-// 3. Эндпоинт для "проверки здоровья"
-app.get("/", (req, res) => {
-  res.status(200).send("Server is healthy and running.");
+// 3. API для выхода из системы
+app.post('/logout', (req, res) => {
+  res.cookie('token', '', { expires: new Date(0), httpOnly: true, secure: true, sameSite: 'strict' });
+  res.status(200).json({ success: true, message: 'Выход выполнен успешно' });
 });
 
-// =================================================================
-// --- API ЭНДПОИНТЫ ДЛЯ РАСЧЕТА ЗАРПЛАТ ---
-// =================================================================
 
-// 4. API для загрузки выручки из EXCEL (только админ и бухгалтер)
-app.post('/upload-revenue-file', checkAuth, checkRole(['admin', 'accountant']), upload.single('file'), async (req, res) => {
-  try {
+// =================================================================
+// --- ЗАЩИЩЕННЫЕ API ЭНДПОИНТЫ ДЛЯ РАСЧЕТА ЗАРПЛАТ ---
+// =================================================================
+const canManagePayroll = checkRole(['admin', 'accountant']);
+
+// 4. API для загрузки выручки из EXCEL 
+app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('file'), async (req, res) => {
     const { date } = req.body;
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'Файл не загружен' });
@@ -223,16 +191,10 @@ app.post('/upload-revenue-file', checkAuth, checkRole(['admin', 'accountant']), 
     }
     
     res.json({ success: true, message: 'Выручка успешно загружена', revenues, matched, unmatched, totalRevenue });
-
-  } catch (error) {
-    console.error('Ошибка загрузки выручки из Excel:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
 });
 
-// 5. API для расчета зарплат за день (только админ и бухгалтер)
-app.post('/calculate-payroll', checkAuth, checkRole(['admin', 'accountant']), async (req, res) => {
-  try {
+// 5. API для расчета зарплат за день
+app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => {
     const { date } = req.body;
     const { data: shifts } = await supabase.from('shifts').select(`employee_id, employees (fullname), store_id, stores (address)`).eq('shift_date', date);
     
@@ -277,43 +239,27 @@ app.post('/calculate-payroll', checkAuth, checkRole(['admin', 'accountant']), as
       success: true, calculations,
       summary: { date, total_employees: calculations.length, total_payroll: calculations.reduce((sum, c) => sum + c.total_pay, 0) }
     });
-  } catch (error) {
-    console.error('Ошибка расчета зарплат:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
 });
 
-// =================================================================
-// --- ЭНДПОИНТЫ ДЛЯ МЕСЯЧНЫХ КОРРЕКТИРОВОК ---
-// =================================================================
-
-// 6. API для получения месячных корректировок (только админ и бухгалтер)
-app.get('/payroll/adjustments/:year/:month', checkAuth, checkRole(['admin', 'accountant']), async (req, res) => {
-  const { year, month } = req.params;
-  try {
+// 6. API для получения месячных корректировок
+app.get('/payroll/adjustments/:year/:month', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month } = req.params;
     const { data, error } = await supabase.from('monthly_adjustments').select('*').eq('year', year).eq('month', month);
     if (error) throw error;
     res.json(data);
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
 });
 
-// 7. API для сохранения месячных корректировок (только админ и бухгалтер)
-app.post('/payroll/adjustments', checkAuth, checkRole(['admin', 'accountant']), async (req, res) => {
-  const { employee_id, month, year, manual_bonus, penalty, paid_cash, paid_card } = req.body;
-  try {
+// 7. API для сохранения месячных корректировок
+app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, manual_bonus, penalty, paid_cash, paid_card } = req.body;
     await supabase.from('monthly_adjustments').upsert({ employee_id, month, year, manual_bonus, penalty, paid_cash, paid_card }, { onConflict: 'employee_id,month,year' });
     res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
-  }
 });
 
-// =================================================================
-// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-// =================================================================
 
+// =================================================================
+// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И ЗАПУСК СЕРВЕРА ---
+// =================================================================
 function calculateDailyPay(revenue, numSellers, isSenior = false) {
   if (isSenior) return { baseRate: 1300, bonus: 0, totalPay: 1300 };
   if (numSellers === 0) return { baseRate: 0, bonus: 0, totalPay: 0 };
@@ -341,6 +287,5 @@ function calculateDailyPay(revenue, numSellers, isSenior = false) {
   return { baseRate: baseRatePerPerson, bonus: bonusPerPerson, totalPay: baseRatePerPerson + bonusPerPerson };
 }
 
-// --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`✅ Сервер запущен на http://localhost:${PORT}`));

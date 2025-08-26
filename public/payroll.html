@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Расчет зарплаты - Система управления</title>
     <style>
-        /* ... Ваши обычные стили остаются без изменений ... */
         * {
             margin: 0;
             padding: 0;
@@ -462,7 +461,6 @@
         <div class="header">
             <h1>💰 Система расчета заработной платы</h1>
             <p>Автоматизированный расчет и учет заработной платы сотрудников</p>
-            <button onclick="logout()" style="position: absolute; top: 20px; right: 20px; background: rgba(255,255,255,0.2); color: white; border: 1px solid white; padding: 8px 15px; border-radius: 5px; cursor: pointer;">Выйти</button>
         </div>
 
         <div class="content">
@@ -637,6 +635,12 @@
                             <label>&nbsp;</label>
                              <button class="secondary" onclick="printAllPayslips()">
                                 🖨️ Печать ведомостей
+                            </button>
+                        </div>
+                        <div class="control-group" style="margin-left: auto;">
+                            <label>&nbsp;</label>
+                             <button class="danger" onclick="logout()">
+                                Выйти
                             </button>
                         </div>
                     </div>
