@@ -100,22 +100,49 @@ app.get("/", (req, res) => {
 // --- НОВЫЕ API ЭНДПОИНТЫ ДЛЯ РАСЧЕТА ЗАРПЛАТ ---
 // =================================================================
 
-// 4. API для загрузки выручки из EXCEL файла
+// 4. API для загрузки выручки из EXCEL (версия с диагностикой)
 app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
   try {
     const { date } = req.body;
-    if (!req.file) return res.status(400).json({ success: false, error: 'Файл не загружен' });
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'Файл не загружен' });
+    }
 
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
+    
+    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+    let headerRowIndex = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.includes('Торговая точка') && row.includes('Выторг')) {
+        headerRowIndex = i;
+        break;
+      }
+    }
 
-    const revenuesData = XLSX.utils.sheet_to_json(worksheet, { range: 4, header: ['store_address', 'revenue'] });
-    const revenues = revenuesData.filter(item => item.store_address && typeof item.revenue === 'number');
+    if (headerRowIndex === -1) {
+      return res.status(400).json({ success: false, error: 'В файле не найдены обязательные столбцы "Торговая точка" и "Выторг".' });
+    }
 
+    const rawData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex });
+
+    // ======================= ДИАГНОСТИКА =======================
+    console.log("--- ДАННЫЕ СРАЗУ ПОСЛЕ ЧТЕНИЯ ИЗ EXCEL ---");
+    console.log(rawData);
+    // =========================================================
+
+    const revenues = rawData.map(row => ({
+      store_address: row['Торговая точка'],
+      revenue: row['Выторг']
+    })).filter(item => 
+      item.store_address && typeof item.revenue === 'number'
+    );
+    
+    // Остальная часть кода без изменений...
     const matched = [];
     const unmatched = [];
-    
     for (const item of revenues) {
       const { data: store } = await supabase.from('stores').select('id').eq('address', item.store_address.trim()).single();
       if (store) {
@@ -126,7 +153,8 @@ app.post('/upload-revenue-file', upload.single('file'), async (req, res) => {
       }
     }
     
-    res.json({ success: true, message: 'Выручка успешно загружена из Excel', revenues, matched, unmatched });
+    res.json({ success: true, message: 'Выручка успешно загружена', revenues, matched, unmatched });
+
   } catch (error) {
     console.error('Ошибка загрузки выручки из Excel:', error);
     res.status(500).json({ success: false, error: error.message });
