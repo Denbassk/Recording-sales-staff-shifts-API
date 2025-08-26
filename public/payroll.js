@@ -3,10 +3,43 @@ const API_BASE = window.location.hostname === 'localhost'
     ? 'http://localhost:3000' 
     : 'https://shifts-api.fly.dev';
 
+// Проверка авторизации при загрузке страницы
+function checkAuth() {
+    const token = localStorage.getItem('authToken');
+    const role = localStorage.getItem('userRole');
+    
+    if (!token || !role) {
+        alert('Необходима авторизация!');
+        window.location.href = '/index.html';
+        return false;
+    }
+    
+    if (role !== 'admin' && role !== 'accountant') {
+        alert('У вас нет прав доступа к этой странице!');
+        window.location.href = '/index.html';
+        return false;
+    }
+    
+    return true;
+}
+
+// Функция для добавления токена к запросам
+function getAuthHeaders() {
+    return {
+        'Content-Type': 'application/json',
+        'Authorization': localStorage.getItem('authToken')
+    };
+}
+
 // СУММА ДЛЯ ВЫПЛАТЫ НА КАРТУ (ИЗМЕНЯЙТЕ ЭТУ СУММУ ПРИ ИНДЕКСАЦИИ)
 const CARD_PAYMENT_AMOUNT = 8600;
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Проверяем авторизацию
+    if (!checkAuth()) {
+        return;
+    }
+    
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     document.getElementById('revenueDate').value = todayStr;
@@ -57,7 +90,13 @@ async function uploadRevenueFile() {
     formData.append('date', date);
 
     try {
-        const response = await fetch(`${API_BASE}/upload-revenue-file`, { method: 'POST', body: formData });
+        const response = await fetch(`${API_BASE}/upload-revenue-file`, { 
+            method: 'POST', 
+            headers: {
+                'Authorization': localStorage.getItem('authToken')
+            },
+            body: formData 
+        });
         const result = await response.json();
         if (result.success) {
             displayRevenuePreview(result.revenues, result.matched, result.unmatched, result.totalRevenue);
@@ -121,7 +160,9 @@ async function calculatePayroll() {
 
     try {
         const response = await fetch(`${API_BASE}/calculate-payroll`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date })
+            method: 'POST', 
+            headers: getAuthHeaders(), 
+            body: JSON.stringify({ date })
         });
         const result = await response.json();
         document.getElementById('loader').style.display = 'none';
@@ -202,14 +243,20 @@ async function generateMonthlyReport() {
         for (let day = 1; day <= lastDayToCalculate; day++) {
             const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             dailyPromises.push(fetch(`${API_BASE}/calculate-payroll`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date })
+                method: 'POST', 
+                headers: getAuthHeaders(), 
+                body: JSON.stringify({ date })
             }).then(res => res.json()));
         }
         
         const dailyResults = await Promise.all(dailyPromises);
         const monthData = dailyResults.flatMap(result => result.success ? result.calculations : []);
 
-        const adjustmentsResponse = await fetch(`${API_BASE}/payroll/adjustments/${year}/${month}`);
+        const adjustmentsResponse = await fetch(`${API_BASE}/payroll/adjustments/${year}/${month}`, {
+            headers: {
+                'Authorization': localStorage.getItem('authToken')
+            }
+        });
         const adjustments = await adjustmentsResponse.json();
 
         if (monthData.length === 0) {
@@ -322,13 +369,24 @@ async function saveAdjustments(row) {
 
     try {
         await fetch(`${API_BASE}/payroll/adjustments`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            method: 'POST', 
+            headers: getAuthHeaders(), 
+            body: JSON.stringify(payload)
         });
         inputField.style.border = '1px solid green';
     } catch (error) {
         inputField.style.border = '1px solid red';
     } finally {
         setTimeout(() => { inputField.style.border = '1px solid #ccc'; }, 1500);
+    }
+}
+
+// Функция выхода из системы
+function logout() {
+    if (confirm('Вы действительно хотите выйти из системы?')) {
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('userRole');
+        window.location.href = '/index.html';
     }
 }
 

@@ -194,10 +194,23 @@ document.addEventListener("DOMContentLoaded", async () => {
       const data = await res.json();
 
       if (data.success) {
+        // Сохраняем токен и роль в localStorage
+        if (data.token) {
+          localStorage.setItem('authToken', data.token);
+          localStorage.setItem('userRole', data.role);
+        }
+        
         message.style.color = "green";
         message.textContent = `✓ ${data.message}${data.store ? ` Магазин: ${data.store}` : ''}`;
         loginForm.reset();
         usernameHint.value = "";
+        
+        // Показываем ссылку на страницу зарплат только для админа и бухгалтера
+        if (data.role === 'admin' || data.role === 'accountant') {
+          setTimeout(() => {
+            message.innerHTML = message.textContent + '<br><a href="/payroll.html" style="color: blue;">Перейти к расчету зарплат →</a>';
+          }, 500);
+        }
         
         // После успешной авторизации пробуем синхронизировать офлайн смены
         setTimeout(() => syncOfflineShifts(), 1000);
