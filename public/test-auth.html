@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест авторизации</title>
+</head>
+<body>
+    <h1>Тест авторизации</h1>
+    <button onclick="testLogin()">Тестировать логин</button>
+    <button onclick="checkAuth()">Проверить авторизацию</button>
+    <button onclick="clearAll()">Очистить все</button>
+    
+    <div id="result" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc;"></div>
+
+    <script>
+        const API_BASE = 'https://shifts-api.fly.dev';
+        
+        async function testLogin() {
+            const result = document.getElementById('result');
+            
+            // Тестовые данные - замените на реальные
+            const username = prompt('Введите имя пользователя:');
+            const password = prompt('Введите пароль:');
+            
+            if (!username || !password) {
+                result.innerHTML = 'Отменено';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${API_BASE}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password }),
+                    credentials: 'include'
+                });
+                
+                const data = await response.json();
+                
+                result.innerHTML = `
+                    <h3>Ответ сервера:</h3>
+                    <p>Статус: ${response.status}</p>
+                    <p>Данные: <pre>${JSON.stringify(data, null, 2)}</pre></p>
+                    <p>Куки: ${document.cookie}</p>
+                    <p>LocalStorage jwt_token: ${localStorage.getItem('jwt_token')}</p>
+                    <p>LocalStorage authToken: ${localStorage.getItem('authToken')}</p>
+                    <p>LocalStorage userRole: ${localStorage.getItem('userRole')}</p>
+                `;
+                
+                // Если есть токен в ответе, сохраняем
+                if (data.token) {
+                    localStorage.setItem('jwt_token', data.token);
+                    localStorage.setItem('userRole', data.role || 'seller');
+                    result.innerHTML += '<p style="color: green;">Токен сохранен в localStorage</p>';
+                }
+                
+            } catch (error) {
+                result.innerHTML = `<p style="color: red;">Ошибка: ${error.message}</p>`;
+            }
+        }
+        
+        async function checkAuth() {
+            const result = document.getElementById('result');
+            
+            try {
+                // Проверяем защищенный эндпоинт
+                const token = localStorage.getItem('jwt_token');
+                
+                const response = await fetch(`${API_BASE}/calculate-payroll`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': token ? `Bearer ${token}` : ''
+                    },
+                    body: JSON.stringify({ date: '2025-01-22' }),
+                    credentials: 'include'
+                });
+                
+                const data = await response.json();
+                
+                result.innerHTML = `
+                    <h3>Проверка защищенного эндпоинта:</h3>
+                    <p>Статус: ${response.status}</p>
+                    <p>Токен отправлен: ${token ? 'Да' : 'Нет'}</p>
+                    <p>Ответ: <pre>${JSON.stringify(data, null, 2)}</pre></p>
+                `;
+                
+            } catch (error) {
+                result.innerHTML = `<p style="color: red;">Ошибка: ${error.message}</p>`;
+            }
+        }
+        
+        function clearAll() {
+            localStorage.clear();
+            document.cookie.split(";").forEach(c => {
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            });
+            document.getElementById('result').innerHTML = 'Все токены и куки очищены';
+        }
+    </script>
+</body>
+</html>

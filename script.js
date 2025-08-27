@@ -194,9 +194,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       const data = await res.json();
 
       if (data.success) {
-        // Сохраняем токен и роль в localStorage
+        // Сохраняем JWT токен и роль
         if (data.token) {
-          localStorage.setItem('authToken', data.token);
+          localStorage.setItem('jwt_token', data.token);
           localStorage.setItem('userRole', data.role);
         }
         
