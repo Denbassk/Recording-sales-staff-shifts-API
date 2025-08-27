@@ -583,16 +583,8 @@
                         <span class="summary-value" id="totalEmployees">0</span>
                     </div>
                     <div class="summary-row">
-                        <span class="summary-label">Общая сумма к выплате:</span>
+                        <span class="summary-label">Общая сумма к начислению:</span>
                         <span class="summary-value"><span id="totalPayroll">0</span> грн</span>
-                    </div>
-                    <div class="summary-row">
-                        <span class="summary-label">Налог (23%):</span>
-                        <span class="summary-value"><span id="totalTax">0</span> грн</span>
-                    </div>
-                    <div class="summary-row">
-                        <span class="summary-label">К выплате после налогов:</span>
-                        <span class="summary-value"><span id="netPayroll">0</span> грн</span>
                     </div>
                 </div>
             </div>
@@ -637,6 +629,10 @@
                                 🖨️ Печать ведомостей
                             </button>
                         </div>
+                         <div class="control-group">
+                            <label>&nbsp;</label>
+                             <button class="secondary" onclick="generateCashPayoutReport()">📄 Ведомость по наличным</button>
+                        </div>
                         <div class="control-group" style="margin-left: auto;">
                             <label>&nbsp;</label>
                              <button class="danger" onclick="logout()">
@@ -649,7 +645,7 @@
                 <div id="reportStatus" class="status" style="display:none;"></div>
 
                 <div id="monthlyReportContent" style="display:none;">
-                    </div>
+                </div>
             </div>
         </div>
     </div>

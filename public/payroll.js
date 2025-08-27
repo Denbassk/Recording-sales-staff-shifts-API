@@ -3,12 +3,15 @@ const API_BASE = window.location.hostname === 'localhost'
     ? 'http://localhost:3000' 
     : 'https://shifts-api.fly.dev';
 
-// СУММА ДЛЯ ВЫПЛАТЫ НА КАРТУ
-const CARD_PAYMENT_AMOUNT = 8600;
+// --- НОВЫЕ КОНСТАНТЫ ДЛЯ РАСЧЕТОВ ---
+const FIXED_CARD_PAYMENT = 8600;
+const ADVANCE_PERCENTAGE = 0.9;
+const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE; // 7740
+const ADVANCE_PERIOD_DAYS = 15;
+// ПРЕДПОЛОЖЕНИЕ: В первой половине месяца 12 рабочих дней для расчета пропорции аванса
+const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12; 
 
-// --- БЛОК ДЛЯ АВТОРИЗАЦИИ И НАСТРОЙКИ ДАТ ---
 document.addEventListener('DOMContentLoaded', function() {
-    // ВАЖНО: Эта проверка теперь будет работать с JWT/cookie, а не с localStorage
     if (!document.cookie.includes('token=')) {
         window.location.href = '/index.html';
         return; 
@@ -44,7 +47,6 @@ async function logout() {
     window.location.href = '/index.html';
 }
 
-// --- ОБЩИЕ ФУНКЦИИ И УТИЛИТЫ ---
 function switchTab(tabName, button) {
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -61,42 +63,34 @@ function showStatus(elementId, message, type) {
     statusEl.textContent = message;
     statusEl.className = 'status ' + type;
     statusEl.style.display = 'flex';
-    if (type !== 'info') setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
+    if (type !== 'info' && type !== 'error') {
+        setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
+    }
 }
 
 function hideStatus(elementId) {
     document.getElementById(elementId).style.display = 'none';
 }
 
-
-// --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
 async function uploadRevenueFile() {
     const date = document.getElementById('revenueDate').value;
     const fileInput = document.getElementById('revenueFile');
     const file = fileInput.files[0];
-
     if (!date) return showStatus('revenueStatus', 'Выберите дату', 'error');
     if (!file) return showStatus('revenueStatus', 'Выберите файл с выручкой', 'error');
-
     document.getElementById('revenueEmpty').style.display = 'none';
     showStatus('revenueStatus', 'Обработка файла...', 'info');
-
     const formData = new FormData();
     formData.append('file', file);
     formData.append('date', date);
-
     try {
-        const response = await fetch(`${API_BASE}/upload-revenue-file`, { 
-            method: 'POST', 
-            body: formData,
-            credentials: 'include' 
-        });
-        const result = await response.json();
+        const response = await fetch(`${API_BASE}/upload-revenue-file`, { method: 'POST', body: formData, credentials: 'include' });
         if (response.status === 401 || response.status === 403) {
             alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
             window.location.href = '/index.html';
             return;
         }
+        const result = await response.json();
         if (result.success) {
             displayRevenuePreview(result.revenues, result.matched, result.unmatched, result.totalRevenue);
             showStatus('revenueStatus', `Обработано записей: ${result.revenues.length}`, 'success');
@@ -122,11 +116,9 @@ function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
         `;
     });
     document.getElementById('revenuePreview').style.display = 'block';
-
     if (totalRevenue !== undefined) {
         document.getElementById('totalRevenueValue').textContent = formatNumber(totalRevenue) + ' грн';
     }
-
     if (unmatched.length > 0) {
         showStatus('revenueStatus', `Внимание! ${unmatched.length} магазинов не найдено в базе данных`, 'error');
     }
@@ -146,22 +138,15 @@ function confirmRevenueSave() {
     setTimeout(() => { document.getElementById('revenueEmpty').style.display = 'block'; }, 1000);
 }
 
-
-// --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
 async function calculatePayroll() {
     const date = document.getElementById('payrollDate').value;
     if (!date) return showStatus('payrollStatus', 'Выберите дату для расчета', 'error');
-
     document.getElementById('loader').style.display = 'block';
     document.getElementById('payrollTable').style.display = 'none';
     document.getElementById('payrollSummary').style.display = 'none';
-
     try {
         const response = await fetch(`${API_BASE}/calculate-payroll`, {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ date }),
-            credentials: 'include'
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date }), credentials: 'include'
         });
         if (response.status === 401 || response.status === 403) {
             alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
@@ -170,7 +155,6 @@ async function calculatePayroll() {
         }
         const result = await response.json();
         document.getElementById('loader').style.display = 'none';
-
         if (result.success) {
             displayPayrollResults(result.calculations, result.summary);
             showStatus('payrollStatus', `Зарплата за ${new Date(date).toLocaleDateString('ru-RU')} успешно рассчитана`, 'success');
@@ -203,64 +187,49 @@ function displayPayrollResults(calculations, summary) {
 }
 
 function updatePayrollSummary(totalPayroll, employeeCount) {
-    const tax = totalPayroll * 0.23;
-    const net = totalPayroll - tax;
     document.getElementById('totalEmployees').textContent = employeeCount;
     document.getElementById('totalPayroll').textContent = formatNumber(totalPayroll);
-    document.getElementById('totalTax').textContent = formatNumber(tax);
-    document.getElementById('netPayroll').textContent = formatNumber(net);
     document.getElementById('payrollSummary').style.display = 'block';
 }
 
-
-// --- ВКЛАДКА "ОТЧЕТ ЗА МЕСЯЦ" ---
 let adjustmentDebounceTimer;
 
 async function generateMonthlyReport() {
     const month = document.getElementById('reportMonth').value;
     const year = document.getElementById('reportYear').value;
     const endDateStr = document.getElementById('reportEndDate').value;
+    if (!endDateStr) {
+        return showStatus('reportStatus', 'Пожалуйста, выберите конечную дату.', 'error');
+    }
     const endDate = new Date(endDateStr);
-
     showStatus('reportStatus', 'Генерация отчета...', 'info');
-    document.getElementById('monthlyReportContent').innerHTML = '<div class="loader"></div>';
+    document.getElementById('monthlyReportContent').innerHTML = '<div class="loader" style="display:block;"></div>';
     document.getElementById('monthlyReportContent').style.display = 'block';
-
     try {
         const lastDayToCalculate = endDate.getDate();
         const dailyPromises = [];
         for (let day = 1; day <= lastDayToCalculate; day++) {
             const date = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const fetchPromise = fetch(`${API_BASE}/calculate-payroll`, {
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ date }),
-                credentials: 'include'
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date }), credentials: 'include'
             }).then(res => {
                 if (res.status === 401 || res.status === 403) throw new Error('Auth');
                 return res.json();
             });
             dailyPromises.push(fetchPromise);
         }
-        
         const dailyResults = await Promise.all(dailyPromises);
         const monthData = dailyResults.flatMap(result => result.success ? result.calculations : []);
-
-        const adjustmentsResponse = await fetch(`${API_BASE}/payroll/adjustments/${year}/${month}`, {
-            credentials: 'include'
-        });
+        const adjustmentsResponse = await fetch(`${API_BASE}/payroll/adjustments/${year}/${month}`, { credentials: 'include' });
         if (adjustmentsResponse.status === 401 || adjustmentsResponse.status === 403) throw new Error('Auth');
         const adjustments = await adjustmentsResponse.json();
-
         if (monthData.length === 0) {
             showStatus('reportStatus', 'Нет данных за выбранный период', 'info');
             document.getElementById('monthlyReportContent').innerHTML = '';
             return;
         }
-
         displayMonthlyReport(monthData, adjustments, month, year);
         showStatus('reportStatus', 'Отчет успешно сформирован', 'success');
-
     } catch (error) {
         if(error.message === 'Auth') {
             alert('Ошибка авторизации. Пожалуйста, войдите в систему заново.');
@@ -275,44 +244,50 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
     const employeeData = {};
     dailyData.forEach(calc => {
         if (!employeeData[calc.employee_id]) {
-            employeeData[calc.employee_id] = { name: calc.employee_name, totalPay: 0 };
+            employeeData[calc.employee_id] = { name: calc.employee_name, totalPay: 0, shifts: [] };
         }
         employeeData[calc.employee_id].totalPay += calc.total_pay;
+        employeeData[calc.employee_id].shifts.push(new Date(calc.work_date).getDate());
     });
-
     const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
-
     let tableHtml = `
         <h3 style="margin-top: 30px; margin-bottom: 20px;">👥 Детализация по сотрудникам:</h3>
-        <table id="monthlyReportTable">
+        <table id="monthlyReportTable" style="font-size: 12px; white-space: nowrap;">
             <thead>
                 <tr>
-                    <th>Сотрудник</th>
-                    <th>Премирование</th>
-                    <th>Депремирование</th>
-                    <th>К выплате (Net)</th>
-                    <th>Выплачено на карту</th>
-                    <th>Выплачено наличными</th>
+                    <th rowspan="2" style="vertical-align: middle;">Сотрудник</th>
+                    <th rowspan="2" style="vertical-align: middle;">Всего начислено</th>
+                    <th colspan="2">Премирование</th>
+                    <th colspan="2">Депремирование</th>
+                    <th rowspan="2" style="vertical-align: middle;">Вычет за недостачу</th>
+                    <th rowspan="2" style="vertical-align: middle;">Аванс (на карту)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Остаток (на карту)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Зарплата (наличными)</th>
+                </tr>
+                <tr>
+                    <th>Сумма</th><th>Причина</th>
+                    <th>Сумма</th><th>Причина</th>
                 </tr>
             </thead>
             <tbody>`;
-
     for (const [id, data] of Object.entries(employeeData)) {
-        const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, paid_cash: 0, paid_card: 0 };
+        const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
         tableHtml += `
-            <tr data-employee-id="${id}" data-employee-name="${data.name}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}">
+            <tr data-employee-id="${id}" data-employee-name="${data.name}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
                 <td>${data.name}</td>
-                <td><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus}"></td>
-                <td><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty}"></td>
-                <td class="final-net"><strong></strong></td>
-                <td class="paid-card"></td>
-                <td class="paid-cash"></td>
+                <td class="total-gross"></td>
+                <td><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}"></td>
+                <td><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина"></td>
+                <td><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}"></td>
+                <td><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина"></td>
+                <td><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}"></td>
+                <td class="advance-payment"></td>
+                <td class="card-remainder"></td>
+                <td class="cash-payout"><strong></strong></td>
             </tr>`;
     }
-
     tableHtml += `</tbody></table>`;
     document.getElementById('monthlyReportContent').innerHTML = tableHtml;
-
     document.querySelectorAll('.adjustment-input').forEach(input => input.addEventListener('input', handleAdjustmentInput));
     recalculateAllRows();
 }
@@ -326,25 +301,25 @@ function handleAdjustmentInput(e) {
 
 function recalculateRow(row) {
     const basePay = parseFloat(row.dataset.basePay);
+    const shifts = JSON.parse(row.dataset.shifts);
     const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0;
     const penalty = parseFloat(row.querySelector('[name="penalty"]').value) || 0;
-    const gross = basePay + manualBonus - penalty;
-    const net = gross * 0.77; 
-
-    let paidCard = 0, paidCash = 0;
-    if (net > 0) {
-        if (net >= CARD_PAYMENT_AMOUNT) {
-            paidCard = CARD_PAYMENT_AMOUNT;
-            paidCash = net - CARD_PAYMENT_AMOUNT;
-        } else {
-            paidCard = net;
-            paidCash = 0;
-        }
-    }
+    const shortage = parseFloat(row.querySelector('[name="shortage"]').value) || 0;
     
-    row.querySelector('.final-net strong').textContent = formatNumber(net);
-    row.querySelector('.paid-card').textContent = formatNumber(paidCard);
-    row.querySelector('.paid-cash').textContent = formatNumber(paidCash);
+    const totalGross = basePay + manualBonus;
+    
+    const shiftsInFirstHalf = shifts.filter(day => day <= ADVANCE_PERIOD_DAYS).length;
+    const advanceRatio = Math.min(shiftsInFirstHalf / ASSUMED_WORK_DAYS_IN_FIRST_HALF, 1);
+    const calculatedAdvance = MAX_ADVANCE * advanceRatio;
+
+    const cardRemainder = FIXED_CARD_PAYMENT - calculatedAdvance;
+
+    const cashPayout = totalGross - FIXED_CARD_PAYMENT - penalty - shortage;
+
+    row.querySelector('.total-gross').textContent = formatNumber(totalGross);
+    row.querySelector('.advance-payment').textContent = formatNumber(calculatedAdvance);
+    row.querySelector('.card-remainder').textContent = formatNumber(cardRemainder);
+    row.querySelector('.cash-payout strong').textContent = formatNumber(cashPayout);
 }
 
 function recalculateAllRows() {
@@ -358,19 +333,15 @@ async function saveAdjustments(row) {
         year: row.dataset.year,
         manual_bonus: parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0,
         penalty: parseFloat(row.querySelector('[name="penalty"]').value) || 0,
-        paid_card: parseFloat(row.querySelector('.paid-card').textContent.replace(/\s/g, '').replace(',', '.')) || 0,
-        paid_cash: parseFloat(row.querySelector('.paid-cash').textContent.replace(/\s/g, '').replace(',', '.')) || 0
+        shortage: parseFloat(row.querySelector('[name="shortage"]').value) || 0,
+        bonus_reason: row.querySelector('[name="bonus_reason"]').value,
+        penalty_reason: row.querySelector('[name="penalty_reason"]').value
     };
-    
     const inputField = row.querySelector('[name="manual_bonus"]');
     inputField.style.border = '1px solid orange';
-
     try {
         const response = await fetch(`${API_BASE}/payroll/adjustments`, {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify(payload),
-            credentials: 'include'
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), credentials: 'include'
         });
         if (response.status === 401 || response.status === 403) throw new Error('Auth');
         inputField.style.border = '1px solid green';
@@ -385,29 +356,66 @@ async function saveAdjustments(row) {
     }
 }
 
-// --- БЛОК ДЛЯ КОМПАКТНОЙ ПЕЧАТИ ---
+function generateCashPayoutReport() {
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    if (tableRows.length === 0) {
+        showStatus('reportStatus', 'Сначала сформируйте отчет', 'error');
+        return;
+    }
+    let reportHtml = `
+        <div id="print-area">
+            <h3>Ведомость по выплатам наличными</h3>
+            <table border="1" style="width:100%; border-collapse: collapse; margin-top: 20px; font-size: 10pt;">
+                <thead><tr><th style="padding: 5px;">Сотрудник</th><th style="padding: 5px;">Сумма наличными, грн</th></tr></thead>
+                <tbody>`;
+    let totalCash = 0;
+    tableRows.forEach(row => {
+        const employeeName = row.dataset.employeeName;
+        const cashText = row.querySelector('.cash-payout strong').textContent;
+        const cashAmount = parseFloat(cashText.replace(/\s/g, '').replace(',', '.')) || 0;
+        totalCash += cashAmount;
+        reportHtml += `<tr><td style="padding: 5px;">${employeeName}</td><td style="padding: 5px; text-align: right;">${formatNumber(cashAmount)}</td></tr>`;
+    });
+    reportHtml += `
+                </tbody>
+                <tfoot><tr><td style="padding: 5px;"><strong>Итого:</strong></td><td style="padding: 5px; text-align: right;"><strong>${formatNumber(totalCash)}</strong></td></tr></tfoot>
+            </table>
+        </div>`;
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write('<html><head><title>Ведомость по наличным</title></head><body>');
+    printWindow.document.write(reportHtml);
+    printWindow.document.write('</body></html>');
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
+}
+
 function printAllPayslips() {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
     if (tableRows.length === 0) {
         showStatus('reportStatus', 'Нет данных для печати', 'error');
         return;
     }
-
     const month = tableRows[0].dataset.month;
     const year = tableRows[0].dataset.year;
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
     let allPayslipsHTML = '';
-
     tableRows.forEach(row => {
         const employeeName = row.dataset.employeeName;
         const basePay = parseFloat(row.dataset.basePay);
         const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0;
         const penalty = parseFloat(row.querySelector('[name="penalty"]').value) || 0;
-        const paidCash = parseFloat(row.querySelector('.paid-cash').textContent.replace(/\s/g, '').replace(',', '.'));
-        const paidCard = parseFloat(row.querySelector('.paid-card').textContent.replace(/\s/g, '').replace(',', '.'));
-        const gross = basePay + manualBonus - penalty;
-        const tax = gross * 0.23;
-        const net = gross - tax;
+        const shortage = parseFloat(row.querySelector('[name="shortage"]').value) || 0;
+        const bonus_reason = row.querySelector('[name="bonus_reason"]').value || '-';
+        const penalty_reason = row.querySelector('[name="penalty_reason"]').value || '-';
+        const totalGross = basePay + manualBonus;
+        const advanceText = row.querySelector('.advance-payment').textContent;
+        const advanceAmount = parseFloat(advanceText.replace(/\s/g, '').replace(',', '.')) || 0;
+        const cardRemainderText = row.querySelector('.card-remainder').textContent;
+        const cardRemainderAmount = parseFloat(cardRemainderText.replace(/\s/g, '').replace(',', '.')) || 0;
+        const cashText = row.querySelector('.cash-payout strong').textContent;
+        const cashAmount = parseFloat(cashText.replace(/\s/g, '').replace(',', '.')) || 0;
+        const totalToPay = totalGross - penalty - shortage;
 
         allPayslipsHTML += `
             <div class="payslip-compact">
@@ -415,16 +423,17 @@ function printAllPayslips() {
                 <p><strong>Сотрудник:</strong> ${employeeName}</p>
                 <p><strong>Период:</strong> ${monthNames[month - 1]} ${year}</p>
                 <table>
-                    <tr><td>Начислено (авто):</td><td align="right">${formatNumber(basePay)} грн</td></tr>
-                    <tr><td>Премирование:</td><td align="right">${formatNumber(manualBonus)} грн</td></tr>
-                    <tr><td>Депремирование:</td><td align="right">-${formatNumber(penalty)} грн</td></tr>
-                    <tr><td><strong>Итого начислено:</strong></td><td align="right"><strong>${formatNumber(gross)} грн</strong></td></tr>
-                    <tr><td>Удержан налог (23%):</td><td align="right">-${formatNumber(tax)} грн</td></tr>
-                    <tr><td><strong>К выплате:</strong></td><td align="right"><strong>${formatNumber(net)} грн</strong></td></tr>
+                    <tr><td>Начислено (ставка + бонус):</td><td align="right">${formatNumber(basePay)} грн</td></tr>
+                    <tr><td>Премирование (${bonus_reason}):</td><td align="right">${formatNumber(manualBonus)} грн</td></tr>
+                    <tr><td><strong>Всего начислено:</strong></td><td align="right"><strong>${formatNumber(totalGross)} грн</strong></td></tr>
+                    <tr><td style="color:red;">Депремирование (${penalty_reason}):</td><td align="right" style="color:red;">-${formatNumber(penalty)} грн</td></tr>
+                    <tr><td style="color:red;">Вычет за недостачу:</td><td align="right" style="color:red;">-${formatNumber(shortage)} грн</td></tr>
+                    <tr><td><strong>Итого к выплате:</strong></td><td align="right"><strong>${formatNumber(totalToPay)} грн</strong></td></tr>
                 </table>
                 <table>
-                    <tr><td>Выплачено на карту:</td><td align="right">${formatNumber(paidCard)} грн</td></tr>
-                    <tr><td>Выплачено наличными:</td><td align="right">${formatNumber(paidCash)} грн</td></tr>
+                    <tr><td>Выплачено авансом (на карту):</td><td align="right">${formatNumber(advanceAmount)} грн</td></tr>
+                    <tr><td>Выплачено остатка (на карту):</td><td align="right">${formatNumber(cardRemainderAmount)} грн</td></tr>
+                    <tr><td>Выплачено зарплаты (наличными):</td><td align="right">${formatNumber(cashAmount)} грн</td></tr>
                 </table>
                 <p style="margin-top: 15px;">Подпись: _________________________</p>
             </div>
@@ -438,8 +447,10 @@ function printAllPayslips() {
                 <title>Расчетные ведомости за ${monthNames[month - 1]} ${year}</title>
                 <style>
                     body { font-family: Arial, sans-serif; }
+                    #print-area { display: flex; flex-direction: column; }
                     .payslip-compact {
-                        font-size: 9pt; padding-bottom: 10mm; margin-bottom: 10mm;
+                        font-size: 9pt; height: 30%; box-sizing: border-box;
+                        padding-bottom: 5mm; margin-bottom: 5mm;
                         border-bottom: 2px dashed #999; page-break-inside: avoid;
                     }
                     .payslip-compact:last-child { border-bottom: none; }
@@ -457,5 +468,4 @@ function printAllPayslips() {
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-}
 }
