@@ -24,7 +24,6 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
-
 // --- MIDDLEWARE ДЛЯ ПРОВЕРКИ АВТОРИЗАЦИИ И РОЛЕЙ (НА JWT) ---
 const checkAuth = (req, res, next) => {
   const token = req.cookies.token;
@@ -53,7 +52,7 @@ const checkRole = (roles) => {
 // --- ОСНОВНЫЕ API ЭНДПОИНТЫ ---
 // =================================================================
 
-// 1. API для получения списка сотрудников (защищено, доступно всем авторизованным)
+// 1. API для получения списка сотрудников
 app.get("/employees", async (req, res) => {
   const { data, error } = await supabase.from('employees').select('fullname').eq('active', true);
   if (error) {
@@ -128,7 +127,6 @@ app.post('/logout', (req, res) => {
   res.cookie('token', '', { expires: new Date(0), httpOnly: true, secure: true, sameSite: 'strict' });
   res.status(200).json({ success: true, message: 'Выход выполнен успешно' });
 });
-
 
 // =================================================================
 // --- ЗАЩИЩЕННЫЕ API ЭНДПОИНТЫ ДЛЯ РАСЧЕТА ЗАРПЛАТ ---
@@ -256,9 +254,8 @@ app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) =
     res.json({ success: true });
 });
 
-
 // =================================================================
-// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И ЗАПУСК СЕРВЕРА ---
+// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ И ЗАПУСК СЕРВЕРA ---
 // =================================================================
 function calculateDailyPay(revenue, numSellers, isSenior = false) {
   if (isSenior) return { baseRate: 1300, bonus: 0, totalPay: 1300 };
