@@ -12,10 +12,13 @@ const ADVANCE_PERIOD_DAYS = 15;
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12; 
 
 document.addEventListener('DOMContentLoaded', function() {
+    /* // ЭТА ПРОВЕРКА УДАЛЕНА, ТАК КАК ОНА НЕ РАБОТАЕТ С httpOnly COOKIE
+    // И БЫЛА ПРИЧИНОЙ ПЕРЕНАПРАВЛЕНИЯ НА СТРАНИЦУ ВХОДА
     if (!document.cookie.includes('token=')) {
         window.location.href = '/index.html';
         return; 
     }
+    */
     
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
@@ -173,7 +176,10 @@ function displayPayrollResults(calculations, summary) {
     calculations.forEach(calc => {
         const row = tbody.insertRow();
         row.innerHTML = `
-            <td>${calc.employee_name} ${calc.is_senior ? '<span class="badge warning">СП</span>' : ''}</td>
+            <td>
+                ${calc.employee_name} 
+                ${calc.is_senior ? '<span class="badge warning">СП</span>' : ''} 
+            </td>
             <td>${calc.store_address}</td>
             <td>${calc.revenue.toFixed(2)} грн</td>
             <td>${calc.num_sellers}</td>
