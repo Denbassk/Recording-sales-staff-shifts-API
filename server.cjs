@@ -528,16 +528,10 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
             const basePay = totalBasePayMap[employeeId];
             const adj = adjustmentsMap.get(employeeId) || { manual_bonus: 0, penalty: 0, shortage: 0 };
             
-            // Определяем фактическую выплату на карту
             const actualCardPayment = Math.min(basePay, MAX_CARD_PAYMENT);
-            
-            // Налог считается от фактической выплаты на карту
             const taxAmount = actualCardPayment * COMPANY_TAX_RATE;
             const cardPaymentWithTax = actualCardPayment + taxAmount;
-
-            // Наличные = (Остаток от заработка) + Премии - Штрафы
             const cashPayout = (basePay - actualCardPayment) + adj.manual_bonus - adj.penalty - adj.shortage;
-            
             const fot = cardPaymentWithTax + cashPayout;
             const totalPayoutToEmployee = actualCardPayment + cashPayout;
 
@@ -548,7 +542,13 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
                 cash_payout: cashPayout,
                 total_payout_to_employee: totalPayoutToEmployee,
                 tax_amount: taxAmount,
-                fot: fot
+                fot: fot,
+                // --- Новые поля для листа проверки ---
+                base_pay: basePay,
+                manual_bonus: adj.manual_bonus,
+                penalty: adj.penalty,
+                shortage: adj.shortage,
+                actual_card_payment: actualCardPayment
             });
         }
         
@@ -573,13 +573,6 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
 
 // --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
-console.log('Starting server with PORT:', PORT);
-console.log('Environment:', process.env.NODE_ENV);
-
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Server is running on http://0.0.0.0:${PORT}`);
-  console.log('Press Ctrl+C to stop');
-}).on('error', (err) => {
-  console.error('❌ Server failed to start:', err);
-  process.exit(1);
+  console.log(`Server is running on port ${PORT}`);
 });
