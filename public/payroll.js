@@ -8,7 +8,7 @@ const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
 const ADVANCE_PERIOD_DAYS = 15;
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
 
-// --- БЛОК АВТОРИЗАЦИИ ---
+// --- БЛОК АВТОРИЗАЦИИ И ИНИЦИАЛИЗАЦИИ ---
 document.addEventListener('DOMContentLoaded', async function() {
     
     async function verifyAuthentication() {
@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
             
             const data = await response.json();
-            // Показываем вкладку ФОТ только для админов
+            
             const fotTabButton = document.getElementById('fot-tab-button');
             if (data.success && data.user.role === 'admin' && fotTabButton) {
                 fotTabButton.style.display = 'block';
@@ -108,6 +108,12 @@ document.addEventListener('DOMContentLoaded', async function() {
         yearInputs.forEach(i => {
             if(i) i.addEventListener('change', updateEndDateDefault)
         });
+        
+        // Привязываем события к кнопкам
+        const uploadBtn = document.getElementById('uploadRevenueBtn');
+        if (uploadBtn) {
+            uploadBtn.addEventListener('click', uploadRevenueFile);
+        }
     }
 
     await verifyAuthentication();
@@ -151,7 +157,6 @@ function exportToExcelWithFormatting(tableId, statusId, fileName, summaryData = 
         return;
     }
 
-    // Клонируем таблицу и заменяем инпуты на текст
     const tableClone = table.cloneNode(true);
     tableClone.querySelectorAll('input').forEach(input => {
         const parent = input.parentNode;
@@ -159,21 +164,17 @@ function exportToExcelWithFormatting(tableId, statusId, fileName, summaryData = 
     });
     tableClone.querySelectorAll('.summary-row').forEach(row => row.remove());
 
-    // Конвертируем HTML таблицу в рабочий лист
     const ws = XLSX.utils.table_to_sheet(tableClone);
 
-    // Добавляем итоговые данные, если они есть
     if (summaryData.length > 0) {
-        XLSX.utils.sheet_add_aoa(ws, [[]], { origin: -1 }); // Пустая строка
+        XLSX.utils.sheet_add_aoa(ws, [[]], { origin: -1 }); 
         XLSX.utils.sheet_add_aoa(ws, summaryData, { origin: -1 });
     }
 
-    // Стили
     const borderStyle = { style: 'thin', color: { auto: 1 } };
     const borders = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
     const headerFont = { bold: true };
     
-    // Автоматическая ширина колонок и применение стилей
     const range = XLSX.utils.decode_range(ws['!ref']);
     const colWidths = [];
 
@@ -186,21 +187,16 @@ function exportToExcelWithFormatting(tableId, statusId, fileName, summaryData = 
                 const cell = ws[cell_ref];
                 const cellContent = cell.v ? String(cell.v) : '';
                 maxWidth = Math.max(maxWidth, cellContent.length);
-
-                // Применяем границы ко всем ячейкам
                 cell.s = { ...cell.s, border: borders };
-
-                // Применяем жирный шрифт к заголовкам (первая строка)
                 if (R === 0) {
                     cell.s = { ...cell.s, font: headerFont };
                 }
             }
         }
-        colWidths[C] = { wch: maxWidth + 2 }; // +2 для небольшого отступа
+        colWidths[C] = { wch: maxWidth + 2 };
     }
     ws['!cols'] = colWidths;
 
-    // Создаем книгу и сохраняем файл
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Отчет");
     XLSX.writeFile(wb, `${fileName}.xlsx`);
@@ -232,7 +228,6 @@ function exportFotReportToExcel() {
     const month = monthEl ? monthEl.value : 'M';
     const year = yearEl ? yearEl.value : 'Y';
 
-    // Собираем итоговые данные
     const totalRevenue = document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн';
     const totalFot = document.getElementById('fotTotalFund')?.textContent || '0.00 грн';
     const fotPercentage = document.getElementById('fotPercentage')?.textContent || '0.00 %';
@@ -880,4 +875,5 @@ async function generateFotReport() {
         showStatus('fotReportStatus', `Ошибка: ${error.message}`, 'error');
     } finally {
         if(loader) loader.style.display = 'none';
-    
+    }
+}
