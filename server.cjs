@@ -19,10 +19,17 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const app = express();
 
 // --- Настройка middleware ---
-app.use(cors({ origin: true, credentials: true })); 
+app.use(cors({ origin: true, credentials: true }));
 app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
+
+// --- КОНСТАНТЫ ДЛЯ РАСЧЕТОВ (перенесены на сервер для единства) ---
+const FIXED_CARD_PAYMENT = 8600; // Фиксированная выплата на карту
+const ADVANCE_PERCENTAGE = 0.9; // Процент аванса от фиксированной выплаты
+const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE; // Максимальный аванс = 7740
+const ADVANCE_PERIOD_DAYS = 15; // Дней в авансовом периоде
+const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12; // Предполагаемое кол-во рабочих дней для расчета пропорции аванса
 
 // --- MIDDLEWARE ДЛЯ ПРОВЕРКИ АВТОРИЗАЦИИ И РОЛЕЙ ---
 const checkAuth = (req, res, next) => {
@@ -137,86 +144,93 @@ app.post('/logout', (req, res) => {
   res.status(200).json({ success: true, message: 'Выход выполнен успешно' });
 });
 
+// 4. НОВЫЙ ЭНДПОИНТ для проверки статуса аутентификации
+app.get('/check-auth', checkAuth, (req, res) => {
+  // Если мидлвэр checkAuth прошел, пользователь аутентифицирован.
+  // req.user заполняется данными из токена.
+  res.json({ success: true, user: req.user });
+});
+
+
 // =================================================================
 // --- ЗАЩИЩЕННЫЕ API ЭНДПОИНТЫ ---
 // =================================================================
 const canManagePayroll = checkRole(['admin', 'accountant']);
 
-// 4. Загрузка выручки (ОПТИМИЗИРОВАННАЯ ВЕРСИЯ)
+// 5. Загрузка выручки
 app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('file'), async (req, res) => {
-  try {
-    const { date } = req.body;
-    if (!req.file) { return res.status(400).json({ success: false, error: 'Файл не загружен' }); }
+    try {
+        const { date } = req.body;
+        if (!req.file) { return res.status(400).json({ success: false, error: 'Файл не загружен' }); }
 
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-    let headerRowIndex = -1;
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i].includes('Торговая точка') && rows[i].includes('Выторг')) {
-        headerRowIndex = i;
-        break;
-      }
-    }
-    if (headerRowIndex === -1) { return res.status(400).json({ success: false, error: 'В файле не найдены столбцы "Торговая точка" и "Выторг".' }); }
-    const rawData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex });
-    const revenues = rawData.map(row => {
-      const revenueStr = String(row['Выторг'] || '0');
-      const cleanedStr = revenueStr.replace(/\s/g, '').replace(',', '.');
-      const revenueNum = parseFloat(cleanedStr);
-      return { store_address: row['Торговая точка'], revenue: revenueNum };
-    }).filter(item => item.store_address && !isNaN(item.revenue) && !String(item.store_address).startsWith('* Себестоимость'));
-
-    const addressesFromFile = [...new Set(revenues.map(r => r.store_address.trim()))];
-    
-    const { data: stores, error: storeError } = await supabase
-        .from('stores')
-        .select('id, address')
-        .in('address', addressesFromFile);
-
-    if (storeError) throw storeError;
-
-    const storeAddressToIdMap = new Map(stores.map(s => [s.address, s.id]));
-    const dataToUpsert = [];
-    const matched = [];
-    const unmatched = [];
-
-    for (const item of revenues) {
-        const storeId = storeAddressToIdMap.get(item.store_address.trim());
-        if (storeId) {
-            dataToUpsert.push({
-                store_id: storeId,
-                revenue_date: date,
-                revenue: item.revenue
-            });
-            matched.push(item.store_address);
-        } else {
-            unmatched.push(item.store_address);
+        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        let headerRowIndex = -1;
+        for (let i = 0; i < rows.length; i++) {
+        if (rows[i].includes('Торговая точка') && rows[i].includes('Выторг')) {
+            headerRowIndex = i;
+            break;
         }
+        }
+        if (headerRowIndex === -1) { return res.status(400).json({ success: false, error: 'В файле не найдены столбцы "Торговая точка" и "Выторг".' }); }
+        const rawData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex });
+        const revenues = rawData.map(row => {
+        const revenueStr = String(row['Выторг'] || '0');
+        const cleanedStr = revenueStr.replace(/\s/g, '').replace(',', '.');
+        const revenueNum = parseFloat(cleanedStr);
+        return { store_address: row['Торговая точка'], revenue: revenueNum };
+        }).filter(item => item.store_address && !isNaN(item.revenue) && !String(item.store_address).startsWith('* Себестоимость'));
+
+        const addressesFromFile = [...new Set(revenues.map(r => r.store_address.trim()))];
+        
+        const { data: stores, error: storeError } = await supabase
+            .from('stores')
+            .select('id, address')
+            .in('address', addressesFromFile);
+
+        if (storeError) throw storeError;
+
+        const storeAddressToIdMap = new Map(stores.map(s => [s.address, s.id]));
+        const dataToUpsert = [];
+        const matched = [];
+        const unmatched = [];
+
+        for (const item of revenues) {
+            const storeId = storeAddressToIdMap.get(item.store_address.trim());
+            if (storeId) {
+                dataToUpsert.push({
+                    store_id: storeId,
+                    revenue_date: date,
+                    revenue: item.revenue
+                });
+                matched.push(item.store_address);
+            } else {
+                unmatched.push(item.store_address);
+            }
+        }
+
+        if (dataToUpsert.length > 0) {
+            const { error: upsertError } = await supabase
+                .from('daily_revenue')
+                .upsert(dataToUpsert, { onConflict: 'store_id,revenue_date' });
+
+            if (upsertError) throw upsertError;
+        }
+
+        const totalRevenue = revenues.reduce((sum, current) => sum + current.revenue, 0);
+        res.json({ success: true, message: 'Выручка успешно и быстро загружена', revenues, matched, unmatched, totalRevenue });
+
+    } catch (error) {
+        console.error('Ошибка загрузки выручки из Excel:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
-
-    if (dataToUpsert.length > 0) {
-        const { error: upsertError } = await supabase
-            .from('daily_revenue')
-            .upsert(dataToUpsert, { onConflict: 'store_id,revenue_date' });
-
-        if (upsertError) throw upsertError;
-    }
-
-    const totalRevenue = revenues.reduce((sum, current) => sum + current.revenue, 0);
-    res.json({ success: true, message: 'Выручка успешно и быстро загружена', revenues, matched, unmatched, totalRevenue });
-
-  } catch (error) {
-    console.error('Ошибка загрузки выручки из Excel:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
 });
 
-
-// 5. Расчет зарплаты за день
+// 6. Расчет зарплаты за день
 app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => {
-    const { date, includeAdvances } = req.body;
+    const { date } = req.body;
     const { data: shifts } = await supabase.from('shifts').select(`employee_id, employees (fullname), store_id, stores (address)`).eq('shift_date', date);
     if (!shifts || shifts.length === 0) {
         return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
@@ -251,33 +265,8 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
           is_senior: isSenior,
           base_rate: payDetails.baseRate, 
           bonus: payDetails.bonus,
-          total_pay: payDetails.totalPay,
-          advance_amount: 0,
-          card_remainder: 0,
-          cash_payout: 0
+          total_pay: payDetails.totalPay
         };
-        
-        // Расчет авансов, если запрошено
-        if (includeAdvances) {
-          const { data: shiftsInFirstHalf } = await supabase
-            .from('shifts')
-            .select('shift_date')
-            .eq('employee_id', employee.employee_id)
-            .gte('shift_date', `${date.substring(0,7)}-01`)
-            .lte('shift_date', `${date.substring(0,7)}-15`);
-          
-          const daysInFirstHalf = shiftsInFirstHalf ? shiftsInFirstHalf.length : 0;
-          const advanceRatio = Math.min(daysInFirstHalf / 12, 1);
-          const advanceAmount = Math.round(7740 * advanceRatio);
-          const cardRemainder = 8600 - advanceAmount;
-          const totalEarned = calculation.total_pay;
-          const cashPayout = Math.max(0, totalEarned - 8600);
-          
-          calculation.advance_amount = advanceAmount;
-          calculation.card_remainder = cardRemainder;
-          calculation.cash_payout = cashPayout;
-        }
-        
         await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
         calculations.push(calculation);
       }
@@ -293,15 +282,18 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     });
 });
 
-// 6. Получение месячных корректировок
+// 7. Получение месячных корректировок
 app.get('/payroll/adjustments/:year/:month', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month } = req.params;
     const { data, error } = await supabase.from('monthly_adjustments').select('*').eq('year', year).eq('month', month);
-    if (error) throw error;
+    if (error) {
+        console.error("Ошибка получения корректировок:", error);
+        return res.status(500).json({ success: false, error: error.message });
+    };
     res.json(data);
 });
 
-// 7. Сохранение месячных корректировок
+// 8. Сохранение месячных корректировок
 app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
     const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;
     try {
@@ -313,6 +305,114 @@ app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) =
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// 9. Расчет аванса (за первые 15 дней месяца)
+app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month } = req.body;
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${ADVANCE_PERIOD_DAYS}`;
+
+    try {
+        const { data: shifts, error: shiftsError } = await supabase
+            .from('shifts')
+            .select('employee_id')
+            .gte('shift_date', startDate)
+            .lte('shift_date', endDate);
+
+        if (shiftsError) throw shiftsError;
+
+        const employeeShiftsCount = shifts.reduce((acc, shift) => {
+            acc[shift.employee_id] = (acc[shift.employee_id] || 0) + 1;
+            return acc;
+        }, {});
+
+        const results = {};
+        for (const [employeeId, shiftsCount] of Object.entries(employeeShiftsCount)) {
+            const advanceRatio = Math.min(shiftsCount / ASSUMED_WORK_DAYS_IN_FIRST_HALF, 1);
+            const calculatedAdvance = Math.round(MAX_ADVANCE * advanceRatio);
+            results[employeeId] = {
+                advance_payment: calculatedAdvance
+            };
+        }
+
+        res.json({ success: true, results });
+
+    } catch (error) {
+        console.error('Ошибка расчета аванса:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 10. Окончательный расчет за месяц
+app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, reportEndDate } = req.body;
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+
+    try {
+        const { data: dailyCalculations, error: calcError } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, total_pay')
+            .gte('work_date', startDate)
+            .lte('work_date', reportEndDate);
+        
+        if (calcError) throw calcError;
+
+        const { data: adjustments, error: adjError } = await supabase
+            .from('monthly_adjustments')
+            .select('*')
+            .eq('year', year)
+            .eq('month', month);
+
+        if (adjError) throw adjError;
+        const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
+
+        const advanceEndDate = `${year}-${String(month).padStart(2, '0')}-${ADVANCE_PERIOD_DAYS}`;
+        const { data: shifts, error: shiftsError } = await supabase
+            .from('shifts')
+            .select('employee_id')
+            .gte('shift_date', startDate)
+            .lte('shift_date', advanceEndDate);
+
+        if (shiftsError) throw shiftsError;
+        const employeeShiftsCount = shifts.reduce((acc, shift) => {
+            acc[shift.employee_id] = (acc[shift.employee_id] || 0) + 1;
+            return acc;
+        }, {});
+
+        const totalBasePayMap = dailyCalculations.reduce((acc, calc) => {
+            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+            return acc;
+        }, {});
+
+        const finalResults = {};
+        for (const employeeId in totalBasePayMap) {
+            const basePay = totalBasePayMap[employeeId];
+            const adj = adjustmentsMap.get(employeeId) || { manual_bonus: 0, penalty: 0, shortage: 0 };
+            
+            const shiftsCount = employeeShiftsCount[employeeId] || 0;
+            const advanceRatio = Math.min(shiftsCount / ASSUMED_WORK_DAYS_IN_FIRST_HALF, 1);
+            const advancePayment = Math.round(MAX_ADVANCE * advanceRatio);
+            
+            const totalGross = basePay + adj.manual_bonus;
+            const cardRemainder = FIXED_CARD_PAYMENT - advancePayment;
+            const cashPayout = totalGross - FIXED_CARD_PAYMENT - adj.penalty - adj.shortage;
+
+            finalResults[employeeId] = {
+                total_gross: totalGross,
+                advance_payment: advancePayment,
+                card_remainder: cardRemainder,
+                cash_payout: cashPayout
+            };
+        }
+
+        res.json({ success: true, results: finalResults });
+
+    } catch (error) {
+        console.error('Ошибка окончательного расчета:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // =================================================================
 // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---

@@ -1,7 +1,7 @@
 // API URL Configuration
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://shifts-api.fly.dev';
 
-// --- КОНСТАНТЫ ДЛЯ РАСЧЕТОВ ---
+// --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
 const FIXED_CARD_PAYMENT = 8600;
 const ADVANCE_PERCENTAGE = 0.9;
 const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
@@ -9,30 +9,58 @@ const ADVANCE_PERIOD_DAYS = 15;
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
 
 // --- БЛОК АВТОРИЗАЦИИ ---
-document.addEventListener('DOMContentLoaded', function() {
-    if (!document.cookie.includes('token=')) {
-        window.location.href = '/index.html';
-        return;
+document.addEventListener('DOMContentLoaded', async function() {
+    
+    // Новая функция для правильной проверки авторизации
+    async function verifyAuthentication() {
+        try {
+            const response = await fetch(`${API_BASE}/check-auth`, {
+                method: 'GET',
+                credentials: 'include' // Важно для отправки cookies
+            });
+
+            if (!response.ok) {
+                // Если статус 401 или другой ошибочный, значит токен невалидный или отсутствует
+                window.location.href = '/index.html';
+                return;
+            }
+            
+            // Если аутентификация прошла успешно, инициализируем страницу
+            initializePage();
+
+        } catch (error) {
+            console.error('Ошибка проверки аутентификации:', error);
+            // В случае сетевой ошибки также перенаправляем на страницу входа
+            window.location.href = '/index.html';
+        }
     }
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    document.getElementById('revenueDate').value = todayStr;
-    document.getElementById('payrollDate').value = todayStr;
-    const reportMonthSelect = document.getElementById('reportMonth');
-    const reportYearInput = document.getElementById('reportYear');
-    reportMonthSelect.value = today.getMonth() + 1;
-    reportYearInput.value = today.getFullYear();
-    function updateEndDateDefault() {
-        const year = reportYearInput.value;
-        const month = reportMonthSelect.value;
-        const lastDay = new Date(year, month, 0).getDate();
-        const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-        document.getElementById('reportEndDate').value = endDate;
+
+    // Функция для настройки страницы после успешной проверки
+    function initializePage() {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        document.getElementById('revenueDate').value = todayStr;
+        document.getElementById('payrollDate').value = todayStr;
+        const reportMonthSelect = document.getElementById('reportMonth');
+        const reportYearInput = document.getElementById('reportYear');
+        reportMonthSelect.value = today.getMonth() + 1;
+        reportYearInput.value = today.getFullYear();
+        function updateEndDateDefault() {
+            const year = reportYearInput.value;
+            const month = reportMonthSelect.value;
+            const lastDay = new Date(year, month, 0).getDate();
+            const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+            document.getElementById('reportEndDate').value = endDate;
+        }
+        updateEndDateDefault();
+        reportMonthSelect.addEventListener('change', updateEndDateDefault);
+        reportYearInput.addEventListener('change', updateEndDateDefault);
     }
-    updateEndDateDefault();
-    reportMonthSelect.addEventListener('change', updateEndDateDefault);
-    reportYearInput.addEventListener('change', updateEndDateDefault);
+
+    // Вызываем функцию проверки при загрузке страницы
+    await verifyAuthentication();
 });
+
 
 async function logout() {
     await fetch(`${API_BASE}/logout`, { method: 'POST', credentials: 'include' });
@@ -41,12 +69,27 @@ async function logout() {
 }
 
 // --- УТИЛИТЫ ---
-function switchTab(tabName, button) { /* ... без изменений ... */ }
-function formatNumber(num) { /* ... без изменений ... */ }
-function showStatus(elementId, message, type) { /* ... без изменений ... */ }
-function hideStatus(elementId) { /* ... без изменений ... */ }
+function switchTab(tabName, button) {
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+    document.getElementById(tabName + '-tab').classList.add('active');
+    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+    button.classList.add('active');
+}
+function formatNumber(num) {
+    if (typeof num !== 'number') return '0,00';
+    return num.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$& ').replace('.', ',');
+}
+function showStatus(elementId, message, type) {
+    const statusEl = document.getElementById(elementId);
+    statusEl.className = `status ${type}`;
+    statusEl.textContent = message;
+    statusEl.style.display = 'flex';
+}
+function hideStatus(elementId) {
+    document.getElementById(elementId).style.display = 'none';
+}
 
-// --- НОВЫЕ ФУНКЦИИ ЭКСПОРТА В EXCEL ---
+// --- ФУНКЦИИ ЭКСПОРТА В EXCEL ---
 function exportToExcel(tableId, statusId, fileName) {
     const table = document.getElementById(tableId);
     if (!table || table.rows.length === 0) {
@@ -54,29 +97,24 @@ function exportToExcel(tableId, statusId, fileName) {
         return;
     }
     const tableClone = table.cloneNode(true);
-    // Очищаем таблицу от инпутов, заменяя их значениями
     tableClone.querySelectorAll('input').forEach(input => {
         const parent = input.parentNode;
         parent.textContent = input.value;
     });
-    // Удаляем ненужные для экспорта элементы, например, заголовки групп
     tableClone.querySelectorAll('.summary-row').forEach(row => row.remove());
 
     const wb = XLSX.utils.table_to_book(tableClone, { sheet: "Отчет" });
     const wbout = XLSX.write(wb, { bookType: 'xlsx', bookSST: true, type: 'array' });
     saveAs(new Blob([wbout], { type: "application/octet-stream" }), `${fileName}.xlsx`);
 }
-
 function exportRevenueToExcel() {
     const date = document.getElementById('revenueDate').value;
     exportToExcel('revenueTable', 'revenueStatus', `Выручка_${date}`);
 }
-
 function exportDailyPayrollToExcel() {
     const date = document.getElementById('payrollDate').value;
     exportToExcel('payrollTable', 'payrollStatus', `Расчет_за_день_${date}`);
 }
-
 function exportMonthlyReportToExcel() {
     const month = document.getElementById('reportMonth').value;
     const year = document.getElementById('reportYear').value;
@@ -85,14 +123,14 @@ function exportMonthlyReportToExcel() {
 
 
 // --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
-async function uploadRevenueFile() { /* ... без изменений, но с credentials: 'include' ... */ }
+async function uploadRevenueFile() { /* ... без изменений ... */ }
 function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) { /* ... без изменений ... */ }
 function cancelRevenueUpload() { /* ... без изменений ... */ }
-function confirmRevenueSave() { /* ... без изменений ... */ }
+async function confirmRevenueSave() { /* ... без изменений ... */ }
 
 
 // --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
-async function calculatePayroll() { /* ... без изменений, но с credentials: 'include' ... */ }
+async function calculatePayroll() { /* ... без изменений ... */ }
 
 function displayPayrollResults(calculations, summary) {
     const tbody = document.getElementById('payrollTableBody');
@@ -126,7 +164,7 @@ function updatePayrollSummary(totalPayroll, employeeCount) {
 
 // --- ВКЛАДКА "ОТЧЕТ ЗА МЕСЯЦ" ---
 let adjustmentDebounceTimer;
-async function generateMonthlyReport() { /* ... без изменений, но с credentials: 'include' ... */ }
+async function generateMonthlyReport() { /* ... без изменений ... */ }
 
 function displayMonthlyReport(dailyData, adjustments, month, year) {
     const employeeData = {};
@@ -165,58 +203,131 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
         const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
         tableHtml += `<tr data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
                         <td>${data.name}</td>
-                        <td class="total-gross"></td>
+                        <td class="total-gross">${formatNumber(data.totalPay + (adj.manual_bonus || 0))}</td>
                         <td><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}"></td>
                         <td><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина"></td>
                         <td><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}"></td>
                         <td><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина"></td>
                         <td><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}"></td>
-                        <td class="advance-payment"></td>
-                        <td class="card-remainder"></td>
-                        <td class="cash-payout"><strong></strong></td>
+                        <td class="advance-payment">0,00</td>
+                        <td class="card-remainder">0,00</td>
+                        <td class="cash-payout"><strong>0,00</strong></td>
                     </tr>`;
     }
     tableHtml += `</tbody></table>`;
     document.getElementById('monthlyReportContent').innerHTML = tableHtml;
     document.querySelectorAll('.adjustment-input').forEach(input => input.addEventListener('input', handleAdjustmentInput));
-    recalculateAllRows();
+    calculateAdvance15(true);
 }
 
-function handleAdjustmentInput(e) { /* ... без изменений ... */ }
+
+function handleAdjustmentInput(e) {
+    clearTimeout(adjustmentDebounceTimer);
+    const row = e.target.closest('tr');
+    recalculateRow(row);
+    adjustmentDebounceTimer = setTimeout(() => {
+        saveAdjustments(row);
+    }, 800);
+}
 
 function recalculateRow(row) {
     const basePay = parseFloat(row.dataset.basePay);
-    const shifts = JSON.parse(row.dataset.shifts);
     const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0;
-    const penalty = parseFloat(row.querySelector('[name="penalty"]').value) || 0;
-    const shortage = parseFloat(row.querySelector('[name="shortage"]').value) || 0;
     const totalGross = basePay + manualBonus;
-    const shiftsInFirstHalf = shifts.filter(day => day <= ADVANCE_PERIOD_DAYS).length;
-    const advanceRatio = Math.min(shiftsInFirstHalf / ASSUMED_WORK_DAYS_IN_FIRST_HALF, 1);
-    const calculatedAdvance = MAX_ADVANCE * advanceRatio;
-    const cardRemainder = FIXED_CARD_PAYMENT - calculatedAdvance;
-    const cashPayout = totalGross - FIXED_CARD_PAYMENT - penalty - shortage;
     row.querySelector('.total-gross').textContent = formatNumber(totalGross);
-    row.querySelector('.advance-payment').textContent = formatNumber(calculatedAdvance);
-    row.querySelector('.card-remainder').textContent = formatNumber(cardRemainder);
-    row.querySelector('.cash-payout strong').textContent = formatNumber(cashPayout);
 }
 
-function recalculateAllRows() { /* ... без изменений ... */ }
+async function saveAdjustments(row) { /* ... без изменений ... */ }
 
-async function saveAdjustments(row) {
-    const payload = {
-        employee_id: row.dataset.employeeId,
-        month: row.dataset.month,
-        year: row.dataset.year,
-        manual_bonus: parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0,
-        penalty: parseFloat(row.querySelector('[name="penalty"]').value) || 0,
-        shortage: parseFloat(row.querySelector('[name="shortage"]').value) || 0,
-        bonus_reason: row.querySelector('[name="bonus_reason"]').value,
-        penalty_reason: row.querySelector('[name="penalty_reason"]').value
-    };
-    // ... остальная часть функции с fetch и credentials: 'include'
+async function calculateAdvance15(silent = false) {
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    if (tableRows.length === 0) {
+        if (!silent) showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
+        return;
+    }
+    if (!silent) showStatus('reportStatus', 'Рассчитываем аванс...', 'info');
+
+    const year = document.getElementById('reportYear').value;
+    const month = document.getElementById('reportMonth').value;
+
+    try {
+        const response = await fetch(`${API_BASE}/calculate-advance`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', },
+            credentials: 'include',
+            body: JSON.stringify({ year, month })
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Ошибка ответа сервера');
+
+        tableRows.forEach(row => {
+            const employeeId = row.dataset.employeeId;
+            const result = data.results[employeeId];
+            if (result) {
+                row.querySelector('.advance-payment').textContent = formatNumber(result.advance_payment);
+            } else {
+                row.querySelector('.advance-payment').textContent = formatNumber(0);
+            }
+        });
+
+        if (!silent) showStatus('reportStatus', 'Аванс успешно рассчитан и отображен.', 'success');
+
+    } catch (error) {
+        console.error("Ошибка при расчете аванса:", error);
+        if (!silent) showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
 }
+
+async function calculateFinalPayroll() {
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    if (tableRows.length === 0) {
+        showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
+        return;
+    }
+    showStatus('reportStatus', 'Выполняем окончательный расчет...', 'info');
+
+    const year = document.getElementById('reportYear').value;
+    const month = document.getElementById('reportMonth').value;
+    const reportEndDate = document.getElementById('reportEndDate').value;
+
+    try {
+        const savePromises = [];
+        tableRows.forEach(row => savePromises.push(saveAdjustments(row)));
+        await Promise.all(savePromises);
+
+        const response = await fetch(`${API_BASE}/calculate-final-payroll`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', },
+            credentials: 'include',
+            body: JSON.stringify({ year, month, reportEndDate })
+        });
+
+        const data = await response.json();
+        if (!data.success) throw new Error(data.error || 'Ошибка ответа сервера');
+
+        tableRows.forEach(row => {
+            const employeeId = row.dataset.employeeId;
+            const result = data.results[employeeId];
+            if (result) {
+                row.querySelector('.total-gross').textContent = formatNumber(result.total_gross);
+                row.querySelector('.advance-payment').textContent = formatNumber(result.advance_payment);
+                row.querySelector('.card-remainder').textContent = formatNumber(result.card_remainder);
+                row.querySelector('.cash-payout strong').textContent = formatNumber(result.cash_payout);
+            }
+        });
+
+        showStatus('reportStatus', 'Окончательный расчет выполнен.', 'success');
+
+    } catch (error) {
+        console.error("Ошибка при окончательном расчете:", error);
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
+
+function generateCashPayoutReport() { /* ... без изменений ... */ }
+function printAllPayslips() { /* ... без изменений ... */ }
+
 
 function generateCashPayoutReport() {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
