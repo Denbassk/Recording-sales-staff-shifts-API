@@ -123,10 +123,87 @@ function exportMonthlyReportToExcel() {
 
 
 // --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
-async function uploadRevenueFile() { /* ... без изменений ... */ }
-function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) { /* ... без изменений ... */ }
-function cancelRevenueUpload() { /* ... без изменений ... */ }
-async function confirmRevenueSave() { /* ... без изменений ... */ }
+async function uploadRevenueFile() {
+    const fileInput = document.getElementById('revenueFile');
+    const dateInput = document.getElementById('revenueDate');
+    const file = fileInput.files[0];
+    const date = dateInput.value;
+
+    if (!file || !date) {
+        showStatus('revenueStatus', 'Пожалуйста, выберите файл и укажите дату.', 'error');
+        return;
+    }
+
+    showStatus('revenueStatus', 'Загрузка и обработка файла...', 'info');
+    
+    // Используем FormData для отправки файла и даты вместе
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('date', date);
+
+    try {
+        const response = await fetch(`${API_BASE}/upload-revenue-file`, {
+            method: 'POST',
+            credentials: 'include',
+            body: formData, // Отправляем FormData, заголовок Content-Type установится автоматически
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showStatus('revenueStatus', result.message, 'success');
+            displayRevenuePreview(result.revenues, result.matched, result.unmatched, result.totalRevenue);
+        } else {
+            throw new Error(result.error || 'Неизвестная ошибка сервера');
+        }
+    } catch (error) {
+        console.error('Ошибка при загрузке файла:', error);
+        showStatus('revenueStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
+function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
+    document.getElementById('revenuePreview').style.display = 'block';
+    document.getElementById('revenueEmpty').style.display = 'none';
+    const tbody = document.getElementById('revenueTableBody');
+    tbody.innerHTML = '';
+    let counter = 1;
+    revenues.forEach(item => {
+        const isMatched = matched.includes(item.store_address);
+        tbody.innerHTML += `
+            <tr>
+                <td>${counter++}</td>
+                <td>${item.store_address}</td>
+                <td>${formatNumber(item.revenue)} грн</td>
+                <td>
+                    <span class="badge ${isMatched ? 'success' : 'warning'}">
+                        ${isMatched ? 'Сопоставлено' : 'Нет в базе'}
+                    </span>
+                </td>
+            </tr>
+        `;
+    });
+    document.getElementById('totalRevenueValue').textContent = `${formatNumber(totalRevenue)} грн`;
+    if (unmatched.length > 0) {
+        showStatus('revenueStatus', `Внимание: ${unmatched.length} торговых точек не найдены в базе: ${unmatched.join(', ')}`, 'warning');
+    }
+}
+
+function cancelRevenueUpload() {
+    document.getElementById('revenuePreview').style.display = 'none';
+    document.getElementById('revenueEmpty').style.display = 'block';
+    document.getElementById('revenueFile').value = '';
+    hideStatus('revenueStatus');
+}
+
+async function confirmRevenueSave() {
+    // В текущей логике данные уже сохраняются при загрузке,
+    // эта кнопка может просто закрывать превью и сбрасывать форму
+    showStatus('revenueStatus', 'Данные были успешно сохранены при обработке файла.', 'success');
+    setTimeout(() => {
+        cancelRevenueUpload();
+    }, 2000);
+}
 
 
 // --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
@@ -323,11 +400,6 @@ async function calculateFinalPayroll() {
         showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
-
-
-function generateCashPayoutReport() { /* ... без изменений ... */ }
-function printAllPayslips() { /* ... без изменений ... */ }
-
 
 function generateCashPayoutReport() {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
