@@ -570,3 +570,9 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// --- Запуск сервера ---
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server is running on port ${PORT}`);
+});
