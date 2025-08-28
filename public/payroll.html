@@ -1,913 +1,762 @@
-// API URL Configuration
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://shifts-api.fly.dev';
-
-// --- Глобальная переменная для кэширования данных отчета ФОТ ---
-let fotReportDataCache = [];
-
-// --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
-const FIXED_CARD_PAYMENT = 8600;
-const ADVANCE_PERCENTAGE = 0.9;
-const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
-const ADVANCE_PERIOD_DAYS = 15;
-const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
-
-// --- БЛОК АВТОРИЗАЦИИ И ИНИЦИАЛИЗАЦИИ ---
-document.addEventListener('DOMContentLoaded', async function() {
-    
-    async function verifyAuthentication() {
-        try {
-            const response = await fetch(`${API_BASE}/check-auth`, {
-                method: 'GET',
-                credentials: 'include'
-            });
-
-            if (!response.ok) {
-                window.location.href = '/index.html';
-                return;
-            }
-            
-            const data = await response.json();
-            
-            const fotTabButton = document.getElementById('fot-tab-button');
-            if (data.success && data.user.role === 'admin' && fotTabButton) {
-                fotTabButton.style.display = 'block';
-            }
-
-            initializePage();
-
-        } catch (error) {
-            console.error('Ошибка проверки аутентификации:', error);
-            window.location.href = '/index.html';
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Расчет зарплаты - Система управления</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-    }
 
-    function initializePage() {
-        const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .tab-navigation {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 0;
+        }
+
+        .tab-button {
+            padding: 15px 30px;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            color: #666;
+            transition: all 0.3s ease;
+            position: relative;
+            top: 2px;
+        }
+
+        .tab-button:hover {
+            color: #667eea;
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        .tab-button.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background: rgba(102, 126, 234, 0.08);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .control-panel {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .control-row {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        .control-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #555;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="date"],
+        input[type="number"],
+        input[type="text"],
+        select {
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            background: white;
+            min-width: 150px;
+        }
+
+        input[type="date"]:focus,
+        input[type="number"]:focus,
+        input[type="text"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        input[type="file"] {
+            padding: 10px;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        input[type="file"]:hover {
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        button {
+            padding: 12px 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            box-shadow: 0 4px 15px rgba(17, 153, 142, 0.3);
+        }
+
+        button.success:hover {
+            box-shadow: 0 6px 20px rgba(17, 153, 142, 0.4);
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+            box-shadow: 0 4px 15px rgba(235, 51, 73, 0.3);
+        }
+
+        button.secondary {
+            background: linear-gradient(135deg, #8e9eab 0%, #eef2f3 100%);
+            color: #333;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .table-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
         
-        // Заполняем даты и месяцы на всех вкладках
-        const monthSelects = [
-            document.getElementById('reportMonth'),
-            document.getElementById('fotReportMonth')
-        ];
-        const yearInputs = [
-            document.getElementById('reportYear'),
-            document.getElementById('fotReportYear')
-        ];
-        const endDateInputs = [
-            document.getElementById('reportEndDate'),
-            document.getElementById('fotReportEndDate')
-        ];
-        
-        const revenueDateEl = document.getElementById('revenueDate');
-        if (revenueDateEl) revenueDateEl.value = todayStr;
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin: 25px 0;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
 
-        const payrollDateEl = document.getElementById('payrollDate');
-        if (payrollDateEl) payrollDateEl.value = todayStr;
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-weight: 600;
+            padding: 15px;
+            text-align: left;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
 
-        monthSelects.forEach(select => {
-            if (select) {
-                if (select.id === 'fotReportMonth') {
-                    const reportMonthEl = document.getElementById('reportMonth');
-                    if (reportMonthEl) select.innerHTML = reportMonthEl.innerHTML;
-                }
-                select.value = today.getMonth() + 1;
-            }
-        });
-        yearInputs.forEach(input => { if (input) input.value = today.getFullYear(); });
-        endDateInputs.forEach(input => { if (input) input.value = todayStr; });
+        td {
+            padding: 15px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+            vertical-align: middle;
+        }
 
-        function updateEndDateDefault() {
-            const controlPanel = this.closest('.control-panel');
-            if (!controlPanel) return;
+        tr:hover {
+            background: rgba(102, 126, 234, 0.05);
+        }
 
-            const yearInput = controlPanel.querySelector('input[type="number"]');
-            const monthSelect = controlPanel.querySelector('select');
-            const endDateInput = controlPanel.querySelector('input[type="date"]');
-            
-            if (!yearInput || !monthSelect || !endDateInput) {
-                console.error("Не удалось найти элементы управления датой в панели", controlPanel);
-                return;
-            }
-
-            const year = yearInput.value;
-            const month = monthSelect.value;
-            
-            if (!year || !month) return;
-
-            const lastDay = new Date(year, month, 0).getDate();
-            const lastDayOfMonthStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-            
-            if (new Date() < new Date(year, month - 1, lastDay)) {
-                 endDateInput.value = todayStr;
-            } else {
-                 endDateInput.value = lastDayOfMonthStr;
-            }
+        tr:last-child td {
+            border-bottom: none;
         }
         
-        monthSelects.forEach(s => {
-            if(s) s.addEventListener('change', updateEndDateDefault)
-        });
-        yearInputs.forEach(i => {
-            if(i) i.addEventListener('change', updateEndDateDefault)
-        });
+        tr.summary-row {
+            font-weight: bold;
+        }
         
-        // Привязываем события к кнопкам
-        const uploadBtn = document.getElementById('uploadRevenueBtn');
-        if (uploadBtn) {
-            uploadBtn.addEventListener('click', uploadRevenueFile);
+        tr.summary-row:hover {
+            background-color: #e9ecef;
         }
-    }
 
-    await verifyAuthentication();
-});
+        .status {
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideDown 0.3s ease;
+        }
 
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-async function logout() {
-    await fetch(`${API_BASE}/logout`, { method: 'POST', credentials: 'include' });
-    document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-    window.location.href = '/index.html';
-}
+        .status::before {
+            font-size: 20px;
+        }
 
-// --- УТИЛИТЫ ---
-function switchTab(tabName, button) {
-    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
-    document.getElementById(tabName + '-tab').classList.add('active');
-    document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-    button.classList.add('active');
-}
-function formatNumber(num) {
-    if (typeof num !== 'number') return '0,00';
-    return num.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$& ').replace('.', ',');
-}
-function showStatus(elementId, message, type) {
-    const statusEl = document.getElementById(elementId);
-    if (!statusEl) return;
-    statusEl.className = `status ${type}`;
-    statusEl.textContent = message;
-    statusEl.style.display = 'flex';
-}
-function hideStatus(elementId) {
-    const statusEl = document.getElementById(elementId);
-    if (statusEl) statusEl.style.display = 'none';
-}
+        .status.success {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            color: #155724;
+            border: 1px solid #b1dfbb;
+        }
 
-// --- ФУНКЦИИ ЭКСПОРТА В EXCEL ---
-function applyExcelFormatting(ws) {
-    const borderStyle = { style: 'thin', color: { auto: 1 } };
-    const borders = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
-    const headerFont = { bold: true };
-    
-    const range = XLSX.utils.decode_range(ws['!ref']);
-    const colWidths = [];
+        .status.success::before {
+            content: "✅";
+        }
 
-    for (let C = range.s.c; C <= range.e.c; ++C) {
-        let maxWidth = 0;
-        for (let R = range.s.r; R <= range.e.r; ++R) {
-            const cell_address = { c: C, r: R };
-            const cell_ref = XLSX.utils.encode_cell(cell_address);
-            if (ws[cell_ref]) {
-                const cell = ws[cell_ref];
-                const cellContent = cell.v ? String(cell.v) : '';
-                maxWidth = Math.max(maxWidth, cellContent.length);
-                cell.s = { ...cell.s, border: borders };
-                if (R === 0) {
-                    cell.s = { ...cell.s, font: headerFont };
-                }
+        .status.error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            border: 1px solid #f1b0b7;
+        }
+
+        .status.error::before {
+            content: "❌";
+        }
+
+        .status.info {
+            background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+            color: #0c5460;
+            border: 1px solid #abdde5;
+        }
+
+        .status.info::before {
+            content: "ℹ️";
+        }
+
+        .summary-panel {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 25px;
+            border-radius: 10px;
+            margin-top: 25px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .summary-panel h3 {
+            margin: 0 0 20px 0;
+            color: #333;
+            font-size: 20px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .summary-row:last-child {
+            border-bottom: none;
+            font-weight: 700;
+            font-size: 18px;
+            color: #667eea;
+            padding-top: 15px;
+        }
+
+        .summary-label {
+            font-weight: 500;
+            color: #666;
+        }
+
+        .summary-value {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .loader {
+            display: none;
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 30px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge.success {
+            background: #d4edda;
+            color: #155724;
+        }
+		
+		.badge.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state svg {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .empty-state h3 {
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .control-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .tab-button {
+                padding: 10px 15px;
+                font-size: 14px;
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            th, td {
+                padding: 10px;
             }
         }
-        colWidths[C] = { wch: maxWidth + 2 };
-    }
-    ws['!cols'] = colWidths;
-}
-
-function exportToExcelWithFormatting(tableId, statusId, fileName) {
-    const table = document.getElementById(tableId);
-    if (!table || table.rows.length === 0) {
-        showStatus(statusId, 'Нет данных для экспорта', 'error');
-        return;
-    }
-    const tableClone = table.cloneNode(true);
-    tableClone.querySelectorAll('input').forEach(input => {
-        const parent = input.parentNode;
-        parent.textContent = input.value;
-    });
-    tableClone.querySelectorAll('.summary-row').forEach(row => row.remove());
-    const ws = XLSX.utils.table_to_sheet(tableClone);
-    applyExcelFormatting(ws);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Отчет");
-    XLSX.writeFile(wb, `${fileName}.xlsx`);
-}
-
-function exportRevenueToExcel() {
-    const dateEl = document.getElementById('revenueDate');
-    const date = dateEl ? dateEl.value : 'unknown_date';
-    exportToExcelWithFormatting('revenueTable', 'revenueStatus', `Выручка_${date}`);
-}
-
-function exportDailyPayrollToExcel() {
-    const dateEl = document.getElementById('payrollDate');
-    const date = dateEl ? dateEl.value : 'unknown_date';
-    exportToExcelWithFormatting('payrollTable', 'payrollStatus', `Расчет_за_день_${date}`);
-}
-
-function exportMonthlyReportToExcel() {
-    const monthEl = document.getElementById('reportMonth');
-    const yearEl = document.getElementById('reportYear');
-    const month = monthEl ? monthEl.value : 'M';
-    const year = yearEl ? yearEl.value : 'Y';
-    exportToExcelWithFormatting('monthlyReportTable', 'reportStatus', `Отчет_за_месяц_${month}_${year}`);
-}
-
-function exportFotReportToExcel() {
-    const monthEl = document.getElementById('fotReportMonth');
-    const yearEl = document.getElementById('fotReportYear');
-    const month = monthEl ? monthEl.value : 'M';
-    const year = yearEl ? yearEl.value : 'Y';
-    const fileName = `Отчет_ФОТ_${month}_${year}`;
-
-    const table = document.getElementById('fotTable');
-    if (!table || table.rows.length === 0 || fotReportDataCache.length === 0) {
-        showStatus('fotReportStatus', 'Нет данных для экспорта', 'error');
-        return;
-    }
-
-    // --- Лист 1: Основной отчет ---
-    const tableClone = table.cloneNode(true);
-    const ws_report = XLSX.utils.table_to_sheet(tableClone);
-    const summaryData = [
-        ["Общая выручка за период:", document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн'],
-        ["Общий ФОТ за период:", document.getElementById('fotTotalFund')?.textContent || '0.00 грн'],
-        ["ФОТ % от выручки:", document.getElementById('fotPercentage')?.textContent || '0.00 %']
-    ];
-    XLSX.utils.sheet_add_aoa(ws_report, [[]], { origin: -1 });
-    XLSX.utils.sheet_add_aoa(ws_report, summaryData, { origin: -1 });
-    
-    // --- Лист 2: Проверка расчетов ---
-    const checkData = [
-        ["Сотрудник", "Базовая ЗП", "Премия", "Штраф", "Недостача", "Выплата на карту (база)", "Налог (22%)", "Итого ФОТ"]
-    ];
-    fotReportDataCache.forEach(emp => {
-        checkData.push([
-            emp.employee_name,
-            emp.base_pay,
-            emp.manual_bonus,
-            emp.penalty,
-            emp.shortage,
-            emp.actual_card_payment,
-            emp.tax_amount,
-            emp.fot
-        ]);
-    });
-    const ws_check = XLSX.utils.aoa_to_sheet(checkData);
-
-    // --- Создание книги и применение форматирования ---
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws_report, "Отчет ФОТ");
-    XLSX.utils.book_append_sheet(wb, ws_check, "Проверка расчетов");
-
-    applyExcelFormatting(ws_report);
-    applyExcelFormatting(ws_check);
-
-    XLSX.writeFile(wb, `${fileName}.xlsx`);
-}
-
-
-// --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
-async function uploadRevenueFile() {
-    const fileInput = document.getElementById('revenueFile');
-    const dateInput = document.getElementById('revenueDate');
-    if (!fileInput || !dateInput) return;
-
-    const file = fileInput.files[0];
-    const date = dateInput.value;
-
-    if (!file || !date) {
-        showStatus('revenueStatus', 'Пожалуйста, выберите файл и укажите дату.', 'error');
-        return;
-    }
-
-    showStatus('revenueStatus', 'Загрузка и обработка файла...', 'info');
-    
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('date', date);
-
-    try {
-        const response = await fetch(`${API_BASE}/upload-revenue-file`, {
-            method: 'POST',
-            credentials: 'include',
-            body: formData,
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            showStatus('revenueStatus', result.message, 'success');
-            displayRevenuePreview(result.revenues, result.matched, result.unmatched, result.totalRevenue);
-        } else {
-            throw new Error(result.error || 'Неизвестная ошибка сервера');
+    </style>
+    <style media="print">
+        @page {
+            size: A4;
+            margin: 15mm;
         }
-    } catch (error) {
-        console.error('Ошибка при загрузке файла:', error);
-        showStatus('revenueStatus', `Ошибка: ${error.message}`, 'error');
-    }
-}
-
-function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
-    const revenuePreviewEl = document.getElementById('revenuePreview');
-    const revenueEmptyEl = document.getElementById('revenueEmpty');
-    const tbody = document.getElementById('revenueTableBody');
-    const totalRevenueValueEl = document.getElementById('totalRevenueValue');
-
-    if (!revenuePreviewEl || !revenueEmptyEl || !tbody || !totalRevenueValueEl) return;
-
-    revenuePreviewEl.style.display = 'block';
-    revenueEmptyEl.style.display = 'none';
-    tbody.innerHTML = '';
-    let counter = 1;
-    revenues.forEach(item => {
-        const isMatched = matched.includes(item.store_address);
-        tbody.innerHTML += `
-            <tr>
-                <td>${counter++}</td>
-                <td>${item.store_address}</td>
-                <td>${formatNumber(item.revenue)} грн</td>
-                <td>
-                    <span class="badge ${isMatched ? 'success' : 'warning'}">
-                        ${isMatched ? 'Сопоставлено' : 'Нет в базе'}
-                    </span>
-                </td>
-            </tr>
-        `;
-    });
-    totalRevenueValueEl.textContent = `${formatNumber(totalRevenue)} грн`;
-    if (unmatched.length > 0) {
-        showStatus('revenueStatus', `Внимание: ${unmatched.length} торговых точек не найдены в базе: ${unmatched.join(', ')}`, 'warning');
-    }
-}
-
-function cancelRevenueUpload() {
-    const revenuePreviewEl = document.getElementById('revenuePreview');
-    const revenueEmptyEl = document.getElementById('revenueEmpty');
-    const revenueFileEl = document.getElementById('revenueFile');
-
-    if (revenuePreviewEl) revenuePreviewEl.style.display = 'none';
-    if (revenueEmptyEl) revenueEmptyEl.style.display = 'block';
-    if (revenueFileEl) revenueFileEl.value = '';
-    hideStatus('revenueStatus');
-}
-
-async function confirmRevenueSave() {
-    showStatus('revenueStatus', 'Данные были успешно сохранены при обработке файла.', 'success');
-    setTimeout(() => {
-        cancelRevenueUpload();
-    }, 2000);
-}
-
-
-// --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
-async function calculatePayroll() {
-    const dateInput = document.getElementById('payrollDate');
-    if (!dateInput) return;
-    const date = dateInput.value;
-
-    if (!date) {
-        showStatus('payrollStatus', 'Пожалуйста, выберите дату для расчета.', 'error');
-        return;
-    }
-    showStatus('payrollStatus', 'Выполняется расчет...', 'info');
-    
-    const loader = document.getElementById('loader');
-    const payrollTable = document.getElementById('payrollTable');
-    const payrollSummary = document.getElementById('payrollSummary');
-    
-    if (loader) loader.style.display = 'block';
-    if (payrollTable) payrollTable.style.display = 'none';
-    if (payrollSummary) payrollSummary.style.display = 'none';
-
-    try {
-        const response = await fetch(`${API_BASE}/calculate-payroll`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ date: date })
-        });
-        const result = await response.json();
-        if (result.success) {
-            hideStatus('payrollStatus');
-            displayPayrollResults(result.calculations, result.summary);
-        } else {
-            throw new Error(result.error || 'Ошибка ответа сервера');
+        body {
+            background: white !important;
         }
-    } catch (error) {
-        showStatus('payrollStatus', `Ошибка: ${error.message}`, 'error');
-    } finally {
-        if (loader) loader.style.display = 'none';
-    }
-}
-
-function displayPayrollResults(calculations, summary) {
-    const tbody = document.getElementById('payrollTableBody');
-    const payrollTable = document.getElementById('payrollTable');
-    const payrollSummary = document.getElementById('payrollSummary');
-
-    if (!tbody || !payrollTable || !payrollSummary) return;
-
-    tbody.innerHTML = '';
-    if (calculations.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Нет данных за выбранную дату.</td></tr>';
-        payrollTable.style.display = 'table';
-        payrollSummary.style.display = 'none';
-        return;
-    }
-
-    const groupedByStore = calculations.reduce((acc, calc) => {
-        const store = calc.store_address || 'Старший продавец';
-        if (!acc[store]) acc[store] = [];
-        acc[store].push(calc);
-        return acc;
-    }, {});
-    const sortedStores = Object.keys(groupedByStore).sort();
-    for (const storeName of sortedStores) {
-        const storeCalculations = groupedByStore[storeName];
-        let storeTotalPay = 0;
-        tbody.innerHTML += `<tr class="summary-row" style="background-color: #f0f2f5;"><td colspan="7" style="font-weight: bold;">Магазин: ${storeName}</td></tr>`;
-        storeCalculations.forEach(calc => {
-            storeTotalPay += calc.total_pay;
-            tbody.innerHTML += `<tr><td>${calc.employee_name} ${calc.is_senior ? '<span class="badge warning">СП</span>' : ''}</td><td>${calc.store_address}</td><td>${formatNumber(calc.revenue)} грн</td><td>${calc.num_sellers}</td><td>${formatNumber(calc.base_rate)} грн</td><td>${formatNumber(calc.bonus)} грн</td><td><strong>${formatNumber(calc.total_pay)} грн</strong></td></tr>`;
-        });
-        tbody.innerHTML += `<tr class="summary-row" style="background-color: #e9ecef;"><td colspan="6" style="font-weight: bold; text-align: right;">Итого по магазину:</td><td style="font-weight: bold;"><strong>${formatNumber(storeTotalPay)} грн</strong></td></tr>`;
-    }
-    payrollTable.style.display = 'table';
-    updatePayrollSummary(summary.total_payroll, calculations.length);
-}
-
-function updatePayrollSummary(totalPayroll, employeeCount) {
-    const totalEmployeesEl = document.getElementById('totalEmployees');
-    if (totalEmployeesEl) totalEmployeesEl.textContent = employeeCount;
-
-    const totalPayrollEl = document.getElementById('totalPayroll');
-    if (totalPayrollEl) totalPayrollEl.textContent = formatNumber(totalPayroll);
-
-    const payrollSummaryEl = document.getElementById('payrollSummary');
-    if (payrollSummaryEl) payrollSummaryEl.style.display = 'block';
-}
-
-// --- ВКЛАДКА "ОТЧЕТ ЗА МЕСЯЦ" ---
-let adjustmentDebounceTimer;
-
-async function generateMonthlyReport() {
-    const monthEl = document.getElementById('reportMonth');
-    const yearEl = document.getElementById('reportYear');
-    const endDateEl = document.getElementById('reportEndDate');
-    const reportContentEl = document.getElementById('monthlyReportContent');
-
-    if (!monthEl || !yearEl || !endDateEl || !reportContentEl) return;
-    
-    const month = monthEl.value;
-    const year = yearEl.value;
-    const reportEndDate = endDateEl.value;
-
-    if (!month || !year || !reportEndDate) {
-        showStatus('reportStatus', 'Пожалуйста, выберите месяц, год и конечную дату.', 'error');
-        return;
-    }
-    showStatus('reportStatus', 'Формирование отчета...', 'info');
-    reportContentEl.style.display = 'none';
-
-    try {
-        const response = await fetch(`${API_BASE}/get-monthly-data`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ year, month, reportEndDate })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-            hideStatus('reportStatus');
-            reportContentEl.style.display = 'block';
-            displayMonthlyReport(result.dailyData, result.adjustments, month, year);
-        } else {
-            throw new Error(result.error || 'Ошибка ответа сервера');
+        body * {
+            visibility: hidden;
         }
-    } catch (error) {
-        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
-    }
-}
-
-
-function displayMonthlyReport(dailyData, adjustments, month, year) {
-    const reportContentEl = document.getElementById('monthlyReportContent');
-    if (!reportContentEl) return;
-
-    const employeeData = {};
-    dailyData.forEach(calc => {
-        if (!employeeData[calc.employee_id]) {
-            employeeData[calc.employee_id] = { name: calc.employee_name, totalPay: 0, shifts: [], stores: {} };
+        #print-area, #print-area * {
+            visibility: visible;
         }
-        employeeData[calc.employee_id].totalPay += calc.total_pay;
-        employeeData[calc.employee_id].shifts.push(new Date(calc.work_date).getDate());
-        const store = calc.store_address || 'Старший продавец';
-        employeeData[calc.employee_id].stores[store] = (employeeData[calc.employee_id].stores[store] || 0) + 1;
-    });
-    const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
-    let tableHtml = `
-        <h3 style="margin-top: 30px; margin-bottom: 20px;">👥 Детализация по сотрудникам:</h3>
-        <table id="monthlyReportTable" style="font-size: 12px; white-space: nowrap;">
-            <thead>
-                <tr>
-                    <th rowspan="2" style="vertical-align: middle;">Сотрудник</th>
-                    <th rowspan="2" style="vertical-align: middle;">Всего начислено</th>
-                    <th colspan="2">Премирование</th>
-                    <th colspan="2">Депремирование</th>
-                    <th rowspan="2" style="vertical-align: middle;">Вычет за недостачу</th>
-                    <th rowspan="2" style="vertical-align: middle;">Аванс (на карту)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Остаток (на карту)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Зарплата (наличными)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Итого к выплате</th>
-                </tr>
-                <tr><th>Сумма</th><th>Причина</th><th>Сумма</th><th>Причина</th></tr>
-            </thead>
-            <tbody>`;
-    if (Object.keys(employeeData).length === 0) {
-        tableHtml += '<tr><td colspan="11" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
-    } else {
-        for (const [id, data] of Object.entries(employeeData)) {
-            let primaryStore = 'Не определен';
-            if (Object.keys(data.stores).length > 0) {
-                primaryStore = Object.keys(data.stores).reduce((a, b) => data.stores[a] > data.stores[b] ? a : b);
-            }
-            const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
-            const totalToPay = data.totalPay + (adj.manual_bonus || 0) - (adj.penalty || 0) - (adj.shortage || 0);
-            tableHtml += `<tr data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
-                            <td>${data.name}</td>
-                            <td class="total-gross">${formatNumber(data.totalPay + (adj.manual_bonus || 0))}</td>
-                            <td><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}"></td>
-                            <td><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина"></td>
-                            <td><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}"></td>
-                            <td><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина"></td>
-                            <td><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}"></td>
-                            <td class="advance-payment">0,00</td>
-                            <td class="card-remainder">0,00</td>
-                            <td class="cash-payout"><strong>0,00</strong></td>
-                            <td class="total-payout"><strong>${formatNumber(totalToPay)}</strong></td>
-                        </tr>`;
+        #print-area {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
         }
-    }
-    tableHtml += `</tbody></table>`;
-    reportContentEl.innerHTML = tableHtml;
-    document.querySelectorAll('.adjustment-input').forEach(input => input.addEventListener('input', handleAdjustmentInput));
-    if (Object.keys(employeeData).length > 0) {
-        calculateAdvance15(true);
-    }
-}
-
-
-function handleAdjustmentInput(e) {
-    clearTimeout(adjustmentDebounceTimer);
-    const row = e.target.closest('tr');
-    recalculateRow(row);
-    adjustmentDebounceTimer = setTimeout(() => {
-        saveAdjustments(row);
-    }, 800);
-}
-
-function recalculateRow(row) {
-    if (!row) return;
-    const basePay = parseFloat(row.dataset.basePay) || 0;
-    
-    const manualBonusInput = row.querySelector('[name="manual_bonus"]');
-    const manualBonus = manualBonusInput ? (parseFloat(manualBonusInput.value) || 0) : 0;
-    
-    const penaltyInput = row.querySelector('[name="penalty"]');
-    const penalty = penaltyInput ? (parseFloat(penaltyInput.value) || 0) : 0;
-
-    const shortageInput = row.querySelector('[name="shortage"]');
-    const shortage = shortageInput ? (parseFloat(shortageInput.value) || 0) : 0;
-
-    const totalGross = basePay + manualBonus;
-    const totalToPay = totalGross - penalty - shortage;
-    
-    const totalGrossCell = row.querySelector('.total-gross');
-    if (totalGrossCell) {
-        totalGrossCell.textContent = formatNumber(totalGross);
-    }
-
-    const totalPayoutCell = row.querySelector('.total-payout strong');
-    if (totalPayoutCell) {
-        totalPayoutCell.textContent = formatNumber(totalToPay);
-    }
-}
-
-async function saveAdjustments(row) {
-    if (!row) return;
-    const payload = {
-        employee_id: row.dataset.employeeId,
-        month: row.dataset.month,
-        year: row.dataset.year,
-        manual_bonus: parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0,
-        penalty: parseFloat(row.querySelector('[name="penalty"]')?.value) || 0,
-        shortage: parseFloat(row.querySelector('[name="shortage"]')?.value) || 0,
-        bonus_reason: row.querySelector('[name="bonus_reason"]')?.value || '',
-        penalty_reason: row.querySelector('[name="penalty_reason"]')?.value || ''
-    };
-    try {
-        const response = await fetch(`${API_BASE}/payroll/adjustments`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(payload)
-        });
-        if (!response.ok) console.error('Ошибка сохранения корректировок');
-    } catch (error) {
-        console.error('Ошибка сети при сохранении:', error);
-    }
-}
-
-
-async function calculateAdvance15(silent = false) {
-    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-    if (tableRows.length === 0) {
-        if (!silent) showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
-        return;
-    }
-    if (!silent) showStatus('reportStatus', 'Рассчитываем аванс...', 'info');
-
-    const year = document.getElementById('reportYear')?.value;
-    const month = document.getElementById('reportMonth')?.value;
-    const advanceEndDate = document.getElementById('reportEndDate')?.value;
-    if (!year || !month || !advanceEndDate) return;
-
-    try {
-        const response = await fetch(`${API_BASE}/calculate-advance`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', },
-            credentials: 'include',
-            body: JSON.stringify({ year, month, advanceEndDate })
-        });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || 'Ошибка ответа сервера');
-
-        tableRows.forEach(row => {
-            const employeeId = row.dataset.employeeId;
-            const result = data.results[employeeId];
-            const advanceCell = row.querySelector('.advance-payment');
-            if (advanceCell) {
-                advanceCell.textContent = result ? formatNumber(result.advance_payment) : formatNumber(0);
-            }
-        });
-
-        if (!silent) showStatus('reportStatus', 'Аванс успешно рассчитан и отображен.', 'success');
-
-    } catch (error) {
-        console.error("Ошибка при расчете аванса:", error);
-        if (!silent) showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
-    }
-}
-
-async function calculateFinalPayroll() {
-    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-    if (tableRows.length === 0) {
-        showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
-        return;
-    }
-    showStatus('reportStatus', 'Выполняем окончательный расчет...', 'info');
-
-    const year = document.getElementById('reportYear')?.value;
-    const month = document.getElementById('reportMonth')?.value;
-    const reportEndDate = document.getElementById('reportEndDate')?.value;
-    if (!year || !month || !reportEndDate) return;
-
-    const advanceFinalDate = reportEndDate; 
-
-    try {
-        const savePromises = [];
-        tableRows.forEach(row => savePromises.push(saveAdjustments(row)));
-        await Promise.all(savePromises);
-
-        const response = await fetch(`${API_BASE}/calculate-final-payroll`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', },
-            credentials: 'include',
-            body: JSON.stringify({ year, month, reportEndDate, advanceFinalDate })
-        });
-
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || 'Ошибка ответа сервера');
-
-        tableRows.forEach(row => {
-            const employeeId = row.dataset.employeeId;
-            const result = data.results[employeeId];
-            if (result) {
-                const totalGrossCell = row.querySelector('.total-gross');
-                if (totalGrossCell) totalGrossCell.textContent = formatNumber(result.total_gross);
-
-                const advanceCell = row.querySelector('.advance-payment');
-                if (advanceCell) advanceCell.textContent = formatNumber(result.advance_payment);
-
-                const remainderCell = row.querySelector('.card-remainder');
-                if (remainderCell) remainderCell.textContent = formatNumber(result.card_remainder);
-                
-                const cashCell = row.querySelector('.cash-payout strong');
-                if (cashCell) cashCell.textContent = formatNumber(result.cash_payout);
-
-                const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-                const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
-                const totalToPay = result.total_gross - penalty - shortage;
-                const totalPayoutCell = row.querySelector('.total-payout strong');
-                if (totalPayoutCell) {
-                    totalPayoutCell.textContent = formatNumber(totalToPay);
-                }
-            }
-        });
-
-        showStatus('reportStatus', 'Окончательный расчет выполнен.', 'success');
-
-    } catch (error) {
-        console.error("Ошибка при окончательном расчете:", error);
-        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
-    }
-}
-
-
-function generateCashPayoutReport() {
-    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-    if (tableRows.length === 0) { return showStatus('reportStatus', 'Сначала сформируйте отчет', 'error'); }
-    const groupedByStore = {};
-    tableRows.forEach(row => {
-        const storeAddress = row.dataset.storeAddress;
-        if (!groupedByStore[storeAddress]) groupedByStore[storeAddress] = [];
-        const employeeName = row.dataset.employeeName;
-        const cashText = row.querySelector('.cash-payout strong')?.textContent;
-        const cashAmount = cashText ? parseFloat(cashText.replace(/\s/g, '').replace(',', '.')) || 0 : 0;
-        groupedByStore[storeAddress].push({ name: employeeName, cash: cashAmount });
-    });
-    const sortedStores = Object.keys(groupedByStore).sort();
-    let reportHtml = `<div id="print-area"><h3>Ведомость по выплатам наличными</h3>`;
-    let grandTotalCash = 0;
-    for (const storeName of sortedStores) {
-        const employees = groupedByStore[storeName];
-        let storeTotal = 0;
-        reportHtml += `<table border="1" style="width:100%; border-collapse: collapse; margin-top: 20px; font-size: 10pt;">
-                        <thead>
-                            <tr><th colspan="2" style="padding: 5px; text-align: left;">Магазин: ${storeName}</th></tr>
-                            <tr><th style="padding: 5px; text-align: left;">Сотрудник</th><th style="padding: 5px;">Сумма наличными, грн</th></tr>
-                        </thead><tbody>`;
-        employees.forEach(emp => {
-            storeTotal += emp.cash;
-            reportHtml += `<tr><td style="padding: 5px;">${emp.name}</td><td style="padding: 5px; text-align: right;">${formatNumber(emp.cash)}</td></tr>`;
-        });
-        reportHtml += `</tbody><tfoot><tr><td style="padding: 5px;"><strong>Итого по магазину:</strong></td><td style="padding: 5px; text-align: right;"><strong>${formatNumber(storeTotal)}</strong></td></tr></tfoot></table>`;
-        grandTotalCash += storeTotal;
-    }
-    reportHtml += `<h4 style="margin-top: 20px; text-align: right;">Общий итог: ${formatNumber(grandTotalCash)} грн</h4></div>`;
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`<html><head><title>Ведомость по наличным</title></head><body>${reportHtml}</body></html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
-}
-
-function printAllPayslips() {
-    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-    if (tableRows.length === 0) { return showStatus('reportStatus', 'Нет данных для печати', 'error'); }
-    const month = tableRows[0].dataset.month;
-    const year = tableRows[0].dataset.year;
-    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
-    let allPayslipsHTML = '';
-    tableRows.forEach(row => {
-        const employeeName = row.dataset.employeeName;
-        const storeAddress = row.dataset.storeAddress;
-        const basePay = parseFloat(row.dataset.basePay);
-        const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
-        const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-        const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
-        const bonus_reason = row.querySelector('[name="bonus_reason"]')?.value || '-';
-        const penalty_reason = row.querySelector('[name="penalty_reason"]')?.value || '-';
-        const totalGross = basePay + manualBonus;
-        const advanceAmount = parseFloat(row.querySelector('.advance-payment')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-        const cardRemainderAmount = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-        const cashAmount = parseFloat(row.querySelector('.cash-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-        const totalToPay = totalGross - penalty - shortage;
-        allPayslipsHTML += `<div class="payslip-compact">
-                                <h3>Расчетный лист</h3>
-                                <p><strong>Сотрудник:</strong> ${employeeName}</p>
-                                ${storeAddress !== 'Старший продавец' && storeAddress !== 'Не определен' ? `<p><strong>Магазин:</strong> ${storeAddress}</p>` : ''}
-                                <p><strong>Период:</strong> ${monthNames[month - 1]} ${year}</p>
-                                <table>
-                                    <tr><td>Начислено (ставка + бонус):</td><td align="right">${formatNumber(basePay)} грн</td></tr>
-                                    <tr><td>Премирование (${bonus_reason}):</td><td align="right">${formatNumber(manualBonus)} грн</td></tr>
-                                    <tr><td><strong>Всего начислено:</strong></td><td align="right"><strong>${formatNumber(totalGross)} грн</strong></td></tr>
-                                    <tr><td style="color:red;">Депремирование (${penalty_reason}):</td><td align="right" style="color:red;">-${formatNumber(penalty)} грн</td></tr>
-                                    <tr><td style="color:red;">Вычет за недостачу:</td><td align="right" style="color:red;">-${formatNumber(shortage)} грн</td></tr>
-                                    <tr><td><strong>Итого к выплате:</strong></td><td align="right"><strong>${formatNumber(totalToPay)} грн</strong></td></tr>
-                                </table>
-                                <table>
-                                    <tr><td>Выплачено авансом (на карту):</td><td align="right">${formatNumber(advanceAmount)} грн</td></tr>
-                                    <tr><td>Выплачено остатка (на карту):</td><td align="right">${formatNumber(cardRemainderAmount)} грн</td></tr>
-                                    <tr><td>Выплачено зарплаты (наличными):</td><td align="right">${formatNumber(cashAmount)} грн</td></tr>
-                                </table>
-                                <p style="margin-top: 15px;">Подпись: _________________________</p>
-                            </div>`;
-    });
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`<html><head><title>Расчетные ведомости</title><style>
-        body { font-family: Arial, sans-serif; }
-        #print-area { display: flex; flex-direction: column; }
         .payslip-compact {
-            font-size: 9pt; height: 30%; box-sizing: border-box;
-            padding-bottom: 5mm; margin-bottom: 5mm;
-            border-bottom: 2px dashed #999; page-break-inside: avoid;
+            font-family: Arial, sans-serif;
+            font-size: 9pt;
+            padding-bottom: 10mm;
+            margin-bottom: 10mm;
+            border-bottom: 2px dashed #999;
+            page-break-inside: avoid;
         }
-        .payslip-compact:last-child { border-bottom: none; }
-        .payslip-compact h3 { text-align: center; font-size: 12pt; margin-bottom: 10px; }
-        .payslip-compact table { width: 100%; border-collapse: collapse; margin: 5px 0; }
-        .payslip-compact td { padding: 2px 0; }
-        @page { size: A4; margin: 15mm; }
-    </style></head><body><div id="print-area">${allPayslipsHTML}</div></body></html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
-}
-
-// --- НОВАЯ ФУНКЦИЯ ДЛЯ ВКЛАДКИ ФОТ ---
-async function generateFotReport() {
-    const monthEl = document.getElementById('fotReportMonth');
-    const yearEl = document.getElementById('fotReportYear');
-    const endDateEl = document.getElementById('fotReportEndDate');
-    const loader = document.getElementById('fotLoader');
-    const contentEl = document.getElementById('fotReportContent');
-
-    if (!monthEl || !yearEl || !endDateEl || !loader || !contentEl) return;
-
-    const month = monthEl.value;
-    const year = yearEl.value;
-    const reportEndDate = endDateEl.value;
-
-    if (!month || !year || !reportEndDate) {
-        showStatus('fotReportStatus', 'Пожалуйста, выберите все параметры.', 'error');
-        return;
-    }
-    showStatus('fotReportStatus', 'Формирование отчета ФОТ...', 'info');
-    loader.style.display = 'block';
-    contentEl.style.display = 'none';
-
-    try {
-        const response = await fetch(`${API_BASE}/get-fot-report`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ year, month, reportEndDate })
-        });
-
-        const result = await response.json();
-        if (!result.success) {
-            throw new Error(result.error || 'Ошибка ответа сервера');
+        .payslip-compact:last-child {
+            border-bottom: none;
         }
-
-        hideStatus('fotReportStatus');
-        contentEl.style.display = 'block';
-        
-        fotReportDataCache = result.reportData; // Кэшируем данные для экспорта
-
-        const tbody = document.getElementById('fotTableBody');
-        if (!tbody) return;
-
-        tbody.innerHTML = '';
-        if (result.reportData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
-        } else {
-            result.reportData.forEach(data => {
-                const row = `
-                    <tr>
-                        <td>${data.employee_name}</td>
-                        <td>${formatNumber(data.card_payment_with_tax)} грн</td>
-                        <td>${formatNumber(data.cash_payout)} грн</td>
-                        <td>${formatNumber(data.total_payout_to_employee)} грн</td>
-                        <td>${formatNumber(data.tax_amount)} грн</td>
-                        <td><strong>${formatNumber(data.fot)} грн</strong></td>
-                    </tr>
-                `;
-                tbody.innerHTML += row;
-            });
+        .payslip-compact h3 {
+            text-align: center;
+            font-size: 12pt;
+            margin-bottom: 10px;
         }
+        .payslip-compact table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 5px 0;
+        }
+        .payslip-compact td {
+            padding: 2px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💰 Система расчета заработной платы</h1>
+            <p>Автоматизированный расчет и учет заработной платы сотрудников</p>
+        </div>
 
-        // Заполняем итоговую панель
-        const fotTotalRevenueEl = document.getElementById('fotTotalRevenue');
-        if (fotTotalRevenueEl) fotTotalRevenueEl.textContent = `${formatNumber(result.summary.total_revenue)} грн`;
+        <div class="content">
+            <div class="tab-navigation">
+                <button class="tab-button active" onclick="switchTab('revenue', this)">
+                    📊 Загрузка выручки
+                </button>
+                <button class="tab-button" onclick="switchTab('payroll', this)">
+                    💵 Расчет зарплаты
+                </button>
+                <button class="tab-button" onclick="switchTab('report', this)">
+                    📈 Отчет за месяц
+                </button>
+                <!-- Новая вкладка, которая будет отображаться/скрываться скриптом -->
+                <button id="fot-tab-button" class="tab-button" onclick="switchTab('fot', this)" style="display: none;">
+                    💼 Фонд оплаты труда
+                </button>
+            </div>
 
-        const fotTotalFundEl = document.getElementById('fotTotalFund');
-        if (fotTotalFundEl) fotTotalFundEl.textContent = `${formatNumber(result.summary.total_fot)} грн`;
-        
-        const fotPercentageEl = document.getElementById('fotPercentage');
-        if (fotPercentageEl) fotPercentageEl.textContent = `${formatNumber(result.summary.fot_percentage)} %`;
+            <div id="revenue-tab" class="tab-content active">
+                <div class="control-panel">
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>Дата выручки:</label>
+                            <input type="date" id="revenueDate">
+                        </div>
+                        <div class="control-group">
+                            <label>Файл с данными (CSV/Excel):</label>
+                            <input type="file" id="revenueFile" accept=".csv,.xlsx,.xls">
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button id="uploadRevenueBtn" class="success">
+                                Загрузить и обработать
+                            </button>
+                        </div>
+                        <div class="control-group" style="margin-left: auto;">
+                            <label>&nbsp;</label>
+                            <button class="secondary" onclick="exportRevenueToExcel()">Экспорт в Excel</button>
+                        </div>
+                    </div>
+                </div>
 
-    } catch (error) {
-        showStatus('fotReportStatus', `Ошибка: ${error.message}`, 'error');
-    } finally {
-        if(loader) loader.style.display = 'none';
-    }
-}
+                <div id="revenueStatus" class="status" style="display:none;"></div>
+
+                <div id="revenuePreview" style="display:none;">
+                    <h3 style="margin-bottom: 20px;">📋 Предпросмотр загруженных данных:</h3>
+                    <div class="table-container">
+                        <table id="revenueTable">
+                            <thead>
+                                <tr>
+                                    <th>№</th>
+                                    <th>Торговая точка</th>
+                                    <th>Выручка (грн)</th>
+                                    <th>Статус</th>
+                                </tr>
+                            </thead>
+                            <tbody id="revenueTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="summary-panel" style="margin-top: 0; text-align: right; padding: 15px;">
+                        <div class="summary-row" style="font-size: 18px;">
+                            <span class="summary-label">Итого выручка:</span>
+                            <span class="summary-value" id="totalRevenueValue">0.00 грн</span>
+                        </div>
+                    </div>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <button class="success" onclick="confirmRevenueSave()" style="margin-right: 10px;">
+                            Подтвердить и сохранить
+                        </button>
+                        <button class="secondary" onclick="cancelRevenueUpload()">
+                            Отменить
+                        </button>
+                    </div>
+                </div>
+
+                <div id="revenueEmpty" class="empty-state">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <h3>Нет загруженных данных</h3>
+                    <p>Выберите файл с выручкой для загрузки</p>
+                </div>
+            </div>
+
+            <div id="payroll-tab" class="tab-content">
+                <div class="control-panel">
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>Дата для расчета:</label>
+                            <input type="date" id="payrollDate">
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button onclick="calculatePayroll()">
+                                Рассчитать зарплату
+                            </button>
+                        </div>
+                        <div class="control-group" style="margin-left: auto;">
+                            <label>&nbsp;</label>
+                            <button class="secondary" onclick="exportDailyPayrollToExcel()">Экспорт в Excel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="payrollStatus" class="status" style="display:none;"></div>
+                <div class="loader" id="loader"></div>
+                
+                <div class="table-container">
+                    <table id="payrollTable" style="display:none;">
+                        <thead>
+                            <tr>
+                                <th>Сотрудник</th>
+                                <th>Магазин</th>
+                                <th>Выручка магазина</th>
+                                <th>Кол-во продавцов</th>
+                                <th>Базовая ставка</th>
+                                <th>Бонус</th>
+                                <th>Итого за день</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payrollTableBody"></tbody>
+                    </table>
+                </div>
+
+                <div id="payrollSummary" class="summary-panel" style="display:none;">
+                    <h3>💼 Итого за день (Общий):</h3>
+                    <div class="summary-row">
+                        <span class="summary-label">Сотрудников:</span>
+                        <span class="summary-value" id="totalEmployees">0</span>
+                    </div>
+                    <div class="summary-row">
+                        <span class="summary-label">Общая сумма к начислению:</span>
+                        <span class="summary-value"><span id="totalPayroll">0</span> грн</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="report-tab" class="tab-content">
+                <div class="control-panel">
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>Месяц:</label>
+                            <select id="reportMonth">
+                                <option value="1">Январь</option>
+                                <option value="2">Февраль</option>
+                                <option value="3">Март</option>
+                                <option value="4">Апрель</option>
+                                <option value="5">Май</option>
+                                <option value="6">Июнь</option>
+                                <option value="7">Июль</option>
+                                <option value="8">Август</option>
+                                <option value="9">Сентябрь</option>
+                                <option value="10">Октябрь</option>
+                                <option value="11">Ноябрь</option>
+                                <option value="12">Декабрь</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Год:</label>
+                            <input type="number" id="reportYear" value="2025" min="2024" max="2030">
+                        </div>
+                        <div class="control-group">
+                            <label>Рассчитать по дату:</label>
+                            <input type="date" id="reportEndDate">
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button onclick="generateMonthlyReport()">Сформировать отчет</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button class="success" onclick="calculateAdvance15()">Рассчитать аванс</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button class="success" onclick="calculateFinalPayroll()">Окончательный расчет</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button class="secondary" onclick="exportMonthlyReportToExcel()">Экспорт в Excel</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                             <button class="secondary" onclick="printAllPayslips()">🖨️ Печать ведомостей</button>
+                        </div>
+                         <div class="control-group">
+                            <label>&nbsp;</label>
+                             <button class="secondary" onclick="generateCashPayoutReport()">📄 Ведомость по наличным</button>
+                        </div>
+                        <div class="control-group" style="margin-left: auto;">
+                            <label>&nbsp;</label>
+                             <button class="danger" onclick="logout()">
+                                Выйти
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="reportStatus" class="status" style="display:none;"></div>
+
+                <div id="monthlyReportContent" style="display:none;" class="table-container">
+                </div>
+            </div>
+            
+            <!-- Содержимое новой вкладки ФОТ -->
+            <div id="fot-tab" class="tab-content">
+                <div class="control-panel">
+                    <div class="control-row">
+                         <div class="control-group">
+                            <label>Месяц:</label>
+                            <select id="fotReportMonth">
+                                <!-- Опции будут добавлены скриптом -->
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Год:</label>
+                            <input type="number" id="fotReportYear" value="2025" min="2024" max="2030">
+                        </div>
+                        <div class="control-group">
+                            <label>Рассчитать по дату:</label>
+                            <input type="date" id="fotReportEndDate">
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button onclick="generateFotReport()">Сформировать отчет ФОТ</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button class="secondary" onclick="exportFotReportToExcel()">Экспорт в Excel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="fotReportStatus" class="status" style="display:none;"></div>
+                <div class="loader" id="fotLoader"></div>
+
+                <div id="fotReportContent" style="display:none;">
+                    <div class="table-container">
+                        <table id="fotTable">
+                            <thead>
+                                <tr>
+                                    <th>Сотрудник</th>
+                                    <th>На карту (с налогом)</th>
+                                    <th>Наличными</th>
+                                    <th>Выплата сотруднику</th>
+                                    <th>Налог (22%)</th>
+                                    <th>ФОТ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fotTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="summary-panel">
+                        <h3>Итоговый отчет по ФОТ</h3>
+                        <div class="summary-row">
+                            <span class="summary-label">Общая выручка за период:</span>
+                            <span class="summary-value" id="fotTotalRevenue">0.00 грн</span>
+                        </div>
+                        <div class="summary-row">
+                            <span class="summary-label">Общий ФОТ за период:</span>
+                            <span class="summary-value" id="fotTotalFund">0.00 грн</span>
+                        </div>
+                        <div class="summary-row" style="font-size: 22px; color: #764ba2;">
+                            <span class="summary-label">ФОТ % от выручки:</span>
+                            <span class="summary-value" id="fotPercentage">0.00 %</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="payroll.js" defer></script>
+</body>
+</html>
