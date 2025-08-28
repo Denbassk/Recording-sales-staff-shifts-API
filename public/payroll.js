@@ -25,8 +25,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             
             const data = await response.json();
             // Показываем вкладку ФОТ только для админов
-            if (data.success && data.user.role === 'admin') {
-                document.getElementById('fot-tab-button').style.display = 'block';
+            const fotTabButton = document.getElementById('fot-tab-button');
+            if (data.success && data.user.role === 'admin' && fotTabButton) {
+                fotTabButton.style.display = 'block';
             }
 
             initializePage();
@@ -55,14 +56,17 @@ document.addEventListener('DOMContentLoaded', async function() {
             document.getElementById('fotReportEndDate')
         ];
         
-        document.getElementById('revenueDate').value = todayStr;
-        document.getElementById('payrollDate').value = todayStr;
+        const revenueDateEl = document.getElementById('revenueDate');
+        if (revenueDateEl) revenueDateEl.value = todayStr;
+
+        const payrollDateEl = document.getElementById('payrollDate');
+        if (payrollDateEl) payrollDateEl.value = todayStr;
 
         monthSelects.forEach(select => {
             if (select) {
-                // Копируем опции из первого селекта во второй
                 if (select.id === 'fotReportMonth') {
-                    select.innerHTML = document.getElementById('reportMonth').innerHTML;
+                    const reportMonthEl = document.getElementById('reportMonth');
+                    if (reportMonthEl) select.innerHTML = reportMonthEl.innerHTML;
                 }
                 select.value = today.getMonth() + 1;
             }
@@ -71,23 +75,39 @@ document.addEventListener('DOMContentLoaded', async function() {
         endDateInputs.forEach(input => { if (input) input.value = todayStr; });
 
         function updateEndDateDefault() {
-            const year = this.closest('.control-panel').querySelector('input[type="number"]').value;
-            const month = this.closest('.control-panel').querySelector('select').value;
-            const endDateInput = this.closest('.control-panel').querySelector('input[type="date"]');
+            const controlPanel = this.closest('.control-panel');
+            if (!controlPanel) return;
+
+            const yearInput = controlPanel.querySelector('input[type="number"]');
+            const monthSelect = controlPanel.querySelector('select');
+            const endDateInput = controlPanel.querySelector('input[type="date"]');
             
+            if (!yearInput || !monthSelect || !endDateInput) {
+                console.error("Не удалось найти элементы управления датой в панели", controlPanel);
+                return;
+            }
+
+            const year = yearInput.value;
+            const month = monthSelect.value;
+            
+            if (!year || !month) return;
+
             const lastDay = new Date(year, month, 0).getDate();
             const lastDayOfMonthStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
             
-            // Устанавливаем дату по умолчанию на сегодня, если сегодня раньше конца месяца
-            if (new Date(todayStr) < new Date(lastDayOfMonthStr)) {
+            if (new Date() < new Date(year, month - 1, lastDay)) {
                  endDateInput.value = todayStr;
             } else {
                  endDateInput.value = lastDayOfMonthStr;
             }
         }
         
-        monthSelects.forEach(s => s.addEventListener('change', updateEndDateDefault));
-        yearInputs.forEach(i => i.addEventListener('change', updateEndDateDefault));
+        monthSelects.forEach(s => {
+            if(s) s.addEventListener('change', updateEndDateDefault)
+        });
+        yearInputs.forEach(i => {
+            if(i) i.addEventListener('change', updateEndDateDefault)
+        });
     }
 
     await verifyAuthentication();
@@ -113,12 +133,14 @@ function formatNumber(num) {
 }
 function showStatus(elementId, message, type) {
     const statusEl = document.getElementById(elementId);
+    if (!statusEl) return;
     statusEl.className = `status ${type}`;
     statusEl.textContent = message;
     statusEl.style.display = 'flex';
 }
 function hideStatus(elementId) {
-    document.getElementById(elementId).style.display = 'none';
+    const statusEl = document.getElementById(elementId);
+    if (statusEl) statusEl.style.display = 'none';
 }
 
 // --- ФУНКЦИИ ЭКСПОРТА В EXCEL ---
@@ -140,16 +162,20 @@ function exportToExcel(tableId, statusId, fileName) {
     saveAs(new Blob([wbout], { type: "application/octet-stream" }), `${fileName}.xlsx`);
 }
 function exportRevenueToExcel() {
-    const date = document.getElementById('revenueDate').value;
+    const dateEl = document.getElementById('revenueDate');
+    const date = dateEl ? dateEl.value : 'unknown_date';
     exportToExcel('revenueTable', 'revenueStatus', `Выручка_${date}`);
 }
 function exportDailyPayrollToExcel() {
-    const date = document.getElementById('payrollDate').value;
+    const dateEl = document.getElementById('payrollDate');
+    const date = dateEl ? dateEl.value : 'unknown_date';
     exportToExcel('payrollTable', 'payrollStatus', `Расчет_за_день_${date}`);
 }
 function exportMonthlyReportToExcel() {
-    const month = document.getElementById('reportMonth').value;
-    const year = document.getElementById('reportYear').value;
+    const monthEl = document.getElementById('reportMonth');
+    const yearEl = document.getElementById('reportYear');
+    const month = monthEl ? monthEl.value : 'M';
+    const year = yearEl ? yearEl.value : 'Y';
     exportToExcel('monthlyReportTable', 'reportStatus', `Отчет_за_месяц_${month}_${year}`);
 }
 
@@ -158,6 +184,8 @@ function exportMonthlyReportToExcel() {
 async function uploadRevenueFile() {
     const fileInput = document.getElementById('revenueFile');
     const dateInput = document.getElementById('revenueDate');
+    if (!fileInput || !dateInput) return;
+
     const file = fileInput.files[0];
     const date = dateInput.value;
 
@@ -194,9 +222,15 @@ async function uploadRevenueFile() {
 }
 
 function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
-    document.getElementById('revenuePreview').style.display = 'block';
-    document.getElementById('revenueEmpty').style.display = 'none';
+    const revenuePreviewEl = document.getElementById('revenuePreview');
+    const revenueEmptyEl = document.getElementById('revenueEmpty');
     const tbody = document.getElementById('revenueTableBody');
+    const totalRevenueValueEl = document.getElementById('totalRevenueValue');
+
+    if (!revenuePreviewEl || !revenueEmptyEl || !tbody || !totalRevenueValueEl) return;
+
+    revenuePreviewEl.style.display = 'block';
+    revenueEmptyEl.style.display = 'none';
     tbody.innerHTML = '';
     let counter = 1;
     revenues.forEach(item => {
@@ -214,16 +248,20 @@ function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
             </tr>
         `;
     });
-    document.getElementById('totalRevenueValue').textContent = `${formatNumber(totalRevenue)} грн`;
+    totalRevenueValueEl.textContent = `${formatNumber(totalRevenue)} грн`;
     if (unmatched.length > 0) {
         showStatus('revenueStatus', `Внимание: ${unmatched.length} торговых точек не найдены в базе: ${unmatched.join(', ')}`, 'warning');
     }
 }
 
 function cancelRevenueUpload() {
-    document.getElementById('revenuePreview').style.display = 'none';
-    document.getElementById('revenueEmpty').style.display = 'block';
-    document.getElementById('revenueFile').value = '';
+    const revenuePreviewEl = document.getElementById('revenuePreview');
+    const revenueEmptyEl = document.getElementById('revenueEmpty');
+    const revenueFileEl = document.getElementById('revenueFile');
+
+    if (revenuePreviewEl) revenuePreviewEl.style.display = 'none';
+    if (revenueEmptyEl) revenueEmptyEl.style.display = 'block';
+    if (revenueFileEl) revenueFileEl.value = '';
     hideStatus('revenueStatus');
 }
 
@@ -237,15 +275,23 @@ async function confirmRevenueSave() {
 
 // --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
 async function calculatePayroll() {
-    const date = document.getElementById('payrollDate').value;
+    const dateInput = document.getElementById('payrollDate');
+    if (!dateInput) return;
+    const date = dateInput.value;
+
     if (!date) {
         showStatus('payrollStatus', 'Пожалуйста, выберите дату для расчета.', 'error');
         return;
     }
     showStatus('payrollStatus', 'Выполняется расчет...', 'info');
-    document.getElementById('loader').style.display = 'block';
-    document.getElementById('payrollTable').style.display = 'none';
-    document.getElementById('payrollSummary').style.display = 'none';
+    
+    const loader = document.getElementById('loader');
+    const payrollTable = document.getElementById('payrollTable');
+    const payrollSummary = document.getElementById('payrollSummary');
+    
+    if (loader) loader.style.display = 'block';
+    if (payrollTable) payrollTable.style.display = 'none';
+    if (payrollSummary) payrollSummary.style.display = 'none';
 
     try {
         const response = await fetch(`${API_BASE}/calculate-payroll`, {
@@ -264,17 +310,22 @@ async function calculatePayroll() {
     } catch (error) {
         showStatus('payrollStatus', `Ошибка: ${error.message}`, 'error');
     } finally {
-        document.getElementById('loader').style.display = 'none';
+        if (loader) loader.style.display = 'none';
     }
 }
 
 function displayPayrollResults(calculations, summary) {
     const tbody = document.getElementById('payrollTableBody');
+    const payrollTable = document.getElementById('payrollTable');
+    const payrollSummary = document.getElementById('payrollSummary');
+
+    if (!tbody || !payrollTable || !payrollSummary) return;
+
     tbody.innerHTML = '';
     if (calculations.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Нет данных за выбранную дату.</td></tr>';
-        document.getElementById('payrollTable').style.display = 'table';
-        document.getElementById('payrollSummary').style.display = 'none';
+        payrollTable.style.display = 'table';
+        payrollSummary.style.display = 'none';
         return;
     }
 
@@ -295,30 +346,42 @@ function displayPayrollResults(calculations, summary) {
         });
         tbody.innerHTML += `<tr class="summary-row" style="background-color: #e9ecef;"><td colspan="6" style="font-weight: bold; text-align: right;">Итого по магазину:</td><td style="font-weight: bold;"><strong>${formatNumber(storeTotalPay)} грн</strong></td></tr>`;
     }
-    document.getElementById('payrollTable').style.display = 'table';
+    payrollTable.style.display = 'table';
     updatePayrollSummary(summary.total_payroll, calculations.length);
 }
 
 function updatePayrollSummary(totalPayroll, employeeCount) {
-    document.getElementById('totalEmployees').textContent = employeeCount;
-    document.getElementById('totalPayroll').textContent = formatNumber(totalPayroll);
-    document.getElementById('payrollSummary').style.display = 'block';
+    const totalEmployeesEl = document.getElementById('totalEmployees');
+    if (totalEmployeesEl) totalEmployeesEl.textContent = employeeCount;
+
+    const totalPayrollEl = document.getElementById('totalPayroll');
+    if (totalPayrollEl) totalPayrollEl.textContent = formatNumber(totalPayroll);
+
+    const payrollSummaryEl = document.getElementById('payrollSummary');
+    if (payrollSummaryEl) payrollSummaryEl.style.display = 'block';
 }
 
 // --- ВКЛАДКА "ОТЧЕТ ЗА МЕСЯЦ" ---
 let adjustmentDebounceTimer;
 
 async function generateMonthlyReport() {
-    const month = document.getElementById('reportMonth').value;
-    const year = document.getElementById('reportYear').value;
-    const reportEndDate = document.getElementById('reportEndDate').value;
+    const monthEl = document.getElementById('reportMonth');
+    const yearEl = document.getElementById('reportYear');
+    const endDateEl = document.getElementById('reportEndDate');
+    const reportContentEl = document.getElementById('monthlyReportContent');
+
+    if (!monthEl || !yearEl || !endDateEl || !reportContentEl) return;
+    
+    const month = monthEl.value;
+    const year = yearEl.value;
+    const reportEndDate = endDateEl.value;
 
     if (!month || !year || !reportEndDate) {
         showStatus('reportStatus', 'Пожалуйста, выберите месяц, год и конечную дату.', 'error');
         return;
     }
     showStatus('reportStatus', 'Формирование отчета...', 'info');
-    document.getElementById('monthlyReportContent').style.display = 'none';
+    reportContentEl.style.display = 'none';
 
     try {
         const response = await fetch(`${API_BASE}/get-monthly-data`, {
@@ -331,7 +394,7 @@ async function generateMonthlyReport() {
         const result = await response.json();
         if (result.success) {
             hideStatus('reportStatus');
-            document.getElementById('monthlyReportContent').style.display = 'block';
+            reportContentEl.style.display = 'block';
             displayMonthlyReport(result.dailyData, result.adjustments, month, year);
         } else {
             throw new Error(result.error || 'Ошибка ответа сервера');
@@ -343,6 +406,9 @@ async function generateMonthlyReport() {
 
 
 function displayMonthlyReport(dailyData, adjustments, month, year) {
+    const reportContentEl = document.getElementById('monthlyReportContent');
+    if (!reportContentEl) return;
+
     const employeeData = {};
     dailyData.forEach(calc => {
         if (!employeeData[calc.employee_id]) {
@@ -367,12 +433,13 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
                     <th rowspan="2" style="vertical-align: middle;">Аванс (на карту)</th>
                     <th rowspan="2" style="vertical-align: middle;">Остаток (на карту)</th>
                     <th rowspan="2" style="vertical-align: middle;">Зарплата (наличными)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Итого к выплате</th>
                 </tr>
                 <tr><th>Сумма</th><th>Причина</th><th>Сумма</th><th>Причина</th></tr>
             </thead>
             <tbody>`;
     if (Object.keys(employeeData).length === 0) {
-        tableHtml += '<tr><td colspan="10" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
+        tableHtml += '<tr><td colspan="11" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
     } else {
         for (const [id, data] of Object.entries(employeeData)) {
             let primaryStore = 'Не определен';
@@ -380,6 +447,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
                 primaryStore = Object.keys(data.stores).reduce((a, b) => data.stores[a] > data.stores[b] ? a : b);
             }
             const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
+            const totalToPay = data.totalPay + (adj.manual_bonus || 0) - (adj.penalty || 0) - (adj.shortage || 0);
             tableHtml += `<tr data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
                             <td>${data.name}</td>
                             <td class="total-gross">${formatNumber(data.totalPay + (adj.manual_bonus || 0))}</td>
@@ -391,14 +459,14 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
                             <td class="advance-payment">0,00</td>
                             <td class="card-remainder">0,00</td>
                             <td class="cash-payout"><strong>0,00</strong></td>
+                            <td class="total-payout"><strong>${formatNumber(totalToPay)}</strong></td>
                         </tr>`;
         }
     }
     tableHtml += `</tbody></table>`;
-    document.getElementById('monthlyReportContent').innerHTML = tableHtml;
+    reportContentEl.innerHTML = tableHtml;
     document.querySelectorAll('.adjustment-input').forEach(input => input.addEventListener('input', handleAdjustmentInput));
     if (Object.keys(employeeData).length > 0) {
-        // Рассчитываем аванс автоматически при генерации отчета
         calculateAdvance15(true);
     }
 }
@@ -414,22 +482,43 @@ function handleAdjustmentInput(e) {
 }
 
 function recalculateRow(row) {
-    const basePay = parseFloat(row.dataset.basePay);
-    const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0;
+    if (!row) return;
+    const basePay = parseFloat(row.dataset.basePay) || 0;
+    
+    const manualBonusInput = row.querySelector('[name="manual_bonus"]');
+    const manualBonus = manualBonusInput ? (parseFloat(manualBonusInput.value) || 0) : 0;
+    
+    const penaltyInput = row.querySelector('[name="penalty"]');
+    const penalty = penaltyInput ? (parseFloat(penaltyInput.value) || 0) : 0;
+
+    const shortageInput = row.querySelector('[name="shortage"]');
+    const shortage = shortageInput ? (parseFloat(shortageInput.value) || 0) : 0;
+
     const totalGross = basePay + manualBonus;
-    row.querySelector('.total-gross').textContent = formatNumber(totalGross);
+    const totalToPay = totalGross - penalty - shortage;
+    
+    const totalGrossCell = row.querySelector('.total-gross');
+    if (totalGrossCell) {
+        totalGrossCell.textContent = formatNumber(totalGross);
+    }
+
+    const totalPayoutCell = row.querySelector('.total-payout strong');
+    if (totalPayoutCell) {
+        totalPayoutCell.textContent = formatNumber(totalToPay);
+    }
 }
 
 async function saveAdjustments(row) {
+    if (!row) return;
     const payload = {
         employee_id: row.dataset.employeeId,
         month: row.dataset.month,
         year: row.dataset.year,
-        manual_bonus: parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0,
-        penalty: parseFloat(row.querySelector('[name="penalty"]').value) || 0,
-        shortage: parseFloat(row.querySelector('[name="shortage"]').value) || 0,
-        bonus_reason: row.querySelector('[name="bonus_reason"]').value,
-        penalty_reason: row.querySelector('[name="penalty_reason"]').value
+        manual_bonus: parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0,
+        penalty: parseFloat(row.querySelector('[name="penalty"]')?.value) || 0,
+        shortage: parseFloat(row.querySelector('[name="shortage"]')?.value) || 0,
+        bonus_reason: row.querySelector('[name="bonus_reason"]')?.value || '',
+        penalty_reason: row.querySelector('[name="penalty_reason"]')?.value || ''
     };
     try {
         const response = await fetch(`${API_BASE}/payroll/adjustments`, {
@@ -453,10 +542,10 @@ async function calculateAdvance15(silent = false) {
     }
     if (!silent) showStatus('reportStatus', 'Рассчитываем аванс...', 'info');
 
-    const year = document.getElementById('reportYear').value;
-    const month = document.getElementById('reportMonth').value;
-    // Используем дату из поля "Рассчитать по дату" для гибкости
-    const advanceEndDate = document.getElementById('reportEndDate').value;
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    const advanceEndDate = document.getElementById('reportEndDate')?.value;
+    if (!year || !month || !advanceEndDate) return;
 
     try {
         const response = await fetch(`${API_BASE}/calculate-advance`, {
@@ -471,10 +560,9 @@ async function calculateAdvance15(silent = false) {
         tableRows.forEach(row => {
             const employeeId = row.dataset.employeeId;
             const result = data.results[employeeId];
-            if (result) {
-                row.querySelector('.advance-payment').textContent = formatNumber(result.advance_payment);
-            } else {
-                row.querySelector('.advance-payment').textContent = formatNumber(0);
+            const advanceCell = row.querySelector('.advance-payment');
+            if (advanceCell) {
+                advanceCell.textContent = result ? formatNumber(result.advance_payment) : formatNumber(0);
             }
         });
 
@@ -494,10 +582,11 @@ async function calculateFinalPayroll() {
     }
     showStatus('reportStatus', 'Выполняем окончательный расчет...', 'info');
 
-    const year = document.getElementById('reportYear').value;
-    const month = document.getElementById('reportMonth').value;
-    const reportEndDate = document.getElementById('reportEndDate').value;
-    // Дата, до которой считался аванс, должна быть той же, что и при расчете аванса
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    const reportEndDate = document.getElementById('reportEndDate')?.value;
+    if (!year || !month || !reportEndDate) return;
+
     const advanceFinalDate = reportEndDate; 
 
     try {
@@ -519,10 +608,25 @@ async function calculateFinalPayroll() {
             const employeeId = row.dataset.employeeId;
             const result = data.results[employeeId];
             if (result) {
-                row.querySelector('.total-gross').textContent = formatNumber(result.total_gross);
-                row.querySelector('.advance-payment').textContent = formatNumber(result.advance_payment);
-                row.querySelector('.card-remainder').textContent = formatNumber(result.card_remainder);
-                row.querySelector('.cash-payout strong').textContent = formatNumber(result.cash_payout);
+                const totalGrossCell = row.querySelector('.total-gross');
+                if (totalGrossCell) totalGrossCell.textContent = formatNumber(result.total_gross);
+
+                const advanceCell = row.querySelector('.advance-payment');
+                if (advanceCell) advanceCell.textContent = formatNumber(result.advance_payment);
+
+                const remainderCell = row.querySelector('.card-remainder');
+                if (remainderCell) remainderCell.textContent = formatNumber(result.card_remainder);
+                
+                const cashCell = row.querySelector('.cash-payout strong');
+                if (cashCell) cashCell.textContent = formatNumber(result.cash_payout);
+
+                const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+                const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+                const totalToPay = result.total_gross - penalty - shortage;
+                const totalPayoutCell = row.querySelector('.total-payout strong');
+                if (totalPayoutCell) {
+                    totalPayoutCell.textContent = formatNumber(totalToPay);
+                }
             }
         });
 
@@ -543,8 +647,8 @@ function generateCashPayoutReport() {
         const storeAddress = row.dataset.storeAddress;
         if (!groupedByStore[storeAddress]) groupedByStore[storeAddress] = [];
         const employeeName = row.dataset.employeeName;
-        const cashText = row.querySelector('.cash-payout strong').textContent;
-        const cashAmount = parseFloat(cashText.replace(/\s/g, '').replace(',', '.')) || 0;
+        const cashText = row.querySelector('.cash-payout strong')?.textContent;
+        const cashAmount = cashText ? parseFloat(cashText.replace(/\s/g, '').replace(',', '.')) || 0 : 0;
         groupedByStore[storeAddress].push({ name: employeeName, cash: cashAmount });
     });
     const sortedStores = Object.keys(groupedByStore).sort();
@@ -584,15 +688,15 @@ function printAllPayslips() {
         const employeeName = row.dataset.employeeName;
         const storeAddress = row.dataset.storeAddress;
         const basePay = parseFloat(row.dataset.basePay);
-        const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0;
-        const penalty = parseFloat(row.querySelector('[name="penalty"]').value) || 0;
-        const shortage = parseFloat(row.querySelector('[name="shortage"]').value) || 0;
-        const bonus_reason = row.querySelector('[name="bonus_reason"]').value || '-';
-        const penalty_reason = row.querySelector('[name="penalty_reason"]').value || '-';
+        const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
+        const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+        const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+        const bonus_reason = row.querySelector('[name="bonus_reason"]')?.value || '-';
+        const penalty_reason = row.querySelector('[name="penalty_reason"]')?.value || '-';
         const totalGross = basePay + manualBonus;
-        const advanceAmount = parseFloat(row.querySelector('.advance-payment').textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-        const cardRemainderAmount = parseFloat(row.querySelector('.card-remainder').textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-        const cashAmount = parseFloat(row.querySelector('.cash-payout strong').textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        const advanceAmount = parseFloat(row.querySelector('.advance-payment')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        const cardRemainderAmount = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        const cashAmount = parseFloat(row.querySelector('.cash-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
         const totalToPay = totalGross - penalty - shortage;
         allPayslipsHTML += `<div class="payslip-compact">
                                 <h3>Расчетный лист</h3>
@@ -637,17 +741,25 @@ function printAllPayslips() {
 
 // --- НОВАЯ ФУНКЦИЯ ДЛЯ ВКЛАДКИ ФОТ ---
 async function generateFotReport() {
-    const month = document.getElementById('fotReportMonth').value;
-    const year = document.getElementById('fotReportYear').value;
-    const reportEndDate = document.getElementById('fotReportEndDate').value;
+    const monthEl = document.getElementById('fotReportMonth');
+    const yearEl = document.getElementById('fotReportYear');
+    const endDateEl = document.getElementById('fotReportEndDate');
+    const loader = document.getElementById('fotLoader');
+    const contentEl = document.getElementById('fotReportContent');
+
+    if (!monthEl || !yearEl || !endDateEl || !loader || !contentEl) return;
+
+    const month = monthEl.value;
+    const year = yearEl.value;
+    const reportEndDate = endDateEl.value;
 
     if (!month || !year || !reportEndDate) {
         showStatus('fotReportStatus', 'Пожалуйста, выберите все параметры.', 'error');
         return;
     }
     showStatus('fotReportStatus', 'Формирование отчета ФОТ...', 'info');
-    document.getElementById('fotLoader').style.display = 'block';
-    document.getElementById('fotReportContent').style.display = 'none';
+    loader.style.display = 'block';
+    contentEl.style.display = 'none';
 
     try {
         const response = await fetch(`${API_BASE}/get-fot-report`, {
@@ -663,9 +775,11 @@ async function generateFotReport() {
         }
 
         hideStatus('fotReportStatus');
-        document.getElementById('fotReportContent').style.display = 'block';
+        contentEl.style.display = 'block';
         
         const tbody = document.getElementById('fotTableBody');
+        if (!tbody) return;
+
         tbody.innerHTML = '';
         if (result.reportData.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
@@ -686,13 +800,18 @@ async function generateFotReport() {
         }
 
         // Заполняем итоговую панель
-        document.getElementById('fotTotalRevenue').textContent = `${formatNumber(result.summary.total_revenue)} грн`;
-        document.getElementById('fotTotalFund').textContent = `${formatNumber(result.summary.total_fot)} грн`;
-        document.getElementById('fotPercentage').textContent = `${formatNumber(result.summary.fot_percentage)} %`;
+        const fotTotalRevenueEl = document.getElementById('fotTotalRevenue');
+        if (fotTotalRevenueEl) fotTotalRevenueEl.textContent = `${formatNumber(result.summary.total_revenue)} грн`;
+
+        const fotTotalFundEl = document.getElementById('fotTotalFund');
+        if (fotTotalFundEl) fotTotalFundEl.textContent = `${formatNumber(result.summary.total_fot)} грн`;
+        
+        const fotPercentageEl = document.getElementById('fotPercentage');
+        if (fotPercentageEl) fotPercentageEl.textContent = `${formatNumber(result.summary.fot_percentage)} %`;
 
     } catch (error) {
         showStatus('fotReportStatus', `Ошибка: ${error.message}`, 'error');
     } finally {
-        document.getElementById('fotLoader').style.display = 'none';
+        if(loader) loader.style.display = 'none';
     }
 }
