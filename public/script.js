@@ -150,12 +150,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       
       clearTimeout(timeoutId);
 
-      // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-      // Сначала получаем ответ, чтобы проверить статус
       const data = await res.json();
 
       if (!res.ok) {
-        // Если сервер ответил ошибкой, используем сообщение от сервера
         throw new Error(data.message || `HTTP ${res.status}`);
       }
 
@@ -163,12 +160,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         message.style.color = "green";
         message.textContent = `✓ ${data.message}`;
         
-        // --- НОВАЯ ЛОГИКА ПЕРЕНАПРАВЛЕНИЯ ---
         if (data.role === 'admin' || data.role === 'accountant') {
           message.textContent += ". Перенаправление...";
           setTimeout(() => {
             window.location.href = '/payroll.html';
-          }, 1000); // Небольшая задержка, чтобы успеть прочитать сообщение
+          }, 1000);
         } else {
           loginForm.reset();
           usernameHint.value = "";
