@@ -144,12 +144,14 @@ function hideStatus(elementId) {
 }
 
 // --- ФУНКЦИИ ЭКСПОРТА В EXCEL ---
-function exportToExcel(tableId, statusId, fileName) {
+function exportToExcelWithFormatting(tableId, statusId, fileName, summaryData = []) {
     const table = document.getElementById(tableId);
     if (!table || table.rows.length === 0) {
         showStatus(statusId, 'Нет данных для экспорта', 'error');
         return;
     }
+
+    // Клонируем таблицу и заменяем инпуты на текст
     const tableClone = table.cloneNode(true);
     tableClone.querySelectorAll('input').forEach(input => {
         const parent = input.parentNode;
@@ -157,26 +159,71 @@ function exportToExcel(tableId, statusId, fileName) {
     });
     tableClone.querySelectorAll('.summary-row').forEach(row => row.remove());
 
-    const wb = XLSX.utils.table_to_book(tableClone, { sheet: "Отчет" });
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', bookSST: true, type: 'array' });
-    saveAs(new Blob([wbout], { type: "application/octet-stream" }), `${fileName}.xlsx`);
+    // Конвертируем HTML таблицу в рабочий лист
+    const ws = XLSX.utils.table_to_sheet(tableClone);
+
+    // Добавляем итоговые данные, если они есть
+    if (summaryData.length > 0) {
+        XLSX.utils.sheet_add_aoa(ws, [[]], { origin: -1 }); // Пустая строка
+        XLSX.utils.sheet_add_aoa(ws, summaryData, { origin: -1 });
+    }
+
+    // Стили
+    const borderStyle = { style: 'thin', color: { auto: 1 } };
+    const borders = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
+    const headerFont = { bold: true };
+    
+    // Автоматическая ширина колонок и применение стилей
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const colWidths = [];
+
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+        let maxWidth = 0;
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            const cell_address = { c: C, r: R };
+            const cell_ref = XLSX.utils.encode_cell(cell_address);
+            if (ws[cell_ref]) {
+                const cell = ws[cell_ref];
+                const cellContent = cell.v ? String(cell.v) : '';
+                maxWidth = Math.max(maxWidth, cellContent.length);
+
+                // Применяем границы ко всем ячейкам
+                cell.s = { ...cell.s, border: borders };
+
+                // Применяем жирный шрифт к заголовкам (первая строка)
+                if (R === 0) {
+                    cell.s = { ...cell.s, font: headerFont };
+                }
+            }
+        }
+        colWidths[C] = { wch: maxWidth + 2 }; // +2 для небольшого отступа
+    }
+    ws['!cols'] = colWidths;
+
+    // Создаем книгу и сохраняем файл
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Отчет");
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
+
 function exportRevenueToExcel() {
     const dateEl = document.getElementById('revenueDate');
     const date = dateEl ? dateEl.value : 'unknown_date';
-    exportToExcel('revenueTable', 'revenueStatus', `Выручка_${date}`);
+    exportToExcelWithFormatting('revenueTable', 'revenueStatus', `Выручка_${date}`);
 }
+
 function exportDailyPayrollToExcel() {
     const dateEl = document.getElementById('payrollDate');
     const date = dateEl ? dateEl.value : 'unknown_date';
-    exportToExcel('payrollTable', 'payrollStatus', `Расчет_за_день_${date}`);
+    exportToExcelWithFormatting('payrollTable', 'payrollStatus', `Расчет_за_день_${date}`);
 }
+
 function exportMonthlyReportToExcel() {
     const monthEl = document.getElementById('reportMonth');
     const yearEl = document.getElementById('reportYear');
     const month = monthEl ? monthEl.value : 'M';
     const year = yearEl ? yearEl.value : 'Y';
-    exportToExcel('monthlyReportTable', 'reportStatus', `Отчет_за_месяц_${month}_${year}`);
+    exportToExcelWithFormatting('monthlyReportTable', 'reportStatus', `Отчет_за_месяц_${month}_${year}`);
 }
 
 function exportFotReportToExcel() {
@@ -184,7 +231,19 @@ function exportFotReportToExcel() {
     const yearEl = document.getElementById('fotReportYear');
     const month = monthEl ? monthEl.value : 'M';
     const year = yearEl ? yearEl.value : 'Y';
-    exportToExcel('fotTable', 'fotReportStatus', `Отчет_ФОТ_${month}_${year}`);
+
+    // Собираем итоговые данные
+    const totalRevenue = document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн';
+    const totalFot = document.getElementById('fotTotalFund')?.textContent || '0.00 грн';
+    const fotPercentage = document.getElementById('fotPercentage')?.textContent || '0.00 %';
+
+    const summaryData = [
+        ["Общая выручка за период:", totalRevenue],
+        ["Общий ФОТ за период:", totalFot],
+        ["ФОТ % от выручки:", fotPercentage]
+    ];
+
+    exportToExcelWithFormatting('fotTable', 'fotReportStatus', `Отчет_ФОТ_${month}_${year}`, summaryData);
 }
 
 
@@ -821,5 +880,4 @@ async function generateFotReport() {
         showStatus('fotReportStatus', `Ошибка: ${error.message}`, 'error');
     } finally {
         if(loader) loader.style.display = 'none';
-    }
-}
+    

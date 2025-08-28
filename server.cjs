@@ -573,6 +573,13 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
 
 // --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
+console.log('Starting server with PORT:', PORT);
+console.log('Environment:', process.env.NODE_ENV);
+
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`✅ Server is running on http://0.0.0.0:${PORT}`);
+  console.log('Press Ctrl+C to stop');
+}).on('error', (err) => {
+  console.error('❌ Server failed to start:', err);
+  process.exit(1);
 });
