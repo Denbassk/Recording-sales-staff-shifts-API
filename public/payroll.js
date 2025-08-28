@@ -179,6 +179,14 @@ function exportMonthlyReportToExcel() {
     exportToExcel('monthlyReportTable', 'reportStatus', `Отчет_за_месяц_${month}_${year}`);
 }
 
+function exportFotReportToExcel() {
+    const monthEl = document.getElementById('fotReportMonth');
+    const yearEl = document.getElementById('fotReportYear');
+    const month = monthEl ? monthEl.value : 'M';
+    const year = yearEl ? yearEl.value : 'Y';
+    exportToExcel('fotTable', 'fotReportStatus', `Отчет_ФОТ_${month}_${year}`);
+}
+
 
 // --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
 async function uploadRevenueFile() {
