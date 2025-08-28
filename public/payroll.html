@@ -134,6 +134,7 @@
 
         input[type="date"],
         input[type="number"],
+        input[type="text"],
         select {
             padding: 10px 15px;
             border: 2px solid #e0e0e0;
@@ -146,6 +147,7 @@
 
         input[type="date"]:focus,
         input[type="number"]:focus,
+        input[type="text"]:focus,
         select:focus {
             outline: none;
             border-color: #667eea;
@@ -209,6 +211,11 @@
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         }
 
+        .table-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        
         table {
             width: 100%;
             border-collapse: separate;
@@ -235,6 +242,7 @@
             padding: 15px;
             border-bottom: 1px solid #f0f0f0;
             font-size: 14px;
+            vertical-align: middle;
         }
 
         tr:hover {
@@ -243,6 +251,14 @@
 
         tr:last-child td {
             border-bottom: none;
+        }
+        
+        tr.summary-row {
+            font-weight: bold;
+        }
+        
+        tr.summary-row:hover {
+            background-color: #e9ecef;
         }
 
         .status {
@@ -372,11 +388,6 @@
             color: #856404;
         }
 
-        .badge.warning {
-            background: #fff3cd;
-            color: #856404;
-        }
-
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -486,7 +497,7 @@
                     <div class="control-row">
                         <div class="control-group">
                             <label>Дата выручки:</label>
-                            <input type="date" id="revenueDate" value="">
+                            <input type="date" id="revenueDate">
                         </div>
                         <div class="control-group">
                             <label>Файл с данными (CSV/Excel):</label>
@@ -498,6 +509,10 @@
                                 Загрузить и обработать
                             </button>
                         </div>
+                        <div class="control-group" style="margin-left: auto;">
+                            <label>&nbsp;</label>
+                            <button class="secondary" onclick="exportRevenueToExcel()">Экспорт в Excel</button>
+                        </div>
                     </div>
                 </div>
 
@@ -505,25 +520,25 @@
 
                 <div id="revenuePreview" style="display:none;">
                     <h3 style="margin-bottom: 20px;">📋 Предпросмотр загруженных данных:</h3>
-                    <table id="revenueTable">
-                        <thead>
-                            <tr>
-                                <th>№</th>
-                                <th>Торговая точка</th>
-                                <th>Выручка (грн)</th>
-                                <th>Статус</th>
-                            </tr>
-                        </thead>
-                        <tbody id="revenueTableBody"></tbody>
-                    </table>
-
+                    <div class="table-container">
+                        <table id="revenueTable">
+                            <thead>
+                                <tr>
+                                    <th>№</th>
+                                    <th>Торговая точка</th>
+                                    <th>Выручка (грн)</th>
+                                    <th>Статус</th>
+                                </tr>
+                            </thead>
+                            <tbody id="revenueTableBody"></tbody>
+                        </table>
+                    </div>
                     <div class="summary-panel" style="margin-top: 0; text-align: right; padding: 15px;">
                         <div class="summary-row" style="font-size: 18px;">
                             <span class="summary-label">Итого выручка:</span>
                             <span class="summary-value" id="totalRevenueValue">0.00 грн</span>
                         </div>
                     </div>
-
                     <div style="text-align: center; margin-top: 20px;">
                         <button class="success" onclick="confirmRevenueSave()" style="margin-right: 10px;">
                             Подтвердить и сохранить
@@ -552,7 +567,7 @@
                     <div class="control-row">
                         <div class="control-group">
                             <label>Дата для расчета:</label>
-                            <input type="date" id="payrollDate" value="">
+                            <input type="date" id="payrollDate">
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
@@ -560,29 +575,35 @@
                                 Рассчитать зарплату
                             </button>
                         </div>
+                        <div class="control-group" style="margin-left: auto;">
+                            <label>&nbsp;</label>
+                            <button class="secondary" onclick="exportDailyPayrollToExcel()">Экспорт в Excel</button>
+                        </div>
                     </div>
                 </div>
 
                 <div id="payrollStatus" class="status" style="display:none;"></div>
                 <div class="loader" id="loader"></div>
-
-                <table id="payrollTable" style="display:none;">
-                    <thead>
-                        <tr>
-                            <th>Сотрудник</th>
-                            <th>Магазин</th>
-                            <th>Выручка магазина</th>
-                            <th>Кол-во продавцов</th>
-                            <th>Базовая ставка</th>
-                            <th>Бонус</th>
-                            <th>Итого за день</th>
-                        </tr>
-                    </thead>
-                    <tbody id="payrollTableBody"></tbody>
-                </table>
+                
+                <div class="table-container">
+                    <table id="payrollTable" style="display:none;">
+                        <thead>
+                            <tr>
+                                <th>Сотрудник</th>
+                                <th>Магазин</th>
+                                <th>Выручка магазина</th>
+                                <th>Кол-во продавцов</th>
+                                <th>Базовая ставка</th>
+                                <th>Бонус</th>
+                                <th>Итого за день</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payrollTableBody"></tbody>
+                    </table>
+                </div>
 
                 <div id="payrollSummary" class="summary-panel" style="display:none;">
-                    <h3>💼 Итого за день:</h3>
+                    <h3>💼 Итого за день (Общий):</h3>
                     <div class="summary-row">
                         <span class="summary-label">Сотрудников:</span>
                         <span class="summary-value" id="totalEmployees">0</span>
@@ -624,15 +645,23 @@
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
-                            <button onclick="generateMonthlyReport()">
-                                Сформировать отчет
-                            </button>
+                            <button onclick="generateMonthlyReport()">Сформировать отчет</button>
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
-                             <button class="secondary" onclick="printAllPayslips()">
-                                🖨️ Печать ведомостей
-                            </button>
+                            <button class="success" onclick="calculateAdvance15()">Рассчитать аванс (15-е)</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button class="success" onclick="calculateFinalPayroll()">Окончательный расчет</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button class="secondary" onclick="exportMonthlyReportToExcel()">Экспорт в Excel</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                             <button class="secondary" onclick="printAllPayslips()">🖨️ Печать ведомостей</button>
                         </div>
                          <div class="control-group">
                             <label>&nbsp;</label>
@@ -649,12 +678,14 @@
 
                 <div id="reportStatus" class="status" style="display:none;"></div>
 
-                <div id="monthlyReportContent" style="display:none;">
+                <div id="monthlyReportContent" style="display:none;" class="table-container">
                 </div>
             </div>
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="payroll.js"></script>
 </body>
 </html>
