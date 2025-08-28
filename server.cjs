@@ -285,23 +285,41 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
     try {
+        // *** ИСПРАВЛЕНИЕ НАЧИНАЕТСЯ ЗДЕСЬ ***
+
+        // Запрос 1: Получаем всех сотрудников, чтобы сопоставить имена
+        const { data: employees, error: empError } = await supabase
+            .from('employees')
+            .select('id, fullname');
+        if (empError) throw empError;
+        const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
+
+        // Запрос 2: Получаем все дневные расчеты за период (без автоматического соединения)
         const { data: dailyData, error: dailyError } = await supabase
             .from('payroll_calculations')
-            .select('*, employees(fullname)')
+            .select('*')
             .gte('work_date', startDate)
             .lte('work_date', reportEndDate);
-
         if (dailyError) throw dailyError;
 
+        // Добавляем имена сотрудников к расчетам вручную
+        const enrichedDailyData = dailyData.map(calc => ({
+            ...calc,
+            employee_name: employeeMap.get(calc.employee_id) || 'Неизвестный сотрудник'
+        }));
+
+        // Запрос 3: Получаем все корректировки за месяц
         const { data: adjustments, error: adjError } = await supabase
             .from('monthly_adjustments')
             .select('*')
             .eq('year', year)
             .eq('month', month);
-
         if (adjError) throw adjError;
 
-        res.json({ success: true, dailyData, adjustments });
+        // Отправляем обогащенные данные клиенту
+        res.json({ success: true, dailyData: enrichedDailyData, adjustments });
+
+        // *** ИСПРАВЛЕНИЕ ЗАКАНЧИВАЕТСЯ ЗДЕСЬ ***
 
     } catch (error) {
         console.error('Ошибка получения данных за месяц:', error);
