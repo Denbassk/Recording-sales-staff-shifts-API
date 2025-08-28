@@ -490,6 +490,10 @@
                 <button class="tab-button" onclick="switchTab('report', this)">
                     📈 Отчет за месяц
                 </button>
+                <!-- Новая вкладка, которая будет отображаться/скрываться скриптом -->
+                <button id="fot-tab-button" class="tab-button" onclick="switchTab('fot', this)" style="display: none;">
+                    💼 Фонд оплаты труда
+                </button>
             </div>
 
             <div id="revenue-tab" class="tab-content active">
@@ -649,7 +653,7 @@
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
-                            <button class="success" onclick="calculateAdvance15()">Рассчитать аванс (15-е)</button>
+                            <button class="success" onclick="calculateAdvance15()">Рассчитать аванс</button>
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
@@ -681,6 +685,69 @@
                 <div id="monthlyReportContent" style="display:none;" class="table-container">
                 </div>
             </div>
+            
+            <!-- Содержимое новой вкладки ФОТ -->
+            <div id="fot-tab" class="tab-content">
+                <div class="control-panel">
+                    <div class="control-row">
+                         <div class="control-group">
+                            <label>Месяц:</label>
+                            <select id="fotReportMonth">
+                                <!-- Опции будут добавлены скриптом -->
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Год:</label>
+                            <input type="number" id="fotReportYear" value="2025" min="2024" max="2030">
+                        </div>
+                        <div class="control-group">
+                            <label>Рассчитать по дату:</label>
+                            <input type="date" id="fotReportEndDate">
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button onclick="generateFotReport()">Сформировать отчет ФОТ</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="fotReportStatus" class="status" style="display:none;"></div>
+                <div class="loader" id="fotLoader"></div>
+
+                <div id="fotReportContent" style="display:none;">
+                    <div class="table-container">
+                        <table id="fotTable">
+                            <thead>
+                                <tr>
+                                    <th>Сотрудник</th>
+                                    <th>На карту (с налогом)</th>
+                                    <th>Наличными</th>
+                                    <th>Выплата сотруднику</th>
+                                    <th>Налог (22%)</th>
+                                    <th>ФОТ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fotTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="summary-panel">
+                        <h3>Итоговый отчет по ФОТ</h3>
+                        <div class="summary-row">
+                            <span class="summary-label">Общая выручка за период:</span>
+                            <span class="summary-value" id="fotTotalRevenue">0.00 грн</span>
+                        </div>
+                        <div class="summary-row">
+                            <span class="summary-label">Общий ФОТ за период:</span>
+                            <span class="summary-value" id="fotTotalFund">0.00 грн</span>
+                        </div>
+                        <div class="summary-row" style="font-size: 22px; color: #764ba2;">
+                            <span class="summary-label">ФОТ % от выручки:</span>
+                            <span class="summary-value" id="fotPercentage">0.00 %</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 

@@ -1,4 +1,4 @@
-/// API URL Configuration
+// API URL Configuration
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://shifts-api.fly.dev';
 
 // --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
@@ -23,6 +23,12 @@ document.addEventListener('DOMContentLoaded', async function() {
                 return;
             }
             
+            const data = await response.json();
+            // Показываем вкладку ФОТ только для админов
+            if (data.success && data.user.role === 'admin') {
+                document.getElementById('fot-tab-button').style.display = 'block';
+            }
+
             initializePage();
 
         } catch (error) {
@@ -34,22 +40,54 @@ document.addEventListener('DOMContentLoaded', async function() {
     function initializePage() {
         const today = new Date();
         const todayStr = today.toISOString().split('T')[0];
+        
+        // Заполняем даты и месяцы на всех вкладках
+        const monthSelects = [
+            document.getElementById('reportMonth'),
+            document.getElementById('fotReportMonth')
+        ];
+        const yearInputs = [
+            document.getElementById('reportYear'),
+            document.getElementById('fotReportYear')
+        ];
+        const endDateInputs = [
+            document.getElementById('reportEndDate'),
+            document.getElementById('fotReportEndDate')
+        ];
+        
         document.getElementById('revenueDate').value = todayStr;
         document.getElementById('payrollDate').value = todayStr;
-        const reportMonthSelect = document.getElementById('reportMonth');
-        const reportYearInput = document.getElementById('reportYear');
-        reportMonthSelect.value = today.getMonth() + 1;
-        reportYearInput.value = today.getFullYear();
+
+        monthSelects.forEach(select => {
+            if (select) {
+                // Копируем опции из первого селекта во второй
+                if (select.id === 'fotReportMonth') {
+                    select.innerHTML = document.getElementById('reportMonth').innerHTML;
+                }
+                select.value = today.getMonth() + 1;
+            }
+        });
+        yearInputs.forEach(input => { if (input) input.value = today.getFullYear(); });
+        endDateInputs.forEach(input => { if (input) input.value = todayStr; });
+
         function updateEndDateDefault() {
-            const year = reportYearInput.value;
-            const month = reportMonthSelect.value;
+            const year = this.closest('.control-panel').querySelector('input[type="number"]').value;
+            const month = this.closest('.control-panel').querySelector('select').value;
+            const endDateInput = this.closest('.control-panel').querySelector('input[type="date"]');
+            
             const lastDay = new Date(year, month, 0).getDate();
-            const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-            document.getElementById('reportEndDate').value = endDate;
+            const lastDayOfMonthStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+            
+            // Устанавливаем дату по умолчанию на сегодня, если сегодня раньше конца месяца
+            if (new Date(todayStr) < new Date(lastDayOfMonthStr)) {
+                 endDateInput.value = todayStr;
+            } else {
+                 endDateInput.value = lastDayOfMonthStr;
+            }
         }
-        updateEndDateDefault();
-        reportMonthSelect.addEventListener('change', updateEndDateDefault);
-        reportYearInput.addEventListener('change', updateEndDateDefault);
+        
+        monthSelects.forEach(s => s.addEventListener('change', updateEndDateDefault));
+        yearInputs.forEach(i => i.addEventListener('change', updateEndDateDefault));
     }
 
     await verifyAuthentication();
@@ -214,7 +252,6 @@ async function calculatePayroll() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            // *** ИСПРАВЛЕНИЕ: Добавлена отправка даты в теле запроса ***
             body: JSON.stringify({ date: date })
         });
         const result = await response.json();
@@ -284,7 +321,6 @@ async function generateMonthlyReport() {
     document.getElementById('monthlyReportContent').style.display = 'none';
 
     try {
-        // *** ИСПРАВЛЕНИЕ: Теперь для получения данных используется POST-запрос с датами ***
         const response = await fetch(`${API_BASE}/get-monthly-data`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -362,6 +398,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
     document.getElementById('monthlyReportContent').innerHTML = tableHtml;
     document.querySelectorAll('.adjustment-input').forEach(input => input.addEventListener('input', handleAdjustmentInput));
     if (Object.keys(employeeData).length > 0) {
+        // Рассчитываем аванс автоматически при генерации отчета
         calculateAdvance15(true);
     }
 }
@@ -418,13 +455,15 @@ async function calculateAdvance15(silent = false) {
 
     const year = document.getElementById('reportYear').value;
     const month = document.getElementById('reportMonth').value;
+    // Используем дату из поля "Рассчитать по дату" для гибкости
+    const advanceEndDate = document.getElementById('reportEndDate').value;
 
     try {
         const response = await fetch(`${API_BASE}/calculate-advance`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', },
             credentials: 'include',
-            body: JSON.stringify({ year, month })
+            body: JSON.stringify({ year, month, advanceEndDate })
         });
         const data = await response.json();
         if (!data.success) throw new Error(data.error || 'Ошибка ответа сервера');
@@ -458,6 +497,8 @@ async function calculateFinalPayroll() {
     const year = document.getElementById('reportYear').value;
     const month = document.getElementById('reportMonth').value;
     const reportEndDate = document.getElementById('reportEndDate').value;
+    // Дата, до которой считался аванс, должна быть той же, что и при расчете аванса
+    const advanceFinalDate = reportEndDate; 
 
     try {
         const savePromises = [];
@@ -468,7 +509,7 @@ async function calculateFinalPayroll() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', },
             credentials: 'include',
-            body: JSON.stringify({ year, month, reportEndDate })
+            body: JSON.stringify({ year, month, reportEndDate, advanceFinalDate })
         });
 
         const data = await response.json();
@@ -492,6 +533,7 @@ async function calculateFinalPayroll() {
         showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
+
 
 function generateCashPayoutReport() {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
@@ -591,4 +633,66 @@ function printAllPayslips() {
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+}
+
+// --- НОВАЯ ФУНКЦИЯ ДЛЯ ВКЛАДКИ ФОТ ---
+async function generateFotReport() {
+    const month = document.getElementById('fotReportMonth').value;
+    const year = document.getElementById('fotReportYear').value;
+    const reportEndDate = document.getElementById('fotReportEndDate').value;
+
+    if (!month || !year || !reportEndDate) {
+        showStatus('fotReportStatus', 'Пожалуйста, выберите все параметры.', 'error');
+        return;
+    }
+    showStatus('fotReportStatus', 'Формирование отчета ФОТ...', 'info');
+    document.getElementById('fotLoader').style.display = 'block';
+    document.getElementById('fotReportContent').style.display = 'none';
+
+    try {
+        const response = await fetch(`${API_BASE}/get-fot-report`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ year, month, reportEndDate })
+        });
+
+        const result = await response.json();
+        if (!result.success) {
+            throw new Error(result.error || 'Ошибка ответа сервера');
+        }
+
+        hideStatus('fotReportStatus');
+        document.getElementById('fotReportContent').style.display = 'block';
+        
+        const tbody = document.getElementById('fotTableBody');
+        tbody.innerHTML = '';
+        if (result.reportData.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
+        } else {
+            result.reportData.forEach(data => {
+                const row = `
+                    <tr>
+                        <td>${data.employee_name}</td>
+                        <td>${formatNumber(data.card_payment_with_tax)} грн</td>
+                        <td>${formatNumber(data.cash_payout)} грн</td>
+                        <td>${formatNumber(data.total_payout_to_employee)} грн</td>
+                        <td>${formatNumber(data.tax_amount)} грн</td>
+                        <td><strong>${formatNumber(data.fot)} грн</strong></td>
+                    </tr>
+                `;
+                tbody.innerHTML += row;
+            });
+        }
+
+        // Заполняем итоговую панель
+        document.getElementById('fotTotalRevenue').textContent = `${formatNumber(result.summary.total_revenue)} грн`;
+        document.getElementById('fotTotalFund').textContent = `${formatNumber(result.summary.total_fot)} грн`;
+        document.getElementById('fotPercentage').textContent = `${formatNumber(result.summary.fot_percentage)} %`;
+
+    } catch (error) {
+        showStatus('fotReportStatus', `Ошибка: ${error.message}`, 'error');
+    } finally {
+        document.getElementById('fotLoader').style.display = 'none';
+    }
 }

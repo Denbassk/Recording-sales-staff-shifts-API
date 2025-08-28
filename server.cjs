@@ -24,12 +24,13 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- КОНСТАНТЫ ДЛЯ РАСЧЕТОВ ---
-const FIXED_CARD_PAYMENT = 8600;
-const ADVANCE_PERCENTAGE = 0.9;
-const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
-const ADVANCE_PERIOD_DAYS = 15;
-const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
+// --- НОВЫЕ КОНСТАНТЫ ДЛЯ РАСЧЕТОВ ---
+const MAX_CARD_PAYMENT = 8600; // Максимальная сумма выплаты на карту
+const ADVANCE_PERCENTAGE = 0.9; // Процент для расчета аванса от заработанного
+const MAX_ADVANCE_AMOUNT = 7900; // Максимальная сумма аванса
+const COMPANY_TAX_RATE = 0.22; // Ставка налога компании (22%)
+// Константа для старой логики в отчете для бухгалтера
+const FIXED_CARD_PAYMENT_FOR_REPORT = 8600; 
 
 // --- MIDDLEWARE ДЛЯ ПРОВЕРКИ АВТОРИЗАЦИИ И РОЛЕЙ ---
 const checkAuth = (req, res, next) => {
@@ -54,6 +55,36 @@ const checkRole = (roles) => {
     next();
   };
 };
+
+// =================================================================
+// --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ РАСЧЕТА ДНЕВНОЙ ЗАРПЛАТЫ ---
+// =================================================================
+
+function calculateDailyPay(revenue, numSellers, isSenior = false) {
+  if (isSenior) {
+    return { baseRate: 1300, bonus: 0, totalPay: 1300 };
+  }
+  if (numSellers === 0) return { baseRate: 0, bonus: 0, totalPay: 0 };
+  let baseRatePerPerson = (numSellers === 1) ? 975 : 825;
+  let totalBonus = 0;
+  if (revenue > 13000) {
+    const bonusBase = revenue - 13000;
+    const wholeThousands = Math.floor(bonusBase / 1000);
+    let ratePerThousand = 0;
+    if (revenue > 50000) ratePerThousand = 12;
+    else if (revenue > 45000) ratePerThousand = 11;
+    else if (revenue > 40000) ratePerThousand = 10;
+    else if (revenue > 35000) ratePerThousand = 9;
+    else if (revenue > 30000) ratePerThousand = 8;
+    else if (revenue > 25000) ratePerThousand = 7;
+    else if (revenue > 20000) ratePerThousand = 6;
+    else ratePerThousand = 5;
+    totalBonus = wholeThousands * ratePerThousand;
+  }
+  const bonusPerPerson = (numSellers > 0) ? totalBonus / numSellers : 0;
+  return { baseRate: baseRatePerPerson, bonus: bonusPerPerson, totalPay: baseRatePerPerson + bonusPerPerson };
+}
+
 
 // =================================================================
 // --- ОСНОВНЫЕ API ЭНДПОИНТЫ ---
@@ -149,6 +180,7 @@ app.get('/check-auth', checkAuth, (req, res) => {
 // --- ЗАЩИЩЕННЫЕ API ЭНДПОИНТЫ ---
 // =================================================================
 const canManagePayroll = checkRole(['admin', 'accountant']);
+const canManageFot = checkRole(['admin']);
 
 app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('file'), async (req, res) => {
     try {
@@ -285,16 +317,12 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
     try {
-        // *** ИСПРАВЛЕНИЕ НАЧИНАЕТСЯ ЗДЕСЬ ***
-
-        // Запрос 1: Получаем всех сотрудников, чтобы сопоставить имена
         const { data: employees, error: empError } = await supabase
             .from('employees')
             .select('id, fullname');
         if (empError) throw empError;
         const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
 
-        // Запрос 2: Получаем все дневные расчеты за период (без автоматического соединения)
         const { data: dailyData, error: dailyError } = await supabase
             .from('payroll_calculations')
             .select('*')
@@ -302,13 +330,11 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
             .lte('work_date', reportEndDate);
         if (dailyError) throw dailyError;
 
-        // Добавляем имена сотрудников к расчетам вручную
         const enrichedDailyData = dailyData.map(calc => ({
             ...calc,
             employee_name: employeeMap.get(calc.employee_id) || 'Неизвестный сотрудник'
         }));
 
-        // Запрос 3: Получаем все корректировки за месяц
         const { data: adjustments, error: adjError } = await supabase
             .from('monthly_adjustments')
             .select('*')
@@ -316,10 +342,7 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
             .eq('month', month);
         if (adjError) throw adjError;
 
-        // Отправляем обогащенные данные клиенту
         res.json({ success: true, dailyData: enrichedDailyData, adjustments });
-
-        // *** ИСПРАВЛЕНИЕ ЗАКАНЧИВАЕТСЯ ЗДЕСЬ ***
 
     } catch (error) {
         console.error('Ошибка получения данных за месяц:', error);
@@ -339,31 +362,35 @@ app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) =
     }
 });
 
+// --- ЭНДПОИНТЫ ДЛЯ РАСЧЕТА АВАНСА И ЗАРПЛАТЫ ---
+
 app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
-    const { year, month } = req.body;
+    const { year, month, advanceEndDate } = req.body;
+    if (!year || !month || !advanceEndDate) {
+        return res.status(400).json({ success: false, error: 'Не указана дата для расчета аванса' });
+    }
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endDate = `${year}-${String(month).padStart(2, '0')}-${ADVANCE_PERIOD_DAYS}`;
 
     try {
-        const { data: shifts, error: shiftsError } = await supabase
-            .from('shifts')
-            .select('employee_id')
-            .gte('shift_date', startDate)
-            .lte('shift_date', endDate);
+        const { data: calculationsInPeriod, error } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, total_pay')
+            .gte('work_date', startDate)
+            .lte('work_date', advanceEndDate);
 
-        if (shiftsError) throw shiftsError;
+        if (error) throw error;
 
-        const employeeShiftsCount = shifts.reduce((acc, shift) => {
-            acc[shift.employee_id] = (acc[shift.employee_id] || 0) + 1;
+        const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
+            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
             return acc;
         }, {});
 
         const results = {};
-        for (const [employeeId, shiftsCount] of Object.entries(employeeShiftsCount)) {
-            const advanceRatio = Math.min(shiftsCount / ASSUMED_WORK_DAYS_IN_FIRST_HALF, 1);
-            const calculatedAdvance = Math.round(MAX_ADVANCE * advanceRatio);
+        for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
+            const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
+            const finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
             results[employeeId] = {
-                advance_payment: calculatedAdvance
+                advance_payment: Math.round(finalAdvance)
             };
         }
 
@@ -376,57 +403,63 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
 });
 
 app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, res) => {
-    const { year, month, reportEndDate } = req.body;
+    const { year, month, reportEndDate, advanceFinalDate } = req.body;
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
     try {
-        const { data: dailyCalculations, error: calcError } = await supabase
+        // --- Шаг 1: Рассчитываем аванс (как и раньше) ---
+        const { data: calculationsInAdvancePeriod, error: advError } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, total_pay')
+            .gte('work_date', startDate)
+            .lte('work_date', advanceFinalDate);
+        if (advError) throw advError;
+        
+        const earnedInAdvancePeriod = calculationsInAdvancePeriod.reduce((acc, calc) => {
+            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+            return acc;
+        }, {});
+
+        const advancePayments = {};
+        for (const [employeeId, totalEarned] of Object.entries(earnedInAdvancePeriod)) {
+            const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
+            advancePayments[employeeId] = Math.round(Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT));
+        }
+
+        // --- Шаг 2: Получаем все начисления за полный месяц ---
+        const { data: allCalculations, error: totalError } = await supabase
             .from('payroll_calculations')
             .select('employee_id, total_pay')
             .gte('work_date', startDate)
             .lte('work_date', reportEndDate);
-        
-        if (calcError) throw calcError;
+        if (totalError) throw totalError;
 
+        const totalBasePayMap = allCalculations.reduce((acc, calc) => {
+            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+            return acc;
+        }, {});
+
+        // --- Шаг 3: Получаем корректировки ---
         const { data: adjustments, error: adjError } = await supabase
             .from('monthly_adjustments')
             .select('*')
             .eq('year', year)
             .eq('month', month);
-
         if (adjError) throw adjError;
         const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
 
-        const advanceEndDate = `${year}-${String(month).padStart(2, '0')}-${ADVANCE_PERIOD_DAYS}`;
-        const { data: shifts, error: shiftsError } = await supabase
-            .from('shifts')
-            .select('employee_id')
-            .gte('shift_date', startDate)
-            .lte('shift_date', advanceEndDate);
-
-        if (shiftsError) throw shiftsError;
-        const employeeShiftsCount = shifts.reduce((acc, shift) => {
-            acc[shift.employee_id] = (acc[shift.employee_id] || 0) + 1;
-            return acc;
-        }, {});
-
-        const totalBasePayMap = dailyCalculations.reduce((acc, calc) => {
-            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
-            return acc;
-        }, {});
-
+        // --- Шаг 4: Собираем итоговый результат по СТАРОЙ логике ---
         const finalResults = {};
         for (const employeeId in totalBasePayMap) {
             const basePay = totalBasePayMap[employeeId];
             const adj = adjustmentsMap.get(employeeId) || { manual_bonus: 0, penalty: 0, shortage: 0 };
             
-            const shiftsCount = employeeShiftsCount[employeeId] || 0;
-            const advanceRatio = Math.min(shiftsCount / ASSUMED_WORK_DAYS_IN_FIRST_HALF, 1);
-            const advancePayment = Math.round(MAX_ADVANCE * advanceRatio);
-            
             const totalGross = basePay + adj.manual_bonus;
-            const cardRemainder = FIXED_CARD_PAYMENT - advancePayment;
-            const cashPayout = totalGross - FIXED_CARD_PAYMENT - adj.penalty - adj.shortage;
+            const advancePayment = advancePayments[employeeId] || 0;
+            
+            // Используем фиксированную выплату на карту для этого отчета
+            const cardRemainder = FIXED_CARD_PAYMENT_FOR_REPORT - advancePayment;
+            const cashPayout = totalGross - FIXED_CARD_PAYMENT_FOR_REPORT - adj.penalty - adj.shortage;
 
             finalResults[employeeId] = {
                 total_gross: totalGross,
@@ -444,36 +477,96 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
     }
 });
 
+// --- ЭНДПОИНТ ДЛЯ ОТЧЕТА ФОТ (с НОВОЙ логикой) ---
+app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
+    const { year, month, reportEndDate } = req.body;
+    if (!year || !month || !reportEndDate) {
+        return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    }
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
-// =================================================================
-// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
-// =================================================================
+    try {
+        // 1. Получаем имена всех сотрудников
+        const { data: employees, error: empError } = await supabase.from('employees').select('id, fullname');
+        if (empError) throw empError;
+        const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
 
-function calculateDailyPay(revenue, numSellers, isSenior = false) {
-  if (isSenior) {
-    return { baseRate: 1300, bonus: 0, totalPay: 1300 };
-  }
-  if (numSellers === 0) return { baseRate: 0, bonus: 0, totalPay: 0 };
-  let baseRatePerPerson = (numSellers === 1) ? 975 : 825;
-  let totalBonus = 0;
-  if (revenue > 13000) {
-    const bonusBase = revenue - 13000;
-    const wholeThousands = Math.floor(bonusBase / 1000);
-    let ratePerThousand = 0;
-    if (revenue > 50000) ratePerThousand = 12;
-    else if (revenue > 45000) ratePerThousand = 11;
-    else if (revenue > 40000) ratePerThousand = 10;
-    else if (revenue > 35000) ratePerThousand = 9;
-    else if (revenue > 30000) ratePerThousand = 8;
-    else if (revenue > 25000) ratePerThousand = 7;
-    else if (revenue > 20000) ratePerThousand = 6;
-    else ratePerThousand = 5;
-    totalBonus = wholeThousands * ratePerThousand;
-  }
-  const bonusPerPerson = (numSellers > 0) ? totalBonus / numSellers : 0;
-  return { baseRate: baseRatePerPerson, bonus: bonusPerPerson, totalPay: baseRatePerPerson + bonusPerPerson };
-}
+        // 2. Получаем все начисления за период
+        const { data: allCalculations, error: totalError } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, total_pay')
+            .gte('work_date', startDate)
+            .lte('work_date', reportEndDate);
+        if (totalError) throw totalError;
 
-// --- Запуск сервера ---
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Сервер запущен на http://localhost:${PORT}`));
+        const totalBasePayMap = allCalculations.reduce((acc, calc) => {
+            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+            return acc;
+        }, {});
+
+        // 3. Получаем корректировки
+        const { data: adjustments, error: adjError } = await supabase
+            .from('monthly_adjustments')
+            .select('*')
+            .eq('year', year)
+            .eq('month', month);
+        if (adjError) throw adjError;
+        const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
+        
+        // 4. Получаем всю выручку за период
+        const { data: revenues, error: revError } = await supabase
+            .from('daily_revenue')
+            .select('revenue')
+            .gte('revenue_date', startDate)
+            .lte('revenue_date', reportEndDate);
+        if (revError) throw revError;
+        const totalRevenue = revenues.reduce((sum, item) => sum + item.revenue, 0);
+
+        // 5. Собираем отчет по НОВОЙ, гибкой логике
+        const reportData = [];
+        for (const employeeId of Object.keys(totalBasePayMap)) {
+            const basePay = totalBasePayMap[employeeId];
+            const adj = adjustmentsMap.get(employeeId) || { manual_bonus: 0, penalty: 0, shortage: 0 };
+            
+            // Определяем фактическую выплату на карту
+            const actualCardPayment = Math.min(basePay, MAX_CARD_PAYMENT);
+            
+            // Налог считается от фактической выплаты на карту
+            const taxAmount = actualCardPayment * COMPANY_TAX_RATE;
+            const cardPaymentWithTax = actualCardPayment + taxAmount;
+
+            // Наличные = (Остаток от заработка) + Премии - Штрафы
+            const cashPayout = (basePay - actualCardPayment) + adj.manual_bonus - adj.penalty - adj.shortage;
+            
+            const fot = cardPaymentWithTax + cashPayout;
+            const totalPayoutToEmployee = actualCardPayment + cashPayout;
+
+            reportData.push({
+                employee_id: employeeId,
+                employee_name: employeeMap.get(employeeId) || 'Неизвестный',
+                card_payment_with_tax: cardPaymentWithTax,
+                cash_payout: cashPayout,
+                total_payout_to_employee: totalPayoutToEmployee,
+                tax_amount: taxAmount,
+                fot: fot
+            });
+        }
+        
+        const totalFot = reportData.reduce((sum, item) => sum + item.fot, 0);
+        const fotPercentage = totalRevenue > 0 ? (totalFot / totalRevenue) * 100 : 0;
+
+        res.json({
+            success: true,
+            reportData: reportData.sort((a, b) => a.employee_name.localeCompare(b.employee_name)),
+            summary: {
+                total_revenue: totalRevenue,
+                total_fot: totalFot,
+                fot_percentage: fotPercentage
+            }
+        });
+
+    } catch (error) {
+        console.error('Ошибка формирования отчета ФОТ:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
