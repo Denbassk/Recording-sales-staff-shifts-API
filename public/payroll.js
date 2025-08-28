@@ -1,4 +1,4 @@
-// API URL Configuration
+/// API URL Configuration
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://shifts-api.fly.dev';
 
 // --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
@@ -11,31 +11,26 @@ const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
 // --- БЛОК АВТОРИЗАЦИИ ---
 document.addEventListener('DOMContentLoaded', async function() {
     
-    // Новая функция для правильной проверки авторизации
     async function verifyAuthentication() {
         try {
             const response = await fetch(`${API_BASE}/check-auth`, {
                 method: 'GET',
-                credentials: 'include' // Важно для отправки cookies
+                credentials: 'include'
             });
 
             if (!response.ok) {
-                // Если статус 401 или другой ошибочный, значит токен невалидный или отсутствует
                 window.location.href = '/index.html';
                 return;
             }
             
-            // Если аутентификация прошла успешно, инициализируем страницу
             initializePage();
 
         } catch (error) {
             console.error('Ошибка проверки аутентификации:', error);
-            // В случае сетевой ошибки также перенаправляем на страницу входа
             window.location.href = '/index.html';
         }
     }
 
-    // Функция для настройки страницы после успешной проверки
     function initializePage() {
         const today = new Date();
         const todayStr = today.toISOString().split('T')[0];
@@ -57,7 +52,6 @@ document.addEventListener('DOMContentLoaded', async function() {
         reportYearInput.addEventListener('change', updateEndDateDefault);
     }
 
-    // Вызываем функцию проверки при загрузке страницы
     await verifyAuthentication();
 });
 
@@ -136,7 +130,6 @@ async function uploadRevenueFile() {
 
     showStatus('revenueStatus', 'Загрузка и обработка файла...', 'info');
     
-    // Используем FormData для отправки файла и даты вместе
     const formData = new FormData();
     formData.append('file', file);
     formData.append('date', date);
@@ -145,7 +138,7 @@ async function uploadRevenueFile() {
         const response = await fetch(`${API_BASE}/upload-revenue-file`, {
             method: 'POST',
             credentials: 'include',
-            body: formData, // Отправляем FormData, заголовок Content-Type установится автоматически
+            body: formData,
         });
 
         const result = await response.json();
@@ -197,8 +190,6 @@ function cancelRevenueUpload() {
 }
 
 async function confirmRevenueSave() {
-    // В текущей логике данные уже сохраняются при загрузке,
-    // эта кнопка может просто закрывать превью и сбрасывать форму
     showStatus('revenueStatus', 'Данные были успешно сохранены при обработке файла.', 'success');
     setTimeout(() => {
         cancelRevenueUpload();
@@ -207,11 +198,49 @@ async function confirmRevenueSave() {
 
 
 // --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
-async function calculatePayroll() { /* ... без изменений ... */ }
+async function calculatePayroll() {
+    const date = document.getElementById('payrollDate').value;
+    if (!date) {
+        showStatus('payrollStatus', 'Пожалуйста, выберите дату для расчета.', 'error');
+        return;
+    }
+    showStatus('payrollStatus', 'Выполняется расчет...', 'info');
+    document.getElementById('loader').style.display = 'block';
+    document.getElementById('payrollTable').style.display = 'none';
+    document.getElementById('payrollSummary').style.display = 'none';
+
+    try {
+        const response = await fetch(`${API_BASE}/calculate-payroll`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            // *** ИСПРАВЛЕНИЕ: Добавлена отправка даты в теле запроса ***
+            body: JSON.stringify({ date: date })
+        });
+        const result = await response.json();
+        if (result.success) {
+            hideStatus('payrollStatus');
+            displayPayrollResults(result.calculations, result.summary);
+        } else {
+            throw new Error(result.error || 'Ошибка ответа сервера');
+        }
+    } catch (error) {
+        showStatus('payrollStatus', `Ошибка: ${error.message}`, 'error');
+    } finally {
+        document.getElementById('loader').style.display = 'none';
+    }
+}
 
 function displayPayrollResults(calculations, summary) {
     const tbody = document.getElementById('payrollTableBody');
     tbody.innerHTML = '';
+    if (calculations.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Нет данных за выбранную дату.</td></tr>';
+        document.getElementById('payrollTable').style.display = 'table';
+        document.getElementById('payrollSummary').style.display = 'none';
+        return;
+    }
+
     const groupedByStore = calculations.reduce((acc, calc) => {
         const store = calc.store_address || 'Старший продавец';
         if (!acc[store]) acc[store] = [];
@@ -241,7 +270,41 @@ function updatePayrollSummary(totalPayroll, employeeCount) {
 
 // --- ВКЛАДКА "ОТЧЕТ ЗА МЕСЯЦ" ---
 let adjustmentDebounceTimer;
-async function generateMonthlyReport() { /* ... без изменений ... */ }
+
+async function generateMonthlyReport() {
+    const month = document.getElementById('reportMonth').value;
+    const year = document.getElementById('reportYear').value;
+    const reportEndDate = document.getElementById('reportEndDate').value;
+
+    if (!month || !year || !reportEndDate) {
+        showStatus('reportStatus', 'Пожалуйста, выберите месяц, год и конечную дату.', 'error');
+        return;
+    }
+    showStatus('reportStatus', 'Формирование отчета...', 'info');
+    document.getElementById('monthlyReportContent').style.display = 'none';
+
+    try {
+        // *** ИСПРАВЛЕНИЕ: Теперь для получения данных используется POST-запрос с датами ***
+        const response = await fetch(`${API_BASE}/get-monthly-data`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ year, month, reportEndDate })
+        });
+
+        const result = await response.json();
+        if (result.success) {
+            hideStatus('reportStatus');
+            document.getElementById('monthlyReportContent').style.display = 'block';
+            displayMonthlyReport(result.dailyData, result.adjustments, month, year);
+        } else {
+            throw new Error(result.error || 'Ошибка ответа сервера');
+        }
+    } catch (error) {
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
 
 function displayMonthlyReport(dailyData, adjustments, month, year) {
     const employeeData = {};
@@ -272,29 +335,35 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
                 <tr><th>Сумма</th><th>Причина</th><th>Сумма</th><th>Причина</th></tr>
             </thead>
             <tbody>`;
-    for (const [id, data] of Object.entries(employeeData)) {
-        let primaryStore = 'Не определен';
-        if (Object.keys(data.stores).length > 0) {
-            primaryStore = Object.keys(data.stores).reduce((a, b) => data.stores[a] > data.stores[b] ? a : b);
+    if (Object.keys(employeeData).length === 0) {
+        tableHtml += '<tr><td colspan="10" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
+    } else {
+        for (const [id, data] of Object.entries(employeeData)) {
+            let primaryStore = 'Не определен';
+            if (Object.keys(data.stores).length > 0) {
+                primaryStore = Object.keys(data.stores).reduce((a, b) => data.stores[a] > data.stores[b] ? a : b);
+            }
+            const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
+            tableHtml += `<tr data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
+                            <td>${data.name}</td>
+                            <td class="total-gross">${formatNumber(data.totalPay + (adj.manual_bonus || 0))}</td>
+                            <td><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}"></td>
+                            <td><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина"></td>
+                            <td><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}"></td>
+                            <td><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина"></td>
+                            <td><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}"></td>
+                            <td class="advance-payment">0,00</td>
+                            <td class="card-remainder">0,00</td>
+                            <td class="cash-payout"><strong>0,00</strong></td>
+                        </tr>`;
         }
-        const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
-        tableHtml += `<tr data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
-                        <td>${data.name}</td>
-                        <td class="total-gross">${formatNumber(data.totalPay + (adj.manual_bonus || 0))}</td>
-                        <td><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}"></td>
-                        <td><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина"></td>
-                        <td><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}"></td>
-                        <td><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина"></td>
-                        <td><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}"></td>
-                        <td class="advance-payment">0,00</td>
-                        <td class="card-remainder">0,00</td>
-                        <td class="cash-payout"><strong>0,00</strong></td>
-                    </tr>`;
     }
     tableHtml += `</tbody></table>`;
     document.getElementById('monthlyReportContent').innerHTML = tableHtml;
     document.querySelectorAll('.adjustment-input').forEach(input => input.addEventListener('input', handleAdjustmentInput));
-    calculateAdvance15(true);
+    if (Object.keys(employeeData).length > 0) {
+        calculateAdvance15(true);
+    }
 }
 
 
@@ -314,7 +383,30 @@ function recalculateRow(row) {
     row.querySelector('.total-gross').textContent = formatNumber(totalGross);
 }
 
-async function saveAdjustments(row) { /* ... без изменений ... */ }
+async function saveAdjustments(row) {
+    const payload = {
+        employee_id: row.dataset.employeeId,
+        month: row.dataset.month,
+        year: row.dataset.year,
+        manual_bonus: parseFloat(row.querySelector('[name="manual_bonus"]').value) || 0,
+        penalty: parseFloat(row.querySelector('[name="penalty"]').value) || 0,
+        shortage: parseFloat(row.querySelector('[name="shortage"]').value) || 0,
+        bonus_reason: row.querySelector('[name="bonus_reason"]').value,
+        penalty_reason: row.querySelector('[name="penalty_reason"]').value
+    };
+    try {
+        const response = await fetch(`${API_BASE}/payroll/adjustments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) console.error('Ошибка сохранения корректировок');
+    } catch (error) {
+        console.error('Ошибка сети при сохранении:', error);
+    }
+}
+
 
 async function calculateAdvance15(silent = false) {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
