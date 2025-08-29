@@ -903,17 +903,20 @@ async function generateFotReport() {
 
             tbody.innerHTML = '';
             if (result.reportData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
             } else {
+                // *** ИСПРАВЛЕНИЕ ОТОБРАЖЕНИЯ ***
                 result.reportData.forEach(data => {
                     const row = `
                         <tr>
                             <td>${data.employee_name}</td>
-                            <td>${formatNumber(data.card_payment_with_tax)} грн</td>
-                            <td>${formatNumber(data.cash_payout)} грн</td>
-                            <td>${formatNumber(data.total_payout_to_employee)} грн</td>
-                            <td>${formatNumber(data.tax_amount)} грн</td>
-                            <td><strong>${formatNumber(data.fot)} грн</strong></td>
+                            <td>${data.work_date}</td>
+                            <td>${data.store_id || 'N/A'}</td>
+                            <td>${formatNumber(data.daily_store_revenue)} грн</td>
+                            <td>${formatNumber(data.payout)} грн</td>
+                            <td>${formatNumber(data.tax_22)} грн</td>
+                            <td><strong>${formatNumber(data.payout_with_tax)} грн</strong></td>
+                            <td>${formatNumber(data.fot_personal_pct)} %</td>
                         </tr>
                     `;
                     tbody.innerHTML += row;
@@ -925,10 +928,12 @@ async function generateFotReport() {
             if (fotTotalRevenueEl) fotTotalRevenueEl.textContent = `${formatNumber(result.summary.total_revenue)} грн`;
 
             const fotTotalFundEl = document.getElementById('fotTotalFund');
-            if (fotTotalFundEl) fotTotalFundEl.textContent = `${formatNumber(result.summary.total_fot)} грн`;
+            // ВАЖНО: используем правильное поле из summary
+            if (fotTotalFundEl) fotTotalFundEl.textContent = `${formatNumber(result.summary.total_payout_with_tax)} грн`;
             
             const fotPercentageEl = document.getElementById('fotPercentage');
             if (fotPercentageEl) fotPercentageEl.textContent = `${formatNumber(result.summary.fot_percentage)} %`;
+
         }
     } catch (error) {
         // Ошибка уже отображена
@@ -936,4 +941,3 @@ async function generateFotReport() {
         if(loader) loader.style.display = 'none';
     }
 }
-

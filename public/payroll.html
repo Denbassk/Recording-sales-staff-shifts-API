@@ -685,15 +685,13 @@
                 </div>
             </div>
             
-            <!-- Содержимое новой вкладки ФОТ -->
             <div id="fot-tab" class="tab-content">
                 <div class="control-panel">
                     <div class="control-row">
                          <div class="control-group">
                             <label>Месяц:</label>
                             <select id="fotReportMonth">
-                                <!-- Опции будут добавлены скриптом -->
-                            </select>
+                                </select>
                         </div>
                         <div class="control-group">
                             <label>Год:</label>
@@ -723,11 +721,13 @@
                             <thead>
                                 <tr>
                                     <th>Сотрудник</th>
-                                    <th>На карту (с налогом)</th>
-                                    <th>Наличными</th>
-                                    <th>Выплата сотруднику</th>
+                                    <th>Дата</th>
+                                    <th>ID Магазина</th>
+                                    <th>Касса дня</th>
+                                    <th>Начислено (ЗП)</th>
                                     <th>Налог (22%)</th>
-                                    <th>ФОТ</th>
+                                    <th>Выплата + налог</th>
+                                    <th>ФОТ % (персональный)</th>
                                 </tr>
                             </thead>
                             <tbody id="fotTableBody"></tbody>
@@ -736,15 +736,15 @@
                     <div class="summary-panel">
                         <h3>Итоговый отчет по ФОТ</h3>
                         <div class="summary-row">
-                            <span class="summary-label">Общая выручка за период (сумма выплат):</span>
+                            <span class="summary-label">Общая выручка (только по активным магазинам):</span>
                             <span class="summary-value" id="fotTotalRevenue">0.00 грн</span>
                         </div>
                         <div class="summary-row">
-                            <span class="summary-label">Общий ФОТ за период:</span>
+                            <span class="summary-label">Общий ФОТ за период (выплаты + 22%):</span>
                             <span class="summary-value" id="fotTotalFund">0.00 грн</span>
                         </div>
                         <div class="summary-row" style="font-size: 22px; color: #764ba2;">
-                            <span class="summary-label">ФОТ % от выручки:</span>
+                            <span class="summary-label">Итоговый ФОТ % от выручки:</span>
                             <span class="summary-value" id="fotPercentage">0.00 %</span>
                         </div>
                     </div>
