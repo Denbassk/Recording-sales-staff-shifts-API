@@ -933,11 +933,12 @@ async function generateFotReport() {
     showStatus('fotReportStatus', 'Формирование отчета ФОТ...', 'info');
     loader.style.display = 'block';
     contentEl.style.display = 'none';
+    document.getElementById('fotByStorePanel').style.display = 'none';
+
 
     try {
         const result = await fetchData(
-            `${API_BASE}/get-fot-report`,
-            {
+            `${API_BASE}/get-fot-report`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -950,44 +951,72 @@ async function generateFotReport() {
             hideStatus('fotReportStatus');
             contentEl.style.display = 'block';
             
-            fotReportDataCache = result.reportData; // Кэшируем данные для экспорта
+            fotReportDataCache = result.reportData;
 
             const tbody = document.getElementById('fotTableBody');
-            if (!tbody) return;
-
             tbody.innerHTML = '';
+
             if (result.reportData.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
             } else {
-                // *** ИСПРАВЛЕНИЕ ОТОБРАЖЕНИЯ ***
                 result.reportData.forEach(data => {
                     const row = `
                         <tr>
                             <td>${data.employee_name}</td>
                             <td>${data.work_date}</td>
-                            <td>${data.store_id || 'N/A'}</td>
+                            <td>${data.store_address || 'N/A'}</td>
                             <td>${formatNumber(data.daily_store_revenue)} грн</td>
                             <td>${formatNumber(data.payout)} грн</td>
                             <td>${formatNumber(data.tax_22)} грн</td>
                             <td><strong>${formatNumber(data.payout_with_tax)} грн</strong></td>
-                            <td>${formatNumber(data.fot_personal_pct)} %</td>
+                            <td>${data.daily_store_revenue > 0 ? formatNumber(data.fot_personal_pct) : '0,00'} %</td>
                         </tr>
                     `;
                     tbody.innerHTML += row;
                 });
             }
 
-            // Заполняем итоговую панель
-            const fotTotalRevenueEl = document.getElementById('fotTotalRevenue');
-            if (fotTotalRevenueEl) fotTotalRevenueEl.textContent = `${formatNumber(result.summary.total_revenue)} грн`;
+            // --- НОВЫЙ БЛОК: РАСЧЕТ И ОТОБРАЖЕНИЕ ФОТ ПО МАГАЗИНАМ ---
+            const fotByStore = result.reportData.reduce((acc, item) => {
+                const store = item.store_address || 'Не присвоено';
+                if (!acc[store]) {
+                    acc[store] = { revenue: 0, fot: 0 };
+                }
+                acc[store].revenue += item.daily_store_revenue;
+                acc[store].fot += item.payout_with_tax;
+                return acc;
+            }, {});
 
-            const fotTotalFundEl = document.getElementById('fotTotalFund');
-            // ВАЖНО: используем правильное поле из summary
-            if (fotTotalFundEl) fotTotalFundEl.textContent = `${formatNumber(result.summary.total_payout_with_tax)} грн`;
-            
-            const fotPercentageEl = document.getElementById('fotPercentage');
-            if (fotPercentageEl) fotPercentageEl.textContent = `${formatNumber(result.summary.fot_percentage)} %`;
+            const fotByStorePanel = document.getElementById('fotByStorePanel');
+            const fotByStoreBody = document.getElementById('fotByStoreTableBody');
+            fotByStoreBody.innerHTML = '';
 
+            // Сортируем магазины по алфавиту
+            const sortedStores = Object.keys(fotByStore).sort((a, b) => a.localeCompare(b));
+
+            if (sortedStores.length > 0) {
+                fotByStorePanel.style.display = 'block';
+                for (const storeName of sortedStores) {
+                    const data = fotByStore[storeName];
+                    const percentage = data.revenue > 0 ? (data.fot / data.revenue) * 100 : 0;
+                    const row = `
+                        <tr>
+                            <td>${storeName}</td>
+                            <td>${formatNumber(data.revenue)} грн</td>
+                            <td>${formatNumber(data.fot)} грн</td>
+                            <td><strong>${formatNumber(percentage)} %</strong></td>
+                        </tr>
+                    `;
+                    fotByStoreBody.innerHTML += row;
+                }
+            }
+            // --- КОНЕЦ НОВОГО БЛОКА ---
+
+
+            // Заполняем итоговую панель (общую)
+            document.getElementById('fotTotalRevenue').textContent = `${formatNumber(result.summary.total_revenue)} грн`;
+            document.getElementById('fotTotalFund').textContent = `${formatNumber(result.summary.total_payout_with_tax)} грн`;
+            document.getElementById('fotPercentage').textContent = `${formatNumber(result.summary.fot_percentage)} %`;
         }
     } catch (error) {
         // Ошибка уже отображена

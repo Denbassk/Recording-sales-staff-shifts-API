@@ -670,7 +670,7 @@
                             <label>&nbsp;</label>
                              <button class="secondary" onclick="generateCashPayoutReport()">📄 Ведомость по наличным</button>
                         </div>
-                         <div class="control-group">
+                         <div class="control-group" style="display: none;">
                             <label>&nbsp;</label>
                             <button class="danger" onclick="clearDatabase()">
                                 ⚠️ Очистить данные
@@ -728,7 +728,7 @@
                                 <tr>
                                     <th>Сотрудник</th>
                                     <th>Дата</th>
-                                    <th>ID Магазина</th>
+                                    <th>Адрес магазина</th>
                                     <th>Касса дня</th>
                                     <th>Начислено (ЗП)</th>
                                     <th>Налог (22%)</th>
@@ -752,6 +752,22 @@
                         <div class="summary-row" style="font-size: 22px; color: #764ba2;">
                             <span class="summary-label">Итоговый ФОТ % от выручки:</span>
                             <span class="summary-value" id="fotPercentage">0.00 %</span>
+                        </div>
+                    </div>
+                    <div id="fotByStorePanel" class="summary-panel" style="display: none; margin-top: 20px;">
+                        <h3>📊 ФОТ по магазинам</h3>
+                        <div class="table-container">
+                            <table id="fotByStoreTable">
+                                <thead>
+                                    <tr>
+                                        <th>Адрес магазина</th>
+                                        <th>Выручка магазина</th>
+                                        <th>Фонд оплаты труда</th>
+                                        <th>ФОТ %</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fotByStoreTableBody"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>

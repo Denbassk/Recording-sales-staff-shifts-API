@@ -231,17 +231,13 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
 
         // --- ИСПРАВЛЕННАЯ СЕРВЕРНАЯ ПРОВЕРКА ---
         const fileName = req.file.originalname;
-        // Регулярное выражение теперь ищет ДД.ММ.ГГГГ или ДД.ММ.ГГ
         const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4}|\d{2})/);
 
         if (dateMatch) {
             let [, day, month, year] = dateMatch;
-            
-            // Если год двузначный (напр. "25"), добавляем "20" впереди
             if (year.length === 2) {
                 year = "20" + year;
             }
-
             const dateFromFile = `${year}-${month}-${day}`;
             if (dateFromFile !== date) {
                 return res.status(400).json({
@@ -315,7 +311,6 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     
     return withLock(`payroll_${date}`, async () => {
         try {
-            // ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: Запрашиваем `id` вместо `employee_id` из таблицы employees
             const { data: shifts, error: shiftsError } = await supabase.from('shifts')
                 .select(`store_id, stores (address), employees (fullname, id)`)
                 .eq('shift_date', date);
@@ -330,9 +325,8 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                 const address = shift.stores?.address || 'Старший продавец';
                 if (!storeShifts[address]) storeShifts[address] = [];
                 
-                // ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: Используем `shift.employees.id`
                 storeShifts[address].push({
-                    employee_id: shift.employees.id, // Используем правильное поле `id`
+                    employee_id: shift.employees.id,
                     employee_name: shift.employees.fullname,
                     store_id: shift.store_id
                 });
@@ -530,7 +524,7 @@ async function buildFotReport({ startDate, endDate }) {
   // 2) Все начисления по дням (только для сотрудников, у которых были смены)
   const { data: calcs, error: calcErr } = await supabase
     .from('payroll_calculations')
-    .select('employee_id, work_date, total_pay, store_id')
+    .select('employee_id, work_date, total_pay, store_id, store_address')
     .gte('work_date', startDate)
     .lte('work_date', endDate);
   if (calcErr) throw calcErr;
@@ -593,6 +587,7 @@ async function buildFotReport({ startDate, endDate }) {
       employee_id: c.employee_id,
       employee_name: employeeName.get(c.employee_id) || 'Неизвестный',
       store_id: c.store_id || null,
+      store_address: c.store_address || 'Старший продавец',
       work_date: c.work_date,
       daily_store_revenue: storeRevenueThatDay,
       payout: payout,
