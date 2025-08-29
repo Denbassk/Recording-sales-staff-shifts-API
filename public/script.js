@@ -166,8 +166,16 @@ document.addEventListener("DOMContentLoaded", async () => {
             window.location.href = '/payroll.html';
           }, 1000);
         } else {
-          loginForm.reset();
-          usernameHint.value = "";
+          // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+          // Надпись об успехе уже отображена, теперь мы ждем 10 секунд
+          setTimeout(() => {
+            // Этот код выполнится через 10 секунд
+            loginForm.reset();
+            usernameHint.value = "";
+            message.textContent = ""; // Также очищаем само сообщение
+          }, 10000); // 10000 миллисекунд = 10 секунд
+
+          // Синхронизацию можно запустить в фоне, как и раньше
           setTimeout(() => syncOfflineShifts(), 1000);
         }
 
