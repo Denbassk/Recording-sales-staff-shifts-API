@@ -229,12 +229,19 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
         if (!req.file) return res.status(400).json({ success: false, error: 'Файл не загружен' }); 
 
-        // --- НОВАЯ СЕРВЕРНАЯ ПРОВЕРКА ---
+        // --- ИСПРАВЛЕННАЯ СЕРВЕРНАЯ ПРОВЕРКА ---
         const fileName = req.file.originalname;
-        const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+        // Регулярное выражение теперь ищет ДД.ММ.ГГГГ или ДД.ММ.ГГ
+        const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4}|\d{2})/);
 
         if (dateMatch) {
-            const [, day, month, year] = dateMatch;
+            let [, day, month, year] = dateMatch;
+            
+            // Если год двузначный (напр. "25"), добавляем "20" впереди
+            if (year.length === 2) {
+                year = "20" + year;
+            }
+
             const dateFromFile = `${year}-${month}-${day}`;
             if (dateFromFile !== date) {
                 return res.status(400).json({
@@ -243,7 +250,7 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
                 });
             }
         }
-        // --- КОНЕЦ НОВОЙ ПРОВЕРКИ ---
+        // --- КОНЕЦ ИСПРАВЛЕННОЙ ПРОВЕРКИ ---
 
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];

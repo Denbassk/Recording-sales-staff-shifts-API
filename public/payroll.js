@@ -302,7 +302,6 @@ function exportFotReportToExcel() {
 }
 
 // --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
-// --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
 async function uploadRevenueFile() {
     const fileInput = document.getElementById('revenueFile');
     const dateInput = document.getElementById('revenueDate');
@@ -316,13 +315,19 @@ async function uploadRevenueFile() {
         return;
     }
 
-    // --- НОВАЯ ПРОВЕРКА ИМЕНИ ФАЙЛА ---
-    // Ожидаем имя файла в формате "Книга_ДД.ММ.ГГГГ.xlsx" или "Выгрузка от ДД.ММ.ГГГГ.csv"
+    // --- ИСПРАВЛЕННАЯ ПРОВЕРКА ИМЕНИ ФАЙЛА ---
     const fileName = file.name;
-    const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    // Регулярное выражение теперь ищет ДД.ММ.ГГГГ или ДД.ММ.ГГ
+    const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4}|\d{2})/);
 
     if (dateMatch) {
-        const [, day, month, year] = dateMatch;
+        let [, day, month, year] = dateMatch;
+        
+        // Если год двузначный (напр. "25"), добавляем "20" впереди
+        if (year.length === 2) {
+            year = "20" + year;
+        }
+        
         const dateFromFile = `${year}-${month}-${day}`;
         
         if (dateFromFile !== date) {
@@ -335,7 +340,7 @@ async function uploadRevenueFile() {
             }
         }
     }
-    // --- КОНЕЦ НОВОЙ ПРОВЕРКИ ---
+    // --- КОНЕЦ ИСПРАВЛЕННОЙ ПРОВЕРКИ ---
 
     showStatus('revenueStatus', 'Загрузка и обработка файла...', 'info');
     
