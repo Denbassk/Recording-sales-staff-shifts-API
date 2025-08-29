@@ -315,19 +315,20 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                 }
                 const numSellers = storeEmployees.length;
                 for (const employee of storeEmployees) {
-    const isSenior = employee.employee_id.startsWith('SProd');
-    const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
-    const calculation = {
-        employee_id: employee.employee_id, employee_name: employee.employee_name,
-        store_address: storeAddress, 
-        store_id: employee.store_id, // <-- ДОБАВЬТЕ ЭТУ СТРОКУ
-        work_date: date, revenue, num_sellers: numSellers,
-        is_senior: isSenior, base_rate: payDetails.baseRate, bonus: payDetails.bonus,
-        total_pay: payDetails.totalPay
-    };
-    await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
-    calculations.push(calculation);
-}
+                    const isSenior = employee.employee_id.startsWith('SProd');
+                    const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
+                    const calculation = {
+                        employee_id: employee.employee_id, employee_name: employee.employee_name,
+                        store_address: storeAddress,
+                        store_id: employee.store_id, // <-- ВАЖНОЕ ИСПРАВЛЕНИЕ
+                        work_date: date, revenue, num_sellers: numSellers,
+                        is_senior: isSenior, base_rate: payDetails.baseRate, bonus: payDetails.bonus,
+                        total_pay: payDetails.totalPay
+                    };
+                    await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
+                    calculations.push(calculation);
+                }
+            }
             
             const totalPayroll = calculations.reduce((sum, c) => sum + c.total_pay, 0);
             await logFinancialOperation('calculate_payroll', { date, employeesCount: calculations.length, totalPayroll }, req.user.id);
@@ -506,8 +507,6 @@ async function buildFotReport({ startDate, endDate }) {
     };
   }
   
-  // *** ИСПРАВЛЕНИЕ ЛОГИКИ ***
-  // Собираем ID только тех магазинов, где были смены
   const activeStoreIds = [...new Set(calcs.map(c => c.store_id).filter(id => id !== null))];
 
   // 3) Выручка магазинов по дням — только из daily_revenue и ТОЛЬКО для активных магазинов
@@ -516,7 +515,7 @@ async function buildFotReport({ startDate, endDate }) {
     .select('store_id, revenue_date, revenue')
     .gte('revenue_date', startDate)
     .lte('revenue_date', endDate)
-    .in('store_id', activeStoreIds); // <-- Запрашиваем выручку только нужных магазинов
+    .in('store_id', activeStoreIds);
   if (revErr) throw revErr;
 
   // Индекс выручки: revenueBy[store_id][date] = сумма за день
@@ -531,8 +530,6 @@ async function buildFotReport({ startDate, endDate }) {
   const rows = [];
   let totalPayoutWithTax = 0;
   
-  // *** ИСПРАВЛЕНИЕ ЛОГИКИ ***
-  // Считаем выручку только по тем магазинам, где были смены
   let totalRevenue = 0;
   for (const storeId of activeStoreIds) {
       if (revenueBy[storeId]) {
@@ -622,7 +619,7 @@ app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
     const dateValidation = validateDate(reportEndDate);
     if (!dateValidation.valid) {
       return res.status(400).json({ success: false, error: dateValidation.error });
-    }
+    } // <-- ИСПРАВЛЕНИЕ: ВОССТАНОВЛЕНА СКОБКА
 
     const { rows, summary } = await buildFotReport({ startDate, endDate: reportEndDate });
 
