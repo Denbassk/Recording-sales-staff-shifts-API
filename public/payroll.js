@@ -955,3 +955,44 @@ async function generateFotReport() {
         if(loader) loader.style.display = 'none';
     }
 }
+
+
+async function clearDatabase() {
+  // Первое подтверждение
+  const firstConfirm = confirm("ВНИМАНИЕ!\nВы собираетесь удалить все данные о сменах, расчетах зарплаты и выручке. Эта операция необратима.\n\nВы уверены, что хотите продолжить?");
+
+  if (!firstConfirm) {
+    showStatus('reportStatus', 'Очистка данных отменена.', 'info');
+    return;
+  }
+  
+  // Второе, контрольное подтверждение
+  const secondConfirm = confirm("ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ.\nВсе операционные данные будут стерты. Справочники (сотрудники, магазины) останутся.\n\nПодтверждаете удаление?");
+
+  if (!secondConfirm) {
+    showStatus('reportStatus', 'Очистка данных отменена.', 'info');
+    return;
+  }
+
+  showStatus('reportStatus', 'Выполняется очистка данных...', 'info');
+
+  try {
+    const result = await fetchData(
+      `${API_BASE}/clear-transactional-data`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      },
+      'reportStatus'
+    );
+
+    if (result.success) {
+      showStatus('reportStatus', result.message, 'success');
+      // Опционально: можно перезагрузить страницу или очистить текущие отчеты
+      document.getElementById('monthlyReportContent').innerHTML = '';
+    }
+  } catch (error) {
+    // Ошибка уже отображена в функции fetchData
+  }
+}

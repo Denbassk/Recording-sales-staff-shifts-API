@@ -592,7 +592,7 @@ async function buildFotReport({ startDate, endDate }) {
   };
 }
 
-// ====== ИСПРАВЛЕННЫЙ ОТЧЁТ ФОТ ======
+// ====== ОТЧЁТ ФОТ ======
 app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
   try {
     const { year, month, reportEndDate } = req.body;
@@ -674,6 +674,30 @@ app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+
+// ====== ОЧИСТКА ТЕСТОВЫХ ДАННЫХ (ТОЛЬКО ДЛЯ АДМИНОВ) ======
+app.post('/clear-transactional-data', checkAuth, canManageFot, async (req, res) => {
+  // canManageFot - это наша проверка на роль 'admin', используем её повторно
+  
+  try {
+    // Выполняем удаление в правильном порядке, чтобы избежать ошибок связей
+    await supabase.from('payroll_calculations').delete().neq('id', 0);
+    await supabase.from('shifts').delete().neq('id', 0);
+    await supabase.from('daily_revenue').delete().neq('id', 0);
+    await supabase.from('monthly_adjustments').delete().neq('id', 0);
+    
+    // Логируем операцию
+    await logFinancialOperation('clear_test_data', { status: 'success' }, req.user.id);
+    
+    res.json({ success: true, message: 'Все тестовые данные (смены, расчеты, выручка) были успешно удалены.' });
+
+  } catch (error) {
+    console.error('Ошибка при очистке данных:', error);
+    res.status(500).json({ success: false, error: 'Произошла ошибка на сервере при удалении данных.' });
+  }
+});
+
 
 // --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
