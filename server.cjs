@@ -19,6 +19,14 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
 
+// НОВЫЙ БЛОК: Отключаем кэширование для файла входа
+app.use('/script.js', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // --- Настройка middleware ---
 app.use(cors({ origin: true, credentials: true }));
 app.use(bodyParser.json());
@@ -105,7 +113,7 @@ const checkAuth = (req, res, next) => {
     
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, message: "Невалидный токен." });
+    return res.status(401).json({ success: false, message: "Невалидный токе." });
   }
 };
 
@@ -229,7 +237,6 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
         if (!req.file) return res.status(400).json({ success: false, error: 'Файл не загружен' }); 
 
-        // --- ИСПРАВЛЕННАЯ СЕРВЕРНАЯ ПРОВЕРКА ---
         const fileName = req.file.originalname;
         const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4}|\d{2})/);
 
@@ -246,8 +253,7 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
                 });
             }
         }
-        // --- КОНЕЦ ИСПРАВЛЕННОЙ ПРОВЕРКИ ---
-
+        
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
