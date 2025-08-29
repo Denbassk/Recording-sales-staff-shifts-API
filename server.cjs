@@ -292,9 +292,9 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     
     return withLock(`payroll_${date}`, async () => {
         try {
-            // ИСПРАВЛЕНИЕ: Запрашиваем текстовый employee_id из связанной таблицы employees
+            // ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: Запрашиваем `id` вместо `employee_id` из таблицы employees
             const { data: shifts, error: shiftsError } = await supabase.from('shifts')
-                .select(`store_id, stores (address), employees (fullname, employee_id)`)
+                .select(`store_id, stores (address), employees (fullname, id)`)
                 .eq('shift_date', date);
 
             if (shiftsError) throw shiftsError;
@@ -302,15 +302,14 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
             
             const storeShifts = {};
             shifts.forEach(shift => {
-                // Пропускаем смены, где по какой-то причине нет данных о сотруднике
                 if (!shift.employees) return;
 
                 const address = shift.stores?.address || 'Старший продавец';
                 if (!storeShifts[address]) storeShifts[address] = [];
                 
-                // ИСПРАВЛЕНИЕ: Сохраняем правильный текстовый employee_id
+                // ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: Используем `shift.employees.id`
                 storeShifts[address].push({
-                    employee_id: shift.employees.employee_id, // Используем текстовый ID
+                    employee_id: shift.employees.id, // Используем правильное поле `id`
                     employee_name: shift.employees.fullname,
                     store_id: shift.store_id
                 });
@@ -331,7 +330,7 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                     const isSenior = employee.employee_id.startsWith('SProd');
                     const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
                     const calculation = {
-                        employee_id: employee.employee_id, // Здесь теперь точно текстовый ID
+                        employee_id: employee.employee_id,
                         employee_name: employee.employee_name,
                         store_address: storeAddress,
                         store_id: employee.store_id,
