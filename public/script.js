@@ -1,3 +1,28 @@
+// Проверка браузера на совместимость
+(function checkBrowserCompatibility() {
+  const isIE = window.navigator.userAgent.indexOf("MSIE") > 0 || 
+               window.navigator.userAgent.indexOf("Trident") > 0;
+  
+  if (isIE) {
+    document.body.innerHTML = `
+      <div style="text-align:center; padding:50px; font-family:Arial;">
+        <h1 style="color:red;">⚠️ Браузер не поддерживается</h1>
+        <p style="font-size:18px;">Internet Explorer не поддерживает это приложение.</p>
+        <p style="font-size:16px;">Пожалуйста, используйте:</p>
+        <ul style="list-style:none; font-size:16px;">
+          <li>✅ Google Chrome (рекомендуется)</li>
+          <li>✅ Microsoft Edge</li>
+          <li>✅ Mozilla Firefox</li>
+        </ul>
+        <p style="margin-top:30px;">
+          <a href="https://shifts-api.fly.dev" style="color:blue;">Откройте https://shifts-api.fly.dev в современном браузере</a>
+        </p>
+      </div>
+    `;
+    return;
+  }
+})();
+
 document.addEventListener("DOMContentLoaded", async () => {
   const API_BASE_URL = "https://shifts-api.fly.dev";
   
@@ -10,6 +35,32 @@ document.addEventListener("DOMContentLoaded", async () => {
   let allNames = [];
   let deviceKey = null;
 
+  // Получаем device_key из URL параметров
+  const urlParams = new URLSearchParams(window.location.search);
+  const urlDeviceKey = urlParams.get('device');
+  if (urlDeviceKey) {
+    deviceKey = urlDeviceKey;
+    // Сохраняем в localStorage для последующего использования
+    localStorage.setItem('deviceKey', deviceKey);
+  } else {
+    // Пробуем получить из localStorage
+    deviceKey = localStorage.getItem('deviceKey');
+  }
+
+  // Если все еще нет deviceKey, пробуем загрузить device.json (для обратной совместимости)
+  if (!deviceKey) {
+    try {
+      const res = await fetch("device.json");
+      if (res.ok) {
+        const data = await res.json();
+        deviceKey = data.device_key;
+        localStorage.setItem('deviceKey', deviceKey);
+      }
+    } catch (err) {
+      console.warn("Файл device.json не найден");
+    }
+  }
+
   async function checkServerConnection() {
     try {
       const controller = new AbortController();
@@ -21,16 +72,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.error("Сервер недоступен:", err);
       return false;
     }
-  }
-
-  try {
-    const res = await fetch("device.json");
-    if (res.ok) {
-      const data = await res.json();
-      deviceKey = data.device_key;
-    }
-  } catch (err) {
-    console.warn("Файл device.json не найден");
   }
 
   try {
