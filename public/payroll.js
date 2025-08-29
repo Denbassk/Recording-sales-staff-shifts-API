@@ -233,31 +233,46 @@ function exportFotReportToExcel() {
         return;
     }
 
-    // --- Лист 1: Основной отчет ---
-    const tableClone = table.cloneNode(true);
-    const ws_report = XLSX.utils.table_to_sheet(tableClone);
-    const summaryData = [
-        ["Общая выручка за период (сумма выплат):", document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн'],
-        ["Общий ФОТ за период:", document.getElementById('fotTotalFund')?.textContent || '0.00 грн'],
-        ["ФОТ % от выручки:", document.getElementById('fotPercentage')?.textContent || '0.00 %']
-    ];
-    XLSX.utils.sheet_add_aoa(ws_report, [[]], { origin: -1 });
-    XLSX.utils.sheet_add_aoa(ws_report, summaryData, { origin: -1 });
+    // --- Лист 1: Основной отчет (сводный) ---
+    const mainReportSheet = [];
+    const tableHeaders = [];
+    table.querySelectorAll('thead th').forEach(th => tableHeaders.push(th.textContent));
+    mainReportSheet.push(tableHeaders);
+
+    fotReportDataCache.forEach(data => {
+        mainReportSheet.push([
+            data.employee_name,
+            data.work_date,
+            data.store_id || 'N/A',
+            Number(data.daily_store_revenue),
+            Number(data.payout),
+            Number(data.tax_22),
+            Number(data.payout_with_tax),
+            Number(data.fot_personal_pct)
+        ]);
+    });
     
-    // --- Лист 2: Проверка расчетов ---
-    const checkData = [
-        ["Сотрудник", "Базовая ЗП", "Премия", "Штраф", "Недостача", "Выплата на карту (база)", "Налог (22%)", "Итого ФОТ"]
-    ];
+    // Добавляем итоговые данные в конец первого листа
+    mainReportSheet.push([]); // Пустая строка для разделения
+    mainReportSheet.push(['Итоговые данные']);
+    mainReportSheet.push(['Общая выручка:', document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн']);
+    mainReportSheet.push(['Общий ФОТ (выплаты + 22%):', document.getElementById('fotTotalFund')?.textContent || '0.00 грн']);
+    mainReportSheet.push(['Итоговый ФОТ % от выручки:', document.getElementById('fotPercentage')?.textContent || '0.00 %']);
+
+    const ws_report = XLSX.utils.aoa_to_sheet(mainReportSheet);
+
+    // --- Лист 2: Проверка расчетов (Детализация по начислениям) ---
+    // Этот лист теперь будет содержать детальную разбивку данных, которые были использованы для отчета.
+    const checkDataHeaders = ["Сотрудник", "Дата работы", "ID Магазина", "ЗП начислено", "Налог (22%)", "Итого (ЗП + Налог)"];
+    const checkData = [checkDataHeaders];
     fotReportDataCache.forEach(emp => {
         checkData.push([
             emp.employee_name,
-            emp.base_pay,
-            emp.emp.manual_bonus,
-            emp.penalty,
-            emp.shortage,
-            emp.actual_card_payment,
-            emp.tax_amount,
-            emp.fot
+            emp.work_date,
+            emp.store_id || 'N/A',
+            Number(emp.payout),
+            Number(emp.tax_22),
+            Number(emp.payout_with_tax)
         ]);
     });
     const ws_check = XLSX.utils.aoa_to_sheet(checkData);
@@ -272,7 +287,6 @@ function exportFotReportToExcel() {
 
     XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
-
 
 // --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
 async function uploadRevenueFile() {
