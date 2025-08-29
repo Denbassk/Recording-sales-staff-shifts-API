@@ -612,7 +612,6 @@ async function buildFotReport({ startDate, endDate }) {
   };
 }
 
-// ====== ОТЧЁТ ФОТ ======
 app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
   try {
     const { year, month, reportEndDate } = req.body;
@@ -628,13 +627,9 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
 
     const report = await buildFotReport({ startDate, endDate: reportEndDate });
 
-    await logFinancialOperation('get_fot_report', {
-      year, month,
-      totalFotWithTax: report.summary.total_payout_with_tax,
-      fotPercentage: report.summary.fot_percentage
-    }, req.user.id);
+    // Просто возвращаем строки, без обращения к summary
+    res.json({ success: true, rows: report.rows });
 
-    res.json({ success: true, reportData: report.rows, summary: report.summary });
   } catch (error) {
     console.error('Ошибка формирования отчёта ФОТ:', error);
     res.status(500).json({ success: false, error: error.message });
