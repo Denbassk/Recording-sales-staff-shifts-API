@@ -729,3 +729,87 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
+
+
+
+// --- helpers (куда-нибудь рядом с другими хелперами) ---
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+async function getTotalRevenue(pool, startDate, endDate) {
+  const { rows } = await pool.query(
+    `SELECT COALESCE(SUM(revenue),0) AS total_revenue
+     FROM revenues
+     WHERE date >= $1 AND date <= $2`,
+    [startDate, endDate]
+  );
+  return Number(rows[0].total_revenue) || 0;
+}
+
+async function calculateFinalPayrollInternal({ year, month, reportEndDate }) {
+  return await someSharedFinalPayrollFunction(year, month, reportEndDate);
+}
+
+app.post('/get-fot-report', requireAuth, async (req, res) => {
+  try {
+    const { year, month, reportEndDate } = req.body;
+
+    const y = Number(year), m = Number(month);
+    if (!y || !m || !reportEndDate) {
+      return res.status(400).json({ success: false, error: 'Некорректные параметры' });
+    }
+
+    const startDate = new Date(Date.UTC(y, m - 1, 1)).toISOString().slice(0, 10);
+    const endDate = reportEndDate;
+
+    const finalResults = await calculateFinalPayrollInternal({ year: y, month: m, reportEndDate: endDate });
+
+    const items = Array.isArray(finalResults)
+      ? finalResults
+      : Object.values(finalResults || {});
+
+    const reportData = items.map((r) => {
+      const advance = Number(r.advance_payment) || 0;
+      const remainder = Number(r.card_remainder) || 0;
+      const cash = Number(r.cash_payout) || 0;
+
+      const actualCard = round2(advance + remainder);
+      const totalToEmployee = round2(actualCard + cash);
+      const tax22 = round2(totalToEmployee * 0.22);
+      const cardWithTax = round2(actualCard + tax22);
+      const fot = round2(totalToEmployee + tax22);
+
+      return {
+        employee_id: r.employee_id,
+        employee_name: r.employee_name,
+        store_address: r.store_address,
+        base_pay: round2(r.base_pay || 0),
+        manual_bonus: round2(r.manual_bonus || 0),
+        penalty: round2(r.penalty || 0),
+        shortage: round2(r.shortage || 0),
+        actual_card_payment: actualCard,
+        tax_amount: tax22,
+        card_payment_with_tax: cardWithTax,
+        cash_payout: round2(cash),
+        total_payout_to_employee: totalToEmployee,
+        fot
+      };
+    });
+
+    const totalRevenue = await getTotalRevenue(pool, startDate, endDate);
+    const totalFot = round2(reportData.reduce((s, x) => s + x.fot, 0));
+    const fotPct = totalRevenue > 0 ? round2((totalFot / totalRevenue) * 100) : 0;
+
+    return res.json({
+      success: true,
+      reportData,
+      summary: {
+        total_revenue: round2(totalRevenue),
+        total_fot: totalFot,
+        fot_percentage: fotPct
+      }
+    });
+  } catch (err) {
+    console.error('get-fot-report error:', err);
+    res.status(500).json({ success: false, error: 'Внутренняя ошибка сервера' });
+  }
+});

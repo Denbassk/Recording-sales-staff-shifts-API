@@ -252,7 +252,7 @@ function exportFotReportToExcel() {
         checkData.push([
             emp.employee_name,
             emp.base_pay,
-            emp.manual_bonus,
+            emp.emp.manual_bonus,
             emp.penalty,
             emp.shortage,
             emp.actual_card_payment,
