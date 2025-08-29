@@ -229,6 +229,22 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
         if (!req.file) return res.status(400).json({ success: false, error: 'Файл не загружен' }); 
 
+        // --- НОВАЯ СЕРВЕРНАЯ ПРОВЕРКА ---
+        const fileName = req.file.originalname;
+        const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+
+        if (dateMatch) {
+            const [, day, month, year] = dateMatch;
+            const dateFromFile = `${year}-${month}-${day}`;
+            if (dateFromFile !== date) {
+                return res.status(400).json({
+                    success: false,
+                    error: `Дата в имени файла (${dateFromFile}) не совпадает с выбранной датой (${date}).`
+                });
+            }
+        }
+        // --- КОНЕЦ НОВОЙ ПРОВЕРКИ ---
+
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];

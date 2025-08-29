@@ -28,10 +28,23 @@ document.addEventListener('DOMContentLoaded', async function() {
             
             const data = await response.json();
             
-            const fotTabButton = document.getElementById('fot-tab-button');
-            if (data.success && data.user.role === 'admin' && fotTabButton) {
-                fotTabButton.style.display = 'block';
-            }
+           // Находим кнопки
+const fotTabButton = document.getElementById('fot-tab-button');
+const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
+
+// Проверяем, существует ли кнопка очистки, чтобы избежать ошибок
+if (clearDataButton) {
+    // Проверяем роль пользователя
+    if (data.success && data.user.role === 'admin') {
+        // Показываем элементы для админа
+        if (fotTabButton) fotTabButton.style.display = 'block';
+        clearDataButton.parentElement.style.display = 'block';
+    } else {
+        // Скрываем элементы от других ролей (например, бухгалтера)
+        if (fotTabButton) fotTabButton.style.display = 'none'; // Также скроем ФОТ для не-админов
+        clearDataButton.parentElement.style.display = 'none';
+    }
+}
 
             initializePage();
 
@@ -289,6 +302,7 @@ function exportFotReportToExcel() {
 }
 
 // --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
+// --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
 async function uploadRevenueFile() {
     const fileInput = document.getElementById('revenueFile');
     const dateInput = document.getElementById('revenueDate');
@@ -301,6 +315,27 @@ async function uploadRevenueFile() {
         showStatus('revenueStatus', 'Пожалуйста, выберите файл и укажите дату.', 'error');
         return;
     }
+
+    // --- НОВАЯ ПРОВЕРКА ИМЕНИ ФАЙЛА ---
+    // Ожидаем имя файла в формате "Книга_ДД.ММ.ГГГГ.xlsx" или "Выгрузка от ДД.ММ.ГГГГ.csv"
+    const fileName = file.name;
+    const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+
+    if (dateMatch) {
+        const [, day, month, year] = dateMatch;
+        const dateFromFile = `${year}-${month}-${day}`;
+        
+        if (dateFromFile !== date) {
+            const userConfirmation = confirm(
+                `ВНИМАНИЕ!\n\nВыбрана дата ${date}, а в имени файла указана дата ${dateFromFile}.\n\nПродолжить загрузку для даты ${date}?`
+            );
+            if (!userConfirmation) {
+                showStatus('revenueStatus', 'Загрузка отменена пользователем.', 'info');
+                return;
+            }
+        }
+    }
+    // --- КОНЕЦ НОВОЙ ПРОВЕРКИ ---
 
     showStatus('revenueStatus', 'Загрузка и обработка файла...', 'info');
     
