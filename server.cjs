@@ -292,15 +292,28 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     
     return withLock(`payroll_${date}`, async () => {
         try {
-            const { data: shifts } = await supabase.from('shifts').select(`employee_id, employees (fullname), store_id, stores (address)`).eq('shift_date', date);
-            
+            // ИСПРАВЛЕНИЕ: Запрашиваем текстовый employee_id из связанной таблицы employees
+            const { data: shifts, error: shiftsError } = await supabase.from('shifts')
+                .select(`store_id, stores (address), employees (fullname, employee_id)`)
+                .eq('shift_date', date);
+
+            if (shiftsError) throw shiftsError;
             if (!shifts || shifts.length === 0) return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
             
             const storeShifts = {};
             shifts.forEach(shift => {
+                // Пропускаем смены, где по какой-то причине нет данных о сотруднике
+                if (!shift.employees) return;
+
                 const address = shift.stores?.address || 'Старший продавец';
                 if (!storeShifts[address]) storeShifts[address] = [];
-                storeShifts[address].push({ employee_id: shift.employee_id, employee_name: shift.employees.fullname, store_id: shift.store_id });
+                
+                // ИСПРАВЛЕНИЕ: Сохраняем правильный текстовый employee_id
+                storeShifts[address].push({
+                    employee_id: shift.employees.employee_id, // Используем текстовый ID
+                    employee_name: shift.employees.fullname,
+                    store_id: shift.store_id
+                });
             });
             
             const calculations = [];
@@ -318,9 +331,10 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                     const isSenior = employee.employee_id.startsWith('SProd');
                     const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
                     const calculation = {
-                        employee_id: employee.employee_id, employee_name: employee.employee_name,
+                        employee_id: employee.employee_id, // Здесь теперь точно текстовый ID
+                        employee_name: employee.employee_name,
                         store_address: storeAddress,
-                        store_id: employee.store_id, // <-- ВАЖНОЕ ИСПРАВЛЕНИЕ
+                        store_id: employee.store_id,
                         work_date: date, revenue, num_sellers: numSellers,
                         is_senior: isSenior, base_rate: payDetails.baseRate, bonus: payDetails.bonus,
                         total_pay: payDetails.totalPay
@@ -340,7 +354,64 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     });
 });
 
-app.post('/calculate-payroll
+app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;
+    
+    const bonusValidation = validateAmount(manual_bonus, MAX_MANUAL_BONUS, 'Премия');
+    if (!bonusValidation.valid) return res.status(400).json({ success: false, error: bonusValidation.error });
+    
+    const penaltyValidation = validateAmount(penalty, MAX_PENALTY, 'Штраф');
+    if (!penaltyValidation.valid) return res.status(400).json({ success: false, error: penaltyValidation.error });
+    
+    const shortageValidation = validateAmount(shortage, MAX_SHORTAGE, 'Недостача');
+    if (!shortageValidation.valid) return res.status(400).json({ success: false, error: shortageValidation.error });
+  
+    try {
+        const payload = { 
+            employee_id, month, year, 
+            manual_bonus: bonusValidation.value, penalty: penaltyValidation.value, 
+            shortage: shortageValidation.value, bonus_reason, penalty_reason
+        };
+        await supabase.from('monthly_adjustments').upsert(payload, { onConflict: 'employee_id,month,year' });
+        await logFinancialOperation('payroll_adjustment', payload, req.user.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, reportEndDate } = req.body;
+    
+    if (!year || !month || !reportEndDate) return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    if (month < 1 || month > 12) return res.status(400).json({ success: false, error: 'Некорректный месяц' });
+    const dateValidation = validateDate(reportEndDate);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
+    
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+
+    try {
+        const { data: employees, error: empError } = await supabase.from('employees').select('id, fullname');
+        if (empError) throw empError;
+        const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
+
+        const { data: dailyData, error: dailyError } = await supabase.from('payroll_calculations')
+            .select('*').gte('work_date', startDate).lte('work_date', reportEndDate);
+        if (dailyError) throw dailyError;
+
+        const enrichedDailyData = dailyData.map(calc => ({ ...calc, employee_name: employeeMap.get(calc.employee_id) || 'Неизвестный' }));
+        
+        const { data: adjustments, error: adjError } = await supabase.from('monthly_adjustments')
+            .select('*').eq('year', year).eq('month', month);
+        if (adjError) throw adjError;
+
+        res.json({ success: true, dailyData: enrichedDailyData, adjustments });
+    } catch (error) {
+        console.error('Ошибка получения данных за месяц:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, advanceEndDate } = req.body;
     
@@ -562,7 +633,7 @@ app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
     const dateValidation = validateDate(reportEndDate);
     if (!dateValidation.valid) {
       return res.status(400).json({ success: false, error: dateValidation.error });
-    } // <-- ИСПРАВЛЕНИЕ: ВОССТАНОВЛЕНА СКОБКА
+    }
 
     const { rows, summary } = await buildFotReport({ startDate, endDate: reportEndDate });
 
