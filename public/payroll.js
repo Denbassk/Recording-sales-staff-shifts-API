@@ -1,6 +1,9 @@
 // API URL Configuration
 const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://shifts-api.fly.dev';
 
+// --- Глобальная переменная для кэширования данных отчета ФОТ ---
+let fotReportDataCache = [];
+
 // --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
 const FIXED_CARD_PAYMENT = 8600;
 const ADVANCE_PERCENTAGE = 0.9;
@@ -150,27 +153,7 @@ function hideStatus(elementId) {
 }
 
 // --- ФУНКЦИИ ЭКСПОРТА В EXCEL ---
-function exportToExcelWithFormatting(tableId, statusId, fileName, summaryData = []) {
-    const table = document.getElementById(tableId);
-    if (!table || table.rows.length === 0) {
-        showStatus(statusId, 'Нет данных для экспорта', 'error');
-        return;
-    }
-
-    const tableClone = table.cloneNode(true);
-    tableClone.querySelectorAll('input').forEach(input => {
-        const parent = input.parentNode;
-        parent.textContent = input.value;
-    });
-    tableClone.querySelectorAll('.summary-row').forEach(row => row.remove());
-
-    const ws = XLSX.utils.table_to_sheet(tableClone);
-
-    if (summaryData.length > 0) {
-        XLSX.utils.sheet_add_aoa(ws, [[]], { origin: -1 }); 
-        XLSX.utils.sheet_add_aoa(ws, summaryData, { origin: -1 });
-    }
-
+function applyExcelFormatting(ws) {
     const borderStyle = { style: 'thin', color: { auto: 1 } };
     const borders = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
     const headerFont = { bold: true };
@@ -196,7 +179,22 @@ function exportToExcelWithFormatting(tableId, statusId, fileName, summaryData = 
         colWidths[C] = { wch: maxWidth + 2 };
     }
     ws['!cols'] = colWidths;
+}
 
+function exportToExcelWithFormatting(tableId, statusId, fileName) {
+    const table = document.getElementById(tableId);
+    if (!table || table.rows.length === 0) {
+        showStatus(statusId, 'Нет данных для экспорта', 'error');
+        return;
+    }
+    const tableClone = table.cloneNode(true);
+    tableClone.querySelectorAll('input').forEach(input => {
+        const parent = input.parentNode;
+        parent.textContent = input.value;
+    });
+    tableClone.querySelectorAll('.summary-row').forEach(row => row.remove());
+    const ws = XLSX.utils.table_to_sheet(tableClone);
+    applyExcelFormatting(ws);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Отчет");
     XLSX.writeFile(wb, `${fileName}.xlsx`);
@@ -227,18 +225,52 @@ function exportFotReportToExcel() {
     const yearEl = document.getElementById('fotReportYear');
     const month = monthEl ? monthEl.value : 'M';
     const year = yearEl ? yearEl.value : 'Y';
+    const fileName = `Отчет_ФОТ_${month}_${year}`;
 
-    const totalRevenue = document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн';
-    const totalFot = document.getElementById('fotTotalFund')?.textContent || '0.00 грн';
-    const fotPercentage = document.getElementById('fotPercentage')?.textContent || '0.00 %';
+    const table = document.getElementById('fotTable');
+    if (!table || table.rows.length === 0 || fotReportDataCache.length === 0) {
+        showStatus('fotReportStatus', 'Нет данных для экспорта', 'error');
+        return;
+    }
 
+    // --- Лист 1: Основной отчет ---
+    const tableClone = table.cloneNode(true);
+    const ws_report = XLSX.utils.table_to_sheet(tableClone);
     const summaryData = [
-        ["Общая выручка за период:", totalRevenue],
-        ["Общий ФОТ за период:", totalFot],
-        ["ФОТ % от выручки:", fotPercentage]
+        ["Общая выручка за период (сумма выплат):", document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн'],
+        ["Общий ФОТ за период:", document.getElementById('fotTotalFund')?.textContent || '0.00 грн'],
+        ["ФОТ % от выручки:", document.getElementById('fotPercentage')?.textContent || '0.00 %']
     ];
+    XLSX.utils.sheet_add_aoa(ws_report, [[]], { origin: -1 });
+    XLSX.utils.sheet_add_aoa(ws_report, summaryData, { origin: -1 });
+    
+    // --- Лист 2: Проверка расчетов ---
+    const checkData = [
+        ["Сотрудник", "Базовая ЗП", "Премия", "Штраф", "Недостача", "Выплата на карту (база)", "Налог (22%)", "Итого ФОТ"]
+    ];
+    fotReportDataCache.forEach(emp => {
+        checkData.push([
+            emp.employee_name,
+            emp.base_pay,
+            emp.manual_bonus,
+            emp.penalty,
+            emp.shortage,
+            emp.actual_card_payment,
+            emp.tax_amount,
+            emp.fot
+        ]);
+    });
+    const ws_check = XLSX.utils.aoa_to_sheet(checkData);
 
-    exportToExcelWithFormatting('fotTable', 'fotReportStatus', `Отчет_ФОТ_${month}_${year}`, summaryData);
+    // --- Создание книги и применение форматирования ---
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws_report, "Отчет ФОТ");
+    XLSX.utils.book_append_sheet(wb, ws_check, "Проверка расчетов");
+
+    applyExcelFormatting(ws_report);
+    applyExcelFormatting(ws_check);
+
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
 
 
@@ -334,6 +366,24 @@ async function confirmRevenueSave() {
     }, 2000);
 }
 
+// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
+async function fetchData(url, options, statusId) {
+    try {
+        const response = await fetch(url, options);
+        const result = await response.json();
+
+        if (!response.ok) {
+            // Если сервер вернул ошибку, отображаем ее
+            throw new Error(result.error || `Ошибка HTTP: ${response.status}`);
+        }
+        return result;
+    } catch (error) {
+        console.error(`Ошибка при запросе к ${url}:`, error);
+        showStatus(statusId, `Ошибка: ${error.message}`, 'error');
+        throw error; // Пробрасываем ошибку дальше, чтобы остановить выполнение
+    }
+}
+
 
 // --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
 async function calculatePayroll() {
@@ -356,21 +406,23 @@ async function calculatePayroll() {
     if (payrollSummary) payrollSummary.style.display = 'none';
 
     try {
-        const response = await fetch(`${API_BASE}/calculate-payroll`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ date: date })
-        });
-        const result = await response.json();
+        const result = await fetchData(
+            `${API_BASE}/calculate-payroll`, 
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ date: date })
+            },
+            'payrollStatus'
+        );
+
         if (result.success) {
             hideStatus('payrollStatus');
             displayPayrollResults(result.calculations, result.summary);
-        } else {
-            throw new Error(result.error || 'Ошибка ответа сервера');
         }
     } catch (error) {
-        showStatus('payrollStatus', `Ошибка: ${error.message}`, 'error');
+        // Ошибка уже отображена в fetchData
     } finally {
         if (loader) loader.style.display = 'none';
     }
@@ -446,23 +498,24 @@ async function generateMonthlyReport() {
     reportContentEl.style.display = 'none';
 
     try {
-        const response = await fetch(`${API_BASE}/get-monthly-data`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ year, month, reportEndDate })
-        });
-
-        const result = await response.json();
+        const result = await fetchData(
+            `${API_BASE}/get-monthly-data`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ year, month, reportEndDate })
+            },
+            'reportStatus'
+        );
+        
         if (result.success) {
             hideStatus('reportStatus');
             reportContentEl.style.display = 'block';
             displayMonthlyReport(result.dailyData, result.adjustments, month, year);
-        } else {
-            throw new Error(result.error || 'Ошибка ответа сервера');
         }
     } catch (error) {
-        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+        // Ошибка уже отображена
     }
 }
 
@@ -583,15 +636,19 @@ async function saveAdjustments(row) {
         penalty_reason: row.querySelector('[name="penalty_reason"]')?.value || ''
     };
     try {
-        const response = await fetch(`${API_BASE}/payroll/adjustments`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(payload)
-        });
-        if (!response.ok) console.error('Ошибка сохранения корректировок');
+        await fetchData(
+            `${API_BASE}/payroll/adjustments`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            },
+            'reportStatus'
+        );
+        // Можно добавить индикатор сохранения, но пока просто отправляем
     } catch (error) {
-        console.error('Ошибка сети при сохранении:', error);
+        // Ошибка уже обработана и показана пользователю
     }
 }
 
@@ -610,29 +667,31 @@ async function calculateAdvance15(silent = false) {
     if (!year || !month || !advanceEndDate) return;
 
     try {
-        const response = await fetch(`${API_BASE}/calculate-advance`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', },
-            credentials: 'include',
-            body: JSON.stringify({ year, month, advanceEndDate })
-        });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || 'Ошибка ответа сервера');
+        const data = await fetchData(
+            `${API_BASE}/calculate-advance`, 
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ year, month, advanceEndDate })
+            },
+            'reportStatus'
+        );
+        
+        if (data.success) {
+            tableRows.forEach(row => {
+                const employeeId = row.dataset.employeeId;
+                const result = data.results[employeeId];
+                const advanceCell = row.querySelector('.advance-payment');
+                if (advanceCell) {
+                    advanceCell.textContent = result ? formatNumber(result.advance_payment) : formatNumber(0);
+                }
+            });
 
-        tableRows.forEach(row => {
-            const employeeId = row.dataset.employeeId;
-            const result = data.results[employeeId];
-            const advanceCell = row.querySelector('.advance-payment');
-            if (advanceCell) {
-                advanceCell.textContent = result ? formatNumber(result.advance_payment) : formatNumber(0);
-            }
-        });
-
-        if (!silent) showStatus('reportStatus', 'Аванс успешно рассчитан и отображен.', 'success');
-
+            if (!silent) showStatus('reportStatus', 'Аванс успешно рассчитан и отображен.', 'success');
+        }
     } catch (error) {
-        console.error("Ошибка при расчете аванса:", error);
-        if (!silent) showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+        // Ошибка уже отображена
     }
 }
 
@@ -649,54 +708,52 @@ async function calculateFinalPayroll() {
     const reportEndDate = document.getElementById('reportEndDate')?.value;
     if (!year || !month || !reportEndDate) return;
 
-    const advanceFinalDate = reportEndDate; 
-
     try {
         const savePromises = [];
         tableRows.forEach(row => savePromises.push(saveAdjustments(row)));
         await Promise.all(savePromises);
 
-        const response = await fetch(`${API_BASE}/calculate-final-payroll`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', },
-            credentials: 'include',
-            body: JSON.stringify({ year, month, reportEndDate, advanceFinalDate })
-        });
+        const data = await fetchData(
+            `${API_BASE}/calculate-final-payroll`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ year, month, reportEndDate })
+            },
+            'reportStatus'
+        );
 
-        const data = await response.json();
-        if (!data.success) throw new Error(data.error || 'Ошибка ответа сервера');
+        if (data.success) {
+            tableRows.forEach(row => {
+                const employeeId = row.dataset.employeeId;
+                const result = data.results[employeeId];
+                if (result) {
+                    const totalGrossCell = row.querySelector('.total-gross');
+                    if (totalGrossCell) totalGrossCell.textContent = formatNumber(result.total_gross);
 
-        tableRows.forEach(row => {
-            const employeeId = row.dataset.employeeId;
-            const result = data.results[employeeId];
-            if (result) {
-                const totalGrossCell = row.querySelector('.total-gross');
-                if (totalGrossCell) totalGrossCell.textContent = formatNumber(result.total_gross);
+                    const advanceCell = row.querySelector('.advance-payment');
+                    if (advanceCell) advanceCell.textContent = formatNumber(result.advance_payment);
 
-                const advanceCell = row.querySelector('.advance-payment');
-                if (advanceCell) advanceCell.textContent = formatNumber(result.advance_payment);
+                    const remainderCell = row.querySelector('.card-remainder');
+                    if (remainderCell) remainderCell.textContent = formatNumber(result.card_remainder);
+                    
+                    const cashCell = row.querySelector('.cash-payout strong');
+                    if (cashCell) cashCell.textContent = formatNumber(result.cash_payout);
 
-                const remainderCell = row.querySelector('.card-remainder');
-                if (remainderCell) remainderCell.textContent = formatNumber(result.card_remainder);
-                
-                const cashCell = row.querySelector('.cash-payout strong');
-                if (cashCell) cashCell.textContent = formatNumber(result.cash_payout);
-
-                const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-                const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
-                const totalToPay = result.total_gross - penalty - shortage;
-                const totalPayoutCell = row.querySelector('.total-payout strong');
-                if (totalPayoutCell) {
-                    totalPayoutCell.textContent = formatNumber(totalToPay);
+                    const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+                    const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+                    const totalToPay = result.total_gross - penalty - shortage;
+                    const totalPayoutCell = row.querySelector('.total-payout strong');
+                    if (totalPayoutCell) {
+                        totalPayoutCell.textContent = formatNumber(totalToPay);
+                    }
                 }
-            }
-        });
-
-        showStatus('reportStatus', 'Окончательный расчет выполнен.', 'success');
-
+            });
+            showStatus('reportStatus', 'Окончательный расчет выполнен.', 'success');
+        }
     } catch (error) {
-        console.error("Ошибка при окончательном расчете:", error);
-        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+       // Ошибка уже отображена
     }
 }
 
@@ -824,56 +881,59 @@ async function generateFotReport() {
     contentEl.style.display = 'none';
 
     try {
-        const response = await fetch(`${API_BASE}/get-fot-report`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ year, month, reportEndDate })
-        });
+        const result = await fetchData(
+            `${API_BASE}/get-fot-report`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ year, month, reportEndDate })
+            },
+            'fotReportStatus'
+        );
 
-        const result = await response.json();
-        if (!result.success) {
-            throw new Error(result.error || 'Ошибка ответа сервера');
+        if (result.success) {
+            hideStatus('fotReportStatus');
+            contentEl.style.display = 'block';
+            
+            fotReportDataCache = result.reportData; // Кэшируем данные для экспорта
+
+            const tbody = document.getElementById('fotTableBody');
+            if (!tbody) return;
+
+            tbody.innerHTML = '';
+            if (result.reportData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
+            } else {
+                result.reportData.forEach(data => {
+                    const row = `
+                        <tr>
+                            <td>${data.employee_name}</td>
+                            <td>${formatNumber(data.card_payment_with_tax)} грн</td>
+                            <td>${formatNumber(data.cash_payout)} грн</td>
+                            <td>${formatNumber(data.total_payout_to_employee)} грн</td>
+                            <td>${formatNumber(data.tax_amount)} грн</td>
+                            <td><strong>${formatNumber(data.fot)} грн</strong></td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                });
+            }
+
+            // Заполняем итоговую панель
+            const fotTotalRevenueEl = document.getElementById('fotTotalRevenue');
+            if (fotTotalRevenueEl) fotTotalRevenueEl.textContent = `${formatNumber(result.summary.total_revenue)} грн`;
+
+            const fotTotalFundEl = document.getElementById('fotTotalFund');
+            if (fotTotalFundEl) fotTotalFundEl.textContent = `${formatNumber(result.summary.total_fot)} грн`;
+            
+            const fotPercentageEl = document.getElementById('fotPercentage');
+            if (fotPercentageEl) fotPercentageEl.textContent = `${formatNumber(result.summary.fot_percentage)} %`;
         }
-
-        hideStatus('fotReportStatus');
-        contentEl.style.display = 'block';
-        
-        const tbody = document.getElementById('fotTableBody');
-        if (!tbody) return;
-
-        tbody.innerHTML = '';
-        if (result.reportData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
-        } else {
-            result.reportData.forEach(data => {
-                const row = `
-                    <tr>
-                        <td>${data.employee_name}</td>
-                        <td>${formatNumber(data.card_payment_with_tax)} грн</td>
-                        <td>${formatNumber(data.cash_payout)} грн</td>
-                        <td>${formatNumber(data.total_payout_to_employee)} грн</td>
-                        <td>${formatNumber(data.tax_amount)} грн</td>
-                        <td><strong>${formatNumber(data.fot)} грн</strong></td>
-                    </tr>
-                `;
-                tbody.innerHTML += row;
-            });
-        }
-
-        // Заполняем итоговую панель
-        const fotTotalRevenueEl = document.getElementById('fotTotalRevenue');
-        if (fotTotalRevenueEl) fotTotalRevenueEl.textContent = `${formatNumber(result.summary.total_revenue)} грн`;
-
-        const fotTotalFundEl = document.getElementById('fotTotalFund');
-        if (fotTotalFundEl) fotTotalFundEl.textContent = `${formatNumber(result.summary.total_fot)} грн`;
-        
-        const fotPercentageEl = document.getElementById('fotPercentage');
-        if (fotPercentageEl) fotPercentageEl.textContent = `${formatNumber(result.summary.fot_percentage)} %`;
-
     } catch (error) {
-        showStatus('fotReportStatus', `Ошибка: ${error.message}`, 'error');
+        // Ошибка уже отображена
     } finally {
         if(loader) loader.style.display = 'none';
     }
 }
+

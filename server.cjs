@@ -6,14 +6,17 @@ const cors = require('cors');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
+const crypto = require('crypto'); // Для генерации безопасных токенов
 const upload = multer({ storage: multer.memoryStorage() });
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const XLSX = require('xlsx');
 
 // --- Подключение к Supabase ---
+// ВАЖНО: В рабочей среде используйте переменные окружения (например, в настройках Fly.io),
+// а не .env файл, чтобы избежать утечки ключей.
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
@@ -24,13 +27,83 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- НОВЫЕ КОНСТАНТЫ ДЛЯ РАСЧЕТОВ ---
-const MAX_CARD_PAYMENT = 8600; // Максимальная сумма выплаты на карту
-const ADVANCE_PERCENTAGE = 0.9; // Процент для расчета аванса от заработанного
-const MAX_ADVANCE_AMOUNT = 7900; // Максимальная сумма аванса
-const COMPANY_TAX_RATE = 0.22; // Ставка налога компании (22%)
-// Константа для старой логики в отчете для бухгалтера
-const FIXED_CARD_PAYMENT_FOR_REPORT = 8600; 
+// --- КОНСТАНТЫ ДЛЯ РАСЧЕТОВ И ВАЛИДАЦИИ ---
+const MAX_CARD_PAYMENT = 8600; 
+const ADVANCE_PERCENTAGE = 0.9; 
+const MAX_ADVANCE_AMOUNT = 7900; 
+const COMPANY_TAX_RATE = 0.22; 
+// Удалена дублирующая константа, теперь используется только MAX_CARD_PAYMENT
+
+// НОВЫЕ КОНСТАНТЫ ДЛЯ ВАЛИДАЦИИ
+const MAX_MANUAL_BONUS = 10000; // Максимальная премия
+const MAX_PENALTY = 5000; // Максимальный штраф
+const MAX_SHORTAGE = 10000; // Максимальная недостача
+const MIN_YEAR = 2024; // Минимальный год для отчетов
+
+// --- Блокировка для предотвращения race conditions ---
+const operationLocks = new Map();
+
+async function withLock(key, operation) {
+    const lockKey = `lock_${key}`;
+    while (operationLocks.get(lockKey)) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    operationLocks.set(lockKey, true);
+    try {
+        return await operation();
+    } finally {
+        operationLocks.delete(lockKey);
+    }
+}
+
+// --- ФУНКЦИИ ВАЛИДАЦИИ ---
+function validateDate(dateStr, allowFuture = false) {
+    const date = new Date(dateStr);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    
+    if (isNaN(date.getTime())) {
+        return { valid: false, error: 'Некорректная дата' };
+    }
+    
+    if (!allowFuture && date > today) {
+        return { valid: false, error: 'Дата не может быть в будущем' };
+    }
+    
+    if (date.getFullYear() < MIN_YEAR) {
+        return { valid: false, error: `Дата не может быть раньше ${MIN_YEAR} года` };
+    }
+    
+    return { valid: true };
+}
+
+function validateAmount(amount, max, fieldName) {
+    const num = parseFloat(amount);
+    if (isNaN(num)) {
+        return { valid: false, error: `${fieldName} должно быть числом` };
+    }
+    if (num < 0) {
+        return { valid: false, error: `${fieldName} не может быть отрицательным` };
+    }
+    if (num > max) {
+        return { valid: false, error: `${fieldName} не может быть больше ${max}` };
+    }
+    return { valid: true, value: num };
+}
+
+// --- ЛОГИРОВАНИЕ ФИНАНСОВЫХ ОПЕРАЦИЙ ---
+async function logFinancialOperation(operation, data, userId) {
+    try {
+        await supabase.from('financial_logs').insert({
+            operation_type: operation,
+            data: JSON.stringify(data),
+            user_id: userId,
+            created_at: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Ошибка логирования операции:', error);
+    }
+}
 
 // --- MIDDLEWARE ДЛЯ ПРОВЕРКИ АВТОРИЗАЦИИ И РОЛЕЙ ---
 const checkAuth = (req, res, next) => {
@@ -39,8 +112,20 @@ const checkAuth = (req, res, next) => {
     return res.status(401).json({ success: false, message: "Нет токена." });
   }
   try {
+    // ВАЖНО: JWT_SECRET должен быть сложным и храниться как секрет в Fly.io, а не в .env.
+    // Пример генерации: crypto.randomBytes(32).toString('hex')
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
+    
+    // Обновляем информацию о сессии в БД
+    supabase.from('sessions').upsert({
+        token: token.substring(0, 50), // Храним только часть для идентификации
+        employee_id: decoded.id,
+        employee_role: decoded.role,
+        last_activity: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()
+    }, { onConflict: 'employee_id' }).then(); // .then() чтобы не ждать завершения
+    
     next();
   } catch (err) {
     return res.status(401).json({ success: false, message: "Невалидный токен." });
@@ -56,10 +141,7 @@ const checkRole = (roles) => {
   };
 };
 
-// =================================================================
 // --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ РАСЧЕТА ДНЕВНОЙ ЗАРПЛАТЫ ---
-// =================================================================
-
 function calculateDailyPay(revenue, numSellers, isSenior = false) {
   if (isSenior) {
     return { baseRate: 1300, bonus: 0, totalPay: 1300 };
@@ -85,11 +167,7 @@ function calculateDailyPay(revenue, numSellers, isSenior = false) {
   return { baseRate: baseRatePerPerson, bonus: bonusPerPerson, totalPay: baseRatePerPerson + bonusPerPerson };
 }
 
-
-// =================================================================
 // --- ОСНОВНЫЕ API ЭНДПОИНТЫ ---
-// =================================================================
-
 app.get("/employees", async (req, res) => {
   const { data, error } = await supabase.from('employees').select('fullname').eq('active', true);
   if (error) {
@@ -176,36 +254,51 @@ app.get('/check-auth', checkAuth, (req, res) => {
   res.json({ success: true, user: req.user });
 });
 
-// =================================================================
 // --- ЗАЩИЩЕННЫЕ API ЭНДПОИНТЫ ---
-// =================================================================
 const canManagePayroll = checkRole(['admin', 'accountant']);
 const canManageFot = checkRole(['admin']);
 
 app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('file'), async (req, res) => {
     try {
         const { date } = req.body;
-        if (!date) { return res.status(400).json({ success: false, error: 'Дата не указана' }); }
-        if (!req.file) { return res.status(400).json({ success: false, error: 'Файл не загружен' }); }
+        
+        const dateValidation = validateDate(date);
+        if (!dateValidation.valid) {
+            return res.status(400).json({ success: false, error: dateValidation.error });
+        }
+        
+        if (!req.file) { 
+            return res.status(400).json({ success: false, error: 'Файл не загружен' }); 
+        }
 
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
         let headerRowIndex = -1;
         for (let i = 0; i < rows.length; i++) {
-        if (rows[i].includes('Торговая точка') && rows[i].includes('Выторг')) {
-            headerRowIndex = i;
-            break;
+            if (rows[i].includes('Торговая точка') && rows[i].includes('Выторг')) {
+                headerRowIndex = i;
+                break;
+            }
         }
+        
+        if (headerRowIndex === -1) { 
+            return res.status(400).json({ success: false, error: 'В файле не найдены столбцы "Торговая точка" и "Выторг".' }); 
         }
-        if (headerRowIndex === -1) { return res.status(400).json({ success: false, error: 'В файле не найдены столбцы "Торговая точка" и "Выторг".' }); }
+        
         const rawData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex });
         const revenues = rawData.map(row => {
-        const revenueStr = String(row['Выторг'] || '0');
-        const cleanedStr = revenueStr.replace(/\s/g, '').replace(',', '.');
-        const revenueNum = parseFloat(cleanedStr);
-        return { store_address: row['Торговая точка'], revenue: revenueNum };
+            const revenueStr = String(row['Выторг'] || '0');
+            const cleanedStr = revenueStr.replace(/\s/g, '').replace(',', '.');
+            const revenueNum = parseFloat(cleanedStr);
+            
+            if (revenueNum < 0) {
+                throw new Error(`Отрицательная выручка для ${row['Торговая точка']}`);
+            }
+            
+            return { store_address: row['Торговая точка'], revenue: revenueNum };
         }).filter(item => item.store_address && !isNaN(item.revenue) && !String(item.store_address).startsWith('* Себестоимость'));
 
         const addressesFromFile = [...new Set(revenues.map(r => r.store_address.trim()))];
@@ -237,15 +330,23 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         }
 
         if (dataToUpsert.length > 0) {
-            const { error: upsertError } = await supabase
-                .from('daily_revenue')
-                .upsert(dataToUpsert, { onConflict: 'store_id,revenue_date' });
-
-            if (upsertError) throw upsertError;
+            await withLock(`revenue_${date}`, async () => {
+                const { error: upsertError } = await supabase
+                    .from('daily_revenue')
+                    .upsert(dataToUpsert, { onConflict: 'store_id,revenue_date' });
+                if (upsertError) throw upsertError;
+            });
         }
 
         const totalRevenue = revenues.reduce((sum, current) => sum + current.revenue, 0);
-        res.json({ success: true, message: 'Выручка успешно и быстро загружена', revenues, matched, unmatched, totalRevenue });
+        
+        await logFinancialOperation('upload_revenue', {
+            date,
+            totalRevenue,
+            storesCount: dataToUpsert.length
+        }, req.user.id);
+        
+        res.json({ success: true, message: 'Выручка успешно загружена', revenues, matched, unmatched, totalRevenue });
 
     } catch (error) {
         console.error('Ошибка загрузки выручки из Excel:', error);
@@ -255,65 +356,138 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
 
 app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => {
     const { date } = req.body;
-    if (!date) {
-        return res.status(400).json({ success: false, error: 'Дата не указана' });
+    
+    const dateValidation = validateDate(date);
+    if (!dateValidation.valid) {
+        return res.status(400).json({ success: false, error: dateValidation.error });
     }
-    const { data: shifts } = await supabase.from('shifts').select(`employee_id, employees (fullname), store_id, stores (address)`).eq('shift_date', date);
-    if (!shifts || shifts.length === 0) {
-        return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
-    }
-    const storeShifts = {};
-    shifts.forEach(shift => {
-      const address = shift.stores?.address || 'Старший продавец';
-      if (!storeShifts[address]) storeShifts[address] = [];
-      storeShifts[address].push({ employee_id: shift.employee_id, employee_name: shift.employees.fullname, store_id: shift.store_id });
-    });
-    const calculations = [];
-    for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
-      let revenue = 0;
-      if (storeAddress !== 'Старший продавец') {
-        const { data: storeData } = await supabase.from('stores').select('id').eq('address', storeAddress).single();
-        if (storeData) {
-          const { data: revenueData } = await supabase.from('daily_revenue').select('revenue').eq('store_id', storeData.id).eq('revenue_date', date).single();
-          revenue = revenueData?.revenue || 0;
+    
+    return withLock(`payroll_${date}`, async () => {
+        try {
+            const { data: shifts } = await supabase.from('shifts').select(`employee_id, employees (fullname), store_id, stores (address)`).eq('shift_date', date);
+            if (!shifts || shifts.length === 0) {
+                return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
+            }
+            
+            const storeShifts = {};
+            shifts.forEach(shift => {
+                const address = shift.stores?.address || 'Старший продавец';
+                if (!storeShifts[address]) storeShifts[address] = [];
+                storeShifts[address].push({ employee_id: shift.employee_id, employee_name: shift.employees.fullname, store_id: shift.store_id });
+            });
+            
+            const calculations = [];
+            for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
+                let revenue = 0;
+                if (storeAddress !== 'Старший продавец') {
+                    const { data: storeData } = await supabase.from('stores').select('id').eq('address', storeAddress).single();
+                    if (storeData) {
+                        const { data: revenueData } = await supabase.from('daily_revenue').select('revenue').eq('store_id', storeData.id).eq('revenue_date', date).single();
+                        revenue = revenueData?.revenue || 0;
+                    }
+                }
+                const numSellers = storeEmployees.length;
+                for (const employee of storeEmployees) {
+                    const isSenior = employee.employee_id.startsWith('SProd');
+                    const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
+                    const calculation = {
+                        employee_id: employee.employee_id, 
+                        employee_name: employee.employee_name,
+                        store_address: storeAddress, 
+                        work_date: date, 
+                        revenue, 
+                        num_sellers: numSellers,
+                        is_senior: isSenior,
+                        base_rate: payDetails.baseRate, 
+                        bonus: payDetails.bonus,
+                        total_pay: payDetails.totalPay
+                    };
+                    await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
+                    calculations.push(calculation);
+                }
+            }
+            
+            await logFinancialOperation('calculate_payroll', {
+                date,
+                employeesCount: calculations.length,
+                totalPayroll: calculations.reduce((sum, c) => sum + c.total_pay, 0)
+            }, req.user.id);
+            
+            res.json({ 
+                success: true, 
+                calculations, 
+                summary: { 
+                    date, 
+                    total_employees: calculations.length, 
+                    total_payroll: calculations.reduce((sum, c) => sum + c.total_pay, 0) 
+                } 
+            });
+        } catch(error) {
+            console.error(`Ошибка при расчете ЗП за ${date}:`, error);
+            res.status(500).json({ success: false, error: `Внутренняя ошибка сервера при расчете ЗП.` });
         }
-      }
-      const numSellers = storeEmployees.length;
-      for (const employee of storeEmployees) {
-        const isSenior = employee.employee_id.startsWith('SProd');
-        const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
-        const calculation = {
-          employee_id: employee.employee_id, 
-          employee_name: employee.employee_name,
-          store_address: storeAddress, 
-          work_date: date, 
-          revenue, 
-          num_sellers: numSellers,
-          is_senior: isSenior,
-          base_rate: payDetails.baseRate, 
-          bonus: payDetails.bonus,
-          total_pay: payDetails.totalPay
-        };
-        await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
-        calculations.push(calculation);
-      }
-    }
-    res.json({ 
-      success: true, 
-      calculations, 
-      summary: { 
-        date, 
-        total_employees: calculations.length, 
-        total_payroll: calculations.reduce((sum, c) => sum + c.total_pay, 0) 
-      } 
     });
+});
+
+app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;
+    
+    const bonusValidation = validateAmount(manual_bonus, MAX_MANUAL_BONUS, 'Премия');
+    if (!bonusValidation.valid) {
+        return res.status(400).json({ success: false, error: bonusValidation.error });
+    }
+    
+    const penaltyValidation = validateAmount(penalty, MAX_PENALTY, 'Штраф');
+    if (!penaltyValidation.valid) {
+        return res.status(400).json({ success: false, error: penaltyValidation.error });
+    }
+    
+    const shortageValidation = validateAmount(shortage, MAX_SHORTAGE, 'Недостача');
+    if (!shortageValidation.valid) {
+        return res.status(400).json({ success: false, error: shortageValidation.error });
+    }
+    
+    try {
+        await supabase.from('monthly_adjustments').upsert({ 
+            employee_id, 
+            month, 
+            year, 
+            manual_bonus: bonusValidation.value, 
+            penalty: penaltyValidation.value, 
+            shortage: shortageValidation.value, 
+            bonus_reason, 
+            penalty_reason
+        }, { onConflict: 'employee_id,month,year' });
+        
+        await logFinancialOperation('payroll_adjustment', {
+            employee_id, month, year,
+            manual_bonus: bonusValidation.value,
+            penalty: penaltyValidation.value,
+            shortage: shortageValidation.value
+        }, req.user.id);
+        
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, reportEndDate } = req.body;
+    
     if (!year || !month || !reportEndDate) {
         return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
     }
+    
+    if (month < 1 || month > 12) {
+        return res.status(400).json({ success: false, error: 'Некорректный месяц' });
+    }
+    
+    const dateValidation = validateDate(reportEndDate);
+    if (!dateValidation.valid) {
+        return res.status(400).json({ success: false, error: dateValidation.error });
+    }
+    
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
     try {
@@ -350,25 +524,18 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
     }
 });
 
-app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
-    const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;
-    try {
-        await supabase.from('monthly_adjustments').upsert({ 
-            employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason
-        }, { onConflict: 'employee_id,month,year' });
-        res.json({ success: true });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// --- ЭНДПОИНТЫ ДЛЯ РАСЧЕТА АВАНСА И ЗАРПЛАТЫ ---
-
 app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, advanceEndDate } = req.body;
+    
     if (!year || !month || !advanceEndDate) {
         return res.status(400).json({ success: false, error: 'Не указана дата для расчета аванса' });
     }
+    
+    const dateValidation = validateDate(advanceEndDate);
+    if (!dateValidation.valid) {
+        return res.status(400).json({ success: false, error: dateValidation.error });
+    }
+    
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
     try {
@@ -403,81 +570,73 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
 });
 
 app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, res) => {
-    const { year, month, reportEndDate, advanceFinalDate } = req.body;
+    const { year, month, reportEndDate } = req.body;
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
-    try {
-        // --- Шаг 1: Рассчитываем аванс (как и раньше) ---
-        const { data: calculationsInAdvancePeriod, error: advError } = await supabase
-            .from('payroll_calculations')
-            .select('employee_id, total_pay')
-            .gte('work_date', startDate)
-            .lte('work_date', advanceFinalDate);
-        if (advError) throw advError;
-        
-        const earnedInAdvancePeriod = calculationsInAdvancePeriod.reduce((acc, calc) => {
-            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
-            return acc;
-        }, {});
-
-        const advancePayments = {};
-        for (const [employeeId, totalEarned] of Object.entries(earnedInAdvancePeriod)) {
-            const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
-            advancePayments[employeeId] = Math.round(Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT));
-        }
-
-        // --- Шаг 2: Получаем все начисления за полный месяц ---
-        const { data: allCalculations, error: totalError } = await supabase
-            .from('payroll_calculations')
-            .select('employee_id, total_pay')
-            .gte('work_date', startDate)
-            .lte('work_date', reportEndDate);
-        if (totalError) throw totalError;
-
-        const totalBasePayMap = allCalculations.reduce((acc, calc) => {
-            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
-            return acc;
-        }, {});
-
-        // --- Шаг 3: Получаем корректировки ---
-        const { data: adjustments, error: adjError } = await supabase
-            .from('monthly_adjustments')
-            .select('*')
-            .eq('year', year)
-            .eq('month', month);
-        if (adjError) throw adjError;
-        const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
-
-        // --- Шаг 4: Собираем итоговый результат по СТАРОЙ логике ---
-        const finalResults = {};
-        for (const employeeId in totalBasePayMap) {
-            const basePay = totalBasePayMap[employeeId];
-            const adj = adjustmentsMap.get(employeeId) || { manual_bonus: 0, penalty: 0, shortage: 0 };
+    return withLock(`final_payroll_${year}_${month}`, async () => {
+        try {
+            const { data: calculationsInAdvancePeriod, error: advError } = await supabase
+                .from('payroll_calculations').select('employee_id, total_pay')
+                .gte('work_date', startDate).lte('work_date', reportEndDate);
+            if (advError) throw advError;
             
-            const totalGross = basePay + adj.manual_bonus;
-            const advancePayment = advancePayments[employeeId] || 0;
-            
-            // Используем фиксированную выплату на карту для этого отчета
-            const cardRemainder = FIXED_CARD_PAYMENT_FOR_REPORT - advancePayment;
-            const cashPayout = totalGross - FIXED_CARD_PAYMENT_FOR_REPORT - adj.penalty - adj.shortage;
+            const earnedInAdvancePeriod = calculationsInAdvancePeriod.reduce((acc, calc) => {
+                acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+                return acc;
+            }, {});
 
-            finalResults[employeeId] = {
-                total_gross: totalGross,
-                advance_payment: advancePayment,
-                card_remainder: cardRemainder,
-                cash_payout: cashPayout
-            };
+            const advancePayments = {};
+            for (const [employeeId, totalEarned] of Object.entries(earnedInAdvancePeriod)) {
+                const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
+                advancePayments[employeeId] = Math.round(Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT));
+            }
+
+            const { data: allCalculations, error: totalError } = await supabase
+                .from('payroll_calculations').select('employee_id, total_pay')
+                .gte('work_date', startDate).lte('work_date', reportEndDate);
+            if (totalError) throw totalError;
+
+            const totalBasePayMap = allCalculations.reduce((acc, calc) => {
+                acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+                return acc;
+            }, {});
+
+            const { data: adjustments, error: adjError } = await supabase
+                .from('monthly_adjustments').select('*')
+                .eq('year', year).eq('month', month);
+            if (adjError) throw adjError;
+            const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
+
+            const finalResults = {};
+            for (const employeeId in totalBasePayMap) {
+                const basePay = totalBasePayMap[employeeId];
+                const adj = adjustmentsMap.get(employeeId) || { manual_bonus: 0, penalty: 0, shortage: 0 };
+                
+                const totalGross = basePay + adj.manual_bonus;
+                const advancePayment = advancePayments[employeeId] || 0;
+                
+                const cardRemainder = MAX_CARD_PAYMENT - advancePayment;
+                const cashPayout = totalGross - MAX_CARD_PAYMENT - adj.penalty - adj.shortage;
+
+                finalResults[employeeId] = {
+                    total_gross: totalGross,
+                    advance_payment: advancePayment,
+                    card_remainder: cardRemainder,
+                    cash_payout: cashPayout
+                };
+            }
+
+            await logFinancialOperation('calculate_final_payroll', { year, month, reportEndDate }, req.user.id);
+            res.json({ success: true, results: finalResults });
+
+        } catch (error) {
+            console.error('Ошибка окончательного расчета:', error);
+            res.status(500).json({ success: false, error: error.message });
         }
-
-        res.json({ success: true, results: finalResults });
-
-    } catch (error) {
-        console.error('Ошибка окончательного расчета:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
+    });
 });
 
-// --- ЭНДПОИНТ ДЛЯ ОТЧЕТА ФОТ (с НОВОЙ логикой) ---
+// --- ИСПРАВЛЕННЫЙ ENDPOINT ДЛЯ ОТЧЕТА ФОТ ---
 app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
     const { year, month, reportEndDate } = req.body;
     if (!year || !month || !reportEndDate) {
@@ -486,12 +645,10 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
     try {
-        // 1. Получаем имена всех сотрудников
         const { data: employees, error: empError } = await supabase.from('employees').select('id, fullname');
         if (empError) throw empError;
         const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
 
-        // 2. Получаем все начисления за период
         const { data: allCalculations, error: totalError } = await supabase
             .from('payroll_calculations')
             .select('employee_id, total_pay')
@@ -504,7 +661,6 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
             return acc;
         }, {});
 
-        // 3. Получаем корректировки
         const { data: adjustments, error: adjError } = await supabase
             .from('monthly_adjustments')
             .select('*')
@@ -512,38 +668,30 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
             .eq('month', month);
         if (adjError) throw adjError;
         const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
-        
-        // 4. Получаем всю выручку за период
-        const { data: revenues, error: revError } = await supabase
-            .from('daily_revenue')
-            .select('revenue')
-            .gte('revenue_date', startDate)
-            .lte('revenue_date', reportEndDate);
-        if (revError) throw revError;
-        const totalRevenue = revenues.reduce((sum, item) => sum + item.revenue, 0);
 
-        // 5. Собираем отчет по НОВОЙ, гибкой логике
         const reportData = [];
         for (const employeeId of Object.keys(totalBasePayMap)) {
-            const basePay = totalBasePayMap[employeeId];
+            const basePay = totalBasePayMap[employeeId] || 0;
             const adj = adjustmentsMap.get(employeeId) || { manual_bonus: 0, penalty: 0, shortage: 0 };
             
-            const actualCardPayment = Math.min(basePay, MAX_CARD_PAYMENT);
+            const totalGross = basePay + adj.manual_bonus;
+            const totalAfterDeductions = totalGross - adj.penalty - adj.shortage;
+            
+            const actualCardPayment = Math.min(totalAfterDeductions, MAX_CARD_PAYMENT);
+            const cashPayout = totalAfterDeductions - actualCardPayment;
+            
             const taxAmount = actualCardPayment * COMPANY_TAX_RATE;
             const cardPaymentWithTax = actualCardPayment + taxAmount;
-            const cashPayout = (basePay - actualCardPayment) + adj.manual_bonus - adj.penalty - adj.shortage;
             const fot = cardPaymentWithTax + cashPayout;
-            const totalPayoutToEmployee = actualCardPayment + cashPayout;
 
             reportData.push({
                 employee_id: employeeId,
                 employee_name: employeeMap.get(employeeId) || 'Неизвестный',
                 card_payment_with_tax: cardPaymentWithTax,
                 cash_payout: cashPayout,
-                total_payout_to_employee: totalPayoutToEmployee,
+                total_payout_to_employee: totalAfterDeductions,
                 tax_amount: taxAmount,
                 fot: fot,
-                // --- Новые поля для листа проверки ---
                 base_pay: basePay,
                 manual_bonus: adj.manual_bonus,
                 penalty: adj.penalty,
@@ -552,8 +700,11 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
             });
         }
         
+        const totalRevenue = reportData.reduce((sum, item) => sum + item.total_payout_to_employee, 0);
         const totalFot = reportData.reduce((sum, item) => sum + item.fot, 0);
         const fotPercentage = totalRevenue > 0 ? (totalFot / totalRevenue) * 100 : 0;
+
+        await logFinancialOperation('get_fot_report', { year, month, totalFot, fotPercentage }, req.user.id);
 
         res.json({
             success: true,
@@ -571,8 +722,10 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
     }
 });
 
+
 // --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server is running on port ${PORT}`);
 });
+
