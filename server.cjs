@@ -19,6 +19,11 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
 
+// --- ВАЖНОЕ ИСПРАВЛЕНИЕ ---
+// Эта строка говорит серверу доверять прокси-серверу (Fly.io)
+// и правильно работать с HTTPS, что необходимо для установки cookie.
+app.set('trust proxy', 1);
+
 // НОВЫЙ БЛОК: Отключаем кэширование для файла входа
 app.use('/script.js', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -39,7 +44,6 @@ const ADVANCE_PERCENTAGE = 0.9;
 const MAX_ADVANCE_AMOUNT = 7900;
 const COMPANY_TAX_RATE = 0.22; 
 const FIXED_CARD_PAYMENT_FOR_REPORT = 8600;
-
 const MAX_MANUAL_BONUS = 10000;
 const MAX_PENALTY = 5000;
 const MAX_SHORTAGE = 10000;
@@ -47,7 +51,6 @@ const MIN_YEAR = 2024;
 
 // --- Блокировка для предотвращения race conditions ---
 const operationLocks = new Map();
-
 async function withLock(key, operation) {
     const lockKey = `lock_${key}`;
     while (operationLocks.get(lockKey)) {
@@ -66,7 +69,6 @@ function validateDate(dateStr, allowFuture = false) {
     const date = new Date(dateStr);
     const today = new Date();
     today.setHours(23, 59, 59, 999);
-    
     if (isNaN(date.getTime())) return { valid: false, error: 'Некорректная дата' };
     if (!allowFuture && date > today) return { valid: false, error: 'Дата не может быть в будущем' };
     if (date.getFullYear() < MIN_YEAR) return { valid: false, error: `Дата не может быть раньше ${MIN_YEAR} года` };
@@ -110,7 +112,6 @@ const checkAuth = (req, res, next) => {
         last_activity: new Date().toISOString(),
         expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()
     }, { onConflict: 'employee_id' }).then();
-    
     next();
   } catch (err) {
     return res.status(401).json({ success: false, message: "Невалидный токе." });
@@ -147,7 +148,6 @@ function calculateDailyPay(revenue, numSellers, isSenior = false) {
     else if (revenue > 25000) ratePerThousand = 7;
     else if (revenue > 20000) ratePerThousand = 6;
     else ratePerThousand = 5;
-    
     totalBonus = wholeThousands * ratePerThousand;
   }
   
@@ -164,219 +164,61 @@ app.get("/employees", async (req, res) => {
 
 app.post("/login", async (req, res) => {
   const { username, password, deviceKey } = req.body;
-  
-  // Добавляем логирование для отладки
-  console.log(`[LOGIN] Попытка входа: ${username}, device: ${deviceKey}`);
-  
-  try {
-    // Ищем сотрудника
-    const { data: employee, error: empError } = await supabase.from('employees')
-      .select('id, fullname, role')
-      .ilike('fullname', username.trim())
-      .eq('password', password)
-      .single();
+  const { data: employee, error } = await supabase.from('employees')
+    .select('id, fullname, role').ilike('fullname', username.trim())
+    .eq('password', password).single();
 
-    if (empError || !employee) {
-      console.log(`[LOGIN] Неудачная авторизация для: ${username}`);
-      return res.status(401).json({ 
-        success: false, 
-        message: "Неверное имя или пароль" 
-      });
+  if (error || !employee) return res.status(401).json({ success: false, message: "Неверное имя или пароль" });
+
+  let storeId = null, storeAddress = '', responseMessage = '';
+  const isSeniorSeller = employee.id.startsWith('SProd');
+
+  if (employee.role === 'seller') {
+    if (deviceKey) {
+      const { data: device } = await supabase.from('devices').select('store_id').eq('device_key', deviceKey).single();
+      if (device) storeId = device.store_id;
     }
 
-    console.log(`[LOGIN] Сотрудник найден: ${employee.fullname} (${employee.id})`);
+    if (isSeniorSeller && !storeId) {
+        storeAddress = "Старший продавец";
+    } 
+    else if (!isSeniorSeller && !storeId) {
+        const { data: storeLink } = await supabase.from('employee_store').select('store_id').eq('employee_id', employee.id).single();
+        if (storeLink) storeId = storeLink.store_id;
+    }
+    
+    if (storeId) {
+        const { data: store, error: storeError } = await supabase.from('stores').select('address').eq('id', storeId).single();
+        if (storeError || !store) return res.status(404).json({ success: false, message: "Магазин не найден" });
+        storeAddress = store.address;
+    }
+    
+    if (!storeAddress) {
+        return res.status(404).json({ success: false, message: "Для этого сотрудника не удалось определить магазин." });
+    }
 
-    let storeId = null;
-    let storeAddress = '';
-    let responseMessage = '';
-    const isSeniorSeller = employee.id.startsWith('SProd');
-
-    if (employee.role === 'seller') {
-      // Используем блокировку для предотвращения race conditions
-      const lockResult = await withLock(`login_${employee.id}_${new Date().toDateString()}`, async () => {
-        
-        // 1. Определяем магазин
-        if (deviceKey) {
-          console.log(`[LOGIN] Поиск магазина по устройству: ${deviceKey}`);
-          const { data: device, error: deviceError } = await supabase
-            .from('devices')
-            .select('store_id')
-            .eq('device_key', deviceKey)
-            .single();
-          
-          if (device && !deviceError) {
-            storeId = device.store_id;
-            console.log(`[LOGIN] Магазин найден по устройству: ${storeId}`);
-          } else {
-            console.log(`[LOGIN] Устройство не найдено или ошибка: ${deviceError?.message}`);
-          }
-        }
-
-        // Для старшего продавца без устройства
-        if (isSeniorSeller && !storeId) {
-          storeAddress = "Старший продавец";
-          console.log(`[LOGIN] Старший продавец без привязки к магазину`);
-        } 
-        // Для обычного продавца ищем его основное место
-        else if (!isSeniorSeller && !storeId) {
-          console.log(`[LOGIN] Поиск основного магазина для сотрудника`);
-          const { data: storeLink } = await supabase
-            .from('employee_store')
-            .select('store_id')
-            .eq('employee_id', employee.id)
-            .single();
-          
-          if (storeLink) {
-            storeId = storeLink.store_id;
-            console.log(`[LOGIN] Основной магазин найден: ${storeId}`);
-          } else {
-            console.log(`[LOGIN] Основной магазин не найден`);
-          }
-        }
-        
-        // Получаем адрес магазина
-        if (storeId) {
-          const { data: store, error: storeError } = await supabase
-            .from('stores')
-            .select('address')
-            .eq('id', storeId)
-            .single();
-          
-          if (storeError || !store) {
-            console.log(`[LOGIN] Ошибка получения адреса магазина: ${storeError?.message}`);
-            throw new Error("Магазин не найден");
-          }
-          storeAddress = store.address;
-          console.log(`[LOGIN] Адрес магазина: ${storeAddress}`);
-        }
-        
-        // Проверка на отсутствие адреса
-        if (!storeAddress) {
-          console.log(`[LOGIN] Не удалось определить магазин для сотрудника`);
-          throw new Error("Для этого сотрудника не удалось определить магазин.");
-        }
-
-        // 2. Проверяем и создаем смену
-        const today = new Date();
-        const shiftDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        
-        console.log(`[LOGIN] Проверка существующей смены на дату: ${shiftDate}`);
-        
-        // Более точная проверка существующей смены
-        const { data: existingShift, error: shiftCheckError } = await supabase
-          .from('shifts')
-          .select('id, started_at')
-          .eq('employee_id', employee.id)
-          .eq('shift_date', shiftDate);
-        
-        if (shiftCheckError) {
-          console.log(`[LOGIN] Ошибка проверки смены: ${shiftCheckError.message}`);
-          throw shiftCheckError;
-        }
-        
-        if (!existingShift || existingShift.length === 0) {
-          console.log(`[LOGIN] Создание новой смены`);
-          
-          // Создаем новую смену с retry логикой
-          let retries = 3;
-          let shiftCreated = false;
-          
-          while (retries > 0 && !shiftCreated) {
-            try {
-              const { data: newShift, error: insertError } = await supabase
-                .from('shifts')
-                .insert({ 
-                  employee_id: employee.id, 
-                  store_id: storeId, 
-                  shift_date: shiftDate,
-                  started_at: new Date().toISOString()
-                })
-                .select()
-                .single();
-              
-              if (insertError) {
-                console.log(`[LOGIN] Ошибка создания смены (попытка ${4-retries}): ${insertError.message}`);
-                if (insertError.code === '23505') { // Unique violation
-                  // Смена уже существует (создана другим запросом)
-                  responseMessage = `Смена уже зафиксирована. Хорошего дня, ${employee.fullname}!`;
-                  shiftCreated = true;
-                } else if (retries === 1) {
-                  throw insertError;
-                }
-                retries--;
-                await new Promise(resolve => setTimeout(resolve, 500)); // Ждем 500мс перед retry
-              } else {
-                console.log(`[LOGIN] Смена успешно создана: ${newShift.id}`);
-                responseMessage = `Добро пожаловать, ${employee.fullname}!`;
-                shiftCreated = true;
-              }
-            } catch (err) {
-              if (retries === 1) throw err;
-              retries--;
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-          }
-        } else {
-          console.log(`[LOGIN] Смена уже существует: ${existingShift[0].id}`);
-          responseMessage = `Ваша смена на сегодня уже была зафиксирована. Хорошего дня, ${employee.fullname}!`;
-        }
-        
-        return { storeAddress, responseMessage };
-      });
-      
-      storeAddress = lockResult.storeAddress;
-      responseMessage = lockResult.responseMessage;
-      
-    } else if (employee.role === 'admin' || employee.role === 'accountant') {
-      storeAddress = "Административная панель";
+    const today = new Date();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
+    const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).toISOString();
+    const { data: existingShift } = await supabase.from('shifts').select('id').eq('employee_id', employee.id).gte('started_at', startOfDay).lte('started_at', endOfDay);
+    
+    if (existingShift && existingShift.length === 0) {
+      const shiftDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      await supabase.from('shifts').insert({ employee_id: employee.id, store_id: storeId, shift_date: shiftDate });
       responseMessage = `Добро пожаловать, ${employee.fullname}!`;
-    }
-
-    // Создаем токен
-    const token = jwt.sign(
-      { id: employee.id, role: employee.role }, 
-      process.env.JWT_SECRET, 
-      { expiresIn: '8h' }
-    );
-    
-    const isProduction = process.env.NODE_ENV === 'production';
-    res.cookie('token', token, { 
-      httpOnly: true, 
-      secure: isProduction, 
-      sameSite: isProduction ? 'strict' : 'lax' 
-    });
-    
-    console.log(`[LOGIN] Успешная авторизация: ${employee.fullname}, магазин: ${storeAddress}`);
-    
-    return res.json({ 
-      success: true, 
-      message: responseMessage, 
-      store: storeAddress, 
-      role: employee.role,
-      token: token // Добавляем токен в ответ для клиента
-    });
-    
-  } catch (error) {
-    console.error(`[LOGIN] Критическая ошибка:`, error);
-    
-    // Более детальная обработка ошибок
-    if (error.message === "Магазин не найден") {
-      return res.status(404).json({ 
-        success: false, 
-        message: "Магазин не найден в системе" 
-      });
-    } else if (error.message === "Для этого сотрудника не удалось определить магазин.") {
-      return res.status(404).json({ 
-        success: false, 
-        message: error.message 
-      });
     } else {
-      return res.status(500).json({ 
-        success: false, 
-        message: "Внутренняя ошибка сервера. Попробуйте позже." 
-      });
+        responseMessage = `Ваша смена на сегодня уже была зафиксирована. Хорошего дня, ${employee.fullname}!`;
     }
+  } else if (employee.role === 'admin' || employee.role === 'accountant') {
+    storeAddress = "Административная панель";
+    responseMessage = `Добро пожаловать, ${employee.fullname}!`;
   }
+
+  const token = jwt.sign({ id: employee.id, role: employee.role }, process.env.JWT_SECRET, { expiresIn: '8h' });
+  const isProduction = process.env.NODE_ENV === 'production';
+  res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'strict' : 'lax' });
+  
+  return res.json({ success: true, message: responseMessage, store: storeAddress, role: employee.role });
 });
 
 app.post('/logout', (req, res) => {
@@ -389,6 +231,8 @@ app.get('/check-auth', checkAuth, (req, res) => {
 });
 
 // --- ЗАЩИЩЕННЫЕ API ЭНДПОИНТЫ ---
+// (Остальной код остается без изменений)
+
 const canManagePayroll = checkRole(['admin', 'accountant']);
 const canManageFot = checkRole(['admin']);
 
@@ -401,12 +245,10 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
 
         const fileName = req.file.originalname;
         const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4}|\d{2})/);
-
+      
         if (dateMatch) {
             let [, day, month, year] = dateMatch;
-            if (year.length === 2) {
-                year = "20" + year;
-            }
+            if (year.length === 2) year = "20" + year;
             const dateFromFile = `${year}-${month}-${day}`;
             if (dateFromFile !== date) {
                 return res.status(400).json({
@@ -429,23 +271,21 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
             }
         }
         if (headerRowIndex === -1) return res.status(400).json({ success: false, error: 'В файле не найдены столбцы "Торговая точка" и "Выторг".' });
-
+        
         const rawData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex });
         const revenues = rawData.map(row => {
-            const revenueStr = String(row['Выторг'] || '0');
-            const cleanedStr = revenueStr.replace(/\s/g, '').replace(',', '.');
-            const revenueNum = parseFloat(cleanedStr);
+            const revenueStr = String(row['Выторг'] || '0').replace(/\s/g, '').replace(',', '.');
+            const revenueNum = parseFloat(revenueStr);
             if (revenueNum < 0) throw new Error(`Отрицательная выручка для ${row['Торговая точка']}`);
             return { store_address: row['Торговая точка'], revenue: revenueNum };
         }).filter(item => item.store_address && !isNaN(item.revenue) && !String(item.store_address).startsWith('* Себестоимость'));
-
+        
         const addressesFromFile = [...new Set(revenues.map(r => r.store_address.trim()))];
         const { data: stores, error: storeError } = await supabase.from('stores').select('id, address').in('address', addressesFromFile);
         if (storeError) throw storeError;
 
         const storeAddressToIdMap = new Map(stores.map(s => [s.address, s.id]));
         const dataToUpsert = [], matched = [], unmatched = [];
-        
         for (const item of revenues) {
             const storeId = storeAddressToIdMap.get(item.store_address.trim());
             if (storeId) {
@@ -477,19 +317,16 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     const dateValidation = validateDate(date);
     if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
     
-    // --- НОВАЯ ЛОГИКА: ВЫЧИСЛЯЕМ ДАТУ ВЫРУЧКИ (ПРЕДЫДУЩИЙ ДЕНЬ) ---
     const calculationDate = new Date(date);
     const revenueDate = new Date(calculationDate);
     revenueDate.setDate(calculationDate.getDate() - 1);
     const revenueDateString = revenueDate.toISOString().split('T')[0];
-    // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
 
     return withLock(`payroll_${date}`, async () => {
         try {
             const { data: shifts, error: shiftsError } = await supabase.from('shifts')
                 .select(`store_id, stores (address), employees (fullname, id)`)
                 .eq('shift_date', date);
-
             if (shiftsError) throw shiftsError;
             if (!shifts || shifts.length === 0) return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
             
@@ -498,26 +335,21 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                 if (!shift.employees) return;
                 const address = shift.stores?.address || 'Старший продавец';
                 if (!storeShifts[address]) storeShifts[address] = [];
-                
                 storeShifts[address].push({
                     employee_id: shift.employees.id,
                     employee_name: shift.employees.fullname,
                     store_id: shift.store_id
                 });
             });
-            
+
             const calculations = [];
             for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
                 let revenue = 0;
                 if (storeAddress !== 'Старший продавец') {
                     const { data: storeData } = await supabase.from('stores').select('id').eq('address', storeAddress).single();
                     if (storeData) {
-                        // --- ИЗМЕНЕНИЕ ЗДЕСЬ: ИСПОЛЬЗУЕМ ДАТУ ПРЕДЫДУЩЕГО ДНЯ ---
                         const { data: revenueData } = await supabase.from('daily_revenue')
-                            .select('revenue')
-                            .eq('store_id', storeData.id)
-                            .eq('revenue_date', revenueDateString) // <-- Используем новую переменную
-                            .single();
+                            .select('revenue').eq('store_id', storeData.id).eq('revenue_date', revenueDateString).single();
                         revenue = revenueData?.revenue || 0;
                     }
                 }
@@ -526,13 +358,10 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                     const isSenior = employee.employee_id.startsWith('SProd');
                     const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
                     const calculation = {
-                        employee_id: employee.employee_id,
-                        employee_name: employee.employee_name,
-                        store_address: storeAddress,
-                        store_id: employee.store_id,
-                        work_date: date, revenue, num_sellers: numSellers,
-                        is_senior: isSenior, base_rate: payDetails.baseRate, bonus: payDetails.bonus,
-                        total_pay: payDetails.totalPay
+                        employee_id: employee.employee_id, employee_name: employee.employee_name,
+                        store_address: storeAddress, store_id: employee.store_id,
+                        work_date: date, revenue, num_sellers: numSellers, is_senior: isSenior,
+                        base_rate: payDetails.baseRate, bonus: payDetails.bonus, total_pay: payDetails.totalPay
                     };
                     await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
                     calculations.push(calculation);
@@ -554,10 +383,8 @@ app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) =
     
     const bonusValidation = validateAmount(manual_bonus, MAX_MANUAL_BONUS, 'Премия');
     if (!bonusValidation.valid) return res.status(400).json({ success: false, error: bonusValidation.error });
-    
     const penaltyValidation = validateAmount(penalty, MAX_PENALTY, 'Штраф');
     if (!penaltyValidation.valid) return res.status(400).json({ success: false, error: penaltyValidation.error });
-    
     const shortageValidation = validateAmount(shortage, MAX_SHORTAGE, 'Недостача');
     if (!shortageValidation.valid) return res.status(400).json({ success: false, error: shortageValidation.error });
   
@@ -595,7 +422,6 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
         if (dailyError) throw dailyError;
 
         const enrichedDailyData = dailyData.map(calc => ({ ...calc, employee_name: employeeMap.get(calc.employee_id) || 'Неизвестный' }));
-        
         const { data: adjustments, error: adjError } = await supabase.from('monthly_adjustments')
             .select('*').eq('year', year).eq('month', month);
         if (adjError) throw adjError;
@@ -679,12 +505,9 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 const advancePayment = advancePayments[employeeId] || 0;
                 const cardRemainder = FIXED_CARD_PAYMENT_FOR_REPORT - advancePayment;
                 const cashPayout = totalGross - FIXED_CARD_PAYMENT_FOR_REPORT - adj.penalty - adj.shortage;
-                
                 finalResults[employeeId] = { 
-                    total_gross: totalGross, 
-                    advance_payment: advancePayment, 
-                    card_remainder: cardRemainder, 
-                    cash_payout: cashPayout 
+                    total_gross: totalGross, advance_payment: advancePayment, 
+                    card_remainder: cardRemainder, cash_payout: cashPayout 
                 };
             }
             await logFinancialOperation('calculate_final_payroll', { year, month, reportEndDate }, req.user.id);
@@ -699,77 +522,50 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
 
 // ====== ХЕЛПЕР: собираем ФОТ с "умным" налогом (только на карту) ======
 async function buildFotReport({ startDate, endDate }) {
-  // 1) Справочник сотрудников
-  const { data: employees, error: empError } = await supabase
-    .from('employees')
-    .select('id, fullname');
+  const { data: employees, error: empError } = await supabase.from('employees').select('id, fullname');
   if (empError) throw empError;
   const employeeName = new Map(employees.map(e => [e.id, e.fullname]));
-
-  // 2) Все начисления, отсортированные по дате для корректного накопления
-  const { data: calcs, error: calcErr } = await supabase
-    .from('payroll_calculations')
+  
+  const { data: calcs, error: calcErr } = await supabase.from('payroll_calculations')
     .select('employee_id, work_date, total_pay, store_id, store_address')
-    .gte('work_date', startDate)
-    .lte('work_date', endDate)
-    .order('work_date', { ascending: true }); // Важная сортировка для накопления
+    .gte('work_date', startDate).lte('work_date', endDate).order('work_date', { ascending: true });
   if (calcErr) throw calcErr;
 
-  // Если за период не было ни одной смены, возвращаем пустой отчет
-  if (!calcs || calcs.length === 0) {
-    return {
-      rows: []
-    };
-  }
+  if (!calcs || calcs.length === 0) return { rows: [] };
   
   const activeStoreIds = [...new Set(calcs.map(c => c.store_id).filter(id => id !== null))];
-
-  // 3) Выручка магазинов по дням
-  const { data: revs, error: revErr } = await supabase
-    .from('daily_revenue')
+  const { data: revs, error: revErr } = await supabase.from('daily_revenue')
     .select('store_id, revenue_date, revenue')
-    .gte('revenue_date', startDate)
-    .lte('revenue_date', endDate)
-    .in('store_id', activeStoreIds);
+    .gte('revenue_date', startDate).lte('revenue_date', endDate).in('store_id', activeStoreIds);
   if (revErr) throw revErr;
 
-  // Индекс выручки для быстрого доступа
   const revenueBy = {};
   for (const r of revs || []) {
     if (!revenueBy[r.store_id]) revenueBy[r.store_id] = {};
     revenueBy[r.store_id][r.revenue_date] = (revenueBy[r.store_id][r.revenue_date] || 0) + Number(r.revenue || 0);
   }
 
-  // --- НОВАЯ ЛОГИКА РАСЧЕТА НАЛОГА ---
   const TAX = 0.22;
   const rows = [];
-  const employeeCardTracker = {}; // Отслеживаем накопленные выплаты на карту для каждого сотрудника
+  const employeeCardTracker = {};
 
   for (const c of calcs) {
     const payout = Number(c.total_pay || 0);
     const employeeId = c.employee_id;
 
-    // Инициализируем трекер для нового сотрудника
     if (!employeeCardTracker[employeeId]) {
       employeeCardTracker[employeeId] = { paid_to_card: 0 };
     }
 
     let paidToCardToday = 0;
-    // Считаем, сколько еще можно выплатить на карту в этом месяце (в рамках лимита 8600)
     const remainingCardCapacity = FIXED_CARD_PAYMENT_FOR_REPORT - employeeCardTracker[employeeId].paid_to_card;
-
     if (remainingCardCapacity > 0) {
-      // На карту сегодня пойдет либо вся дневная ЗП, либо остаток до лимита
       paidToCardToday = Math.min(payout, remainingCardCapacity);
-      // Обновляем счетчик выплат на карту для этого сотрудника
       employeeCardTracker[employeeId].paid_to_card += paidToCardToday;
     }
 
-    // Налог начисляется ТОЛЬКО на ту часть, что пошла на карту
     const tax = paidToCardToday * TAX;
-    // Общая стоимость для ФОТ = вся выплата сотруднику + налог с карточной части
     const payoutWithTax = payout + tax;
-
     const storeRevenueThatDay = (c.store_id && revenueBy[c.store_id] && revenueBy[c.store_id][c.work_date]) || 0;
     
     rows.push({
@@ -785,28 +581,19 @@ async function buildFotReport({ startDate, endDate }) {
     });
   }
   
-  // Отдаем только детальные строки, итоги теперь считаются на фронтенде
-  return {
-    rows: rows
-  };
+  return { rows: rows };
 }
 
 app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
   try {
     const { year, month, reportEndDate } = req.body;
-    if (!year || !month || !reportEndDate) {
-      return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
-    }
+    if (!year || !month || !reportEndDate) return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-
     const dateValidation = validateDate(reportEndDate);
-    if (!dateValidation.valid) {
-      return res.status(400).json({ success: false, error: dateValidation.error });
-    }
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
 
     const report = await buildFotReport({ startDate, endDate: reportEndDate });
-
-    // Просто возвращаем строки, без обращения к summary
     res.json({ success: true, rows: report.rows });
 
   } catch (error) {
@@ -819,30 +606,21 @@ app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
 app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
   try {
     const { year, month, reportEndDate } = req.body;
-    if (!year || !month || !reportEndDate) {
-      return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
-    }
+    if (!year || !month || !reportEndDate) return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
     const dateValidation = validateDate(reportEndDate);
-    if (!dateValidation.valid) {
-      return res.status(400).json({ success: false, error: dateValidation.error });
-    }
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
 
     const { rows, summary } = await buildFotReport({ startDate, endDate: reportEndDate });
 
-    // Подготовка данных в Excel
     const sheetRows = [
       ['Сотрудник', 'Дата', 'ID Магазина', 'Касса дня', 'Начисление', 'Налог 22%', 'Выплата + налог', 'ФОТ % (персонально)']
     ];
     for (const r of rows) {
       sheetRows.push([
-        r.employee_name,
-        r.work_date,
-        r.store_id || '',
-        Number(r.daily_store_revenue || 0),
-        Number(r.payout || 0),
-        Number(r.tax_22 || 0),
-        Number(r.payout_with_tax || 0),
+        r.employee_name, r.work_date, r.store_id || '', Number(r.daily_store_revenue || 0),
+        Number(r.payout || 0), Number(r.tax_22 || 0), Number(r.payout_with_tax || 0),
         Number(r.fot_personal_pct || 0)
       ]);
     }
@@ -855,13 +633,11 @@ app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(sheetRows);
     XLSX.utils.book_append_sheet(wb, ws, 'FOT');
-    
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
     const fileName = `fot_${year}-${String(month).padStart(2, '0')}_${reportEndDate}.xlsx`;
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    
     return res.status(200).send(buf);
   } catch (error) {
     console.error('Ошибка экспорта ФОТ в Excel:', error);
@@ -869,21 +645,15 @@ app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
   }
 });
 
-
 // ====== ОЧИСТКА ТЕСТОВЫХ ДАННЫХ (ТОЛЬКО ДЛЯ АДМИНОВ) ======
 app.post('/clear-transactional-data', checkAuth, canManageFot, async (req, res) => {
-  // canManageFot - это наша проверка на роль 'admin', используем её повторно
-  
   try {
-    // Выполняем удаление в правильном порядке, чтобы избежать ошибок связей
     await supabase.from('payroll_calculations').delete().neq('id', 0);
     await supabase.from('shifts').delete().neq('id', 0);
     await supabase.from('daily_revenue').delete().neq('id', 0);
     await supabase.from('monthly_adjustments').delete().neq('id', 0);
     
-    // Логируем операцию
     await logFinancialOperation('clear_test_data', { status: 'success' }, req.user.id);
-    
     res.json({ success: true, message: 'Все тестовые данные (смены, расчеты, выручка) были успешно удалены.' });
 
   } catch (error) {
@@ -891,7 +661,6 @@ app.post('/clear-transactional-data', checkAuth, canManageFot, async (req, res) 
     res.status(500).json({ success: false, error: 'Произошла ошибка на сервере при удалении данных.' });
   }
 });
-
 
 // --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
