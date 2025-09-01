@@ -327,6 +327,13 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     const dateValidation = validateDate(date);
     if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
     
+    // --- НОВАЯ ЛОГИКА: ВЫЧИСЛЯЕМ ДАТУ ВЫРУЧКИ (ПРЕДЫДУЩИЙ ДЕНЬ) ---
+    const calculationDate = new Date(date);
+    const revenueDate = new Date(calculationDate);
+    revenueDate.setDate(calculationDate.getDate() - 1);
+    const revenueDateString = revenueDate.toISOString().split('T')[0];
+    // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
     return withLock(`payroll_${date}`, async () => {
         try {
             const { data: shifts, error: shiftsError } = await supabase.from('shifts')
@@ -339,9 +346,6 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
             const storeShifts = {};
             shifts.forEach(shift => {
                 if (!shift.employees) return;
-
-                // --- ИСПРАВЛЕННАЯ ЛОГИКА АДРЕСА ---
-                // Адрес берется из связи, если она есть. Если нет (store_id = null), то это "Старший продавец"
                 const address = shift.stores?.address || 'Старший продавец';
                 if (!storeShifts[address]) storeShifts[address] = [];
                 
@@ -355,12 +359,15 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
             const calculations = [];
             for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
                 let revenue = 0;
-                // --- ИСПРАВЛЕННАЯ ЛОГИКА ВЫРУЧКИ ---
-                // Запрашиваем выручку для всех групп, КРОМЕ "Старший продавец"
                 if (storeAddress !== 'Старший продавец') {
                     const { data: storeData } = await supabase.from('stores').select('id').eq('address', storeAddress).single();
                     if (storeData) {
-                        const { data: revenueData } = await supabase.from('daily_revenue').select('revenue').eq('store_id', storeData.id).eq('revenue_date', date).single();
+                        // --- ИЗМЕНЕНИЕ ЗДЕСЬ: ИСПОЛЬЗУЕМ ДАТУ ПРЕДЫДУЩЕГО ДНЯ ---
+                        const { data: revenueData } = await supabase.from('daily_revenue')
+                            .select('revenue')
+                            .eq('store_id', storeData.id)
+                            .eq('revenue_date', revenueDateString) // <-- Используем новую переменную
+                            .single();
                         revenue = revenueData?.revenue || 0;
                     }
                 }
