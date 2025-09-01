@@ -1,3 +1,7 @@
+// API URL Configuration
+const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://shifts-api.fly.dev';
+
+// --- Глобальная переменная для кэширования данных отчета ФОТ ---
 let fotReportDataCache = [];
 
 // --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
@@ -7,193 +11,130 @@ const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
 const ADVANCE_PERIOD_DAYS = 15;
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
 
-// ===================================================
-// 2. ДОБАВЛЕНИЕ ПРОВЕРКИ СЕССИИ
-// ===================================================
-let sessionCheckInterval;
-
-function startSessionCheck() {
-    sessionCheckInterval = setInterval(async () => {
+// --- БЛОК АВТОРИЗАЦИИ И ИНИЦИАЛИЗАЦИИ ---
+document.addEventListener('DOMContentLoaded', async function() {
+    
+    async function verifyAuthentication() {
         try {
             const response = await fetch(`${API_BASE}/check-auth`, {
                 method: 'GET',
                 credentials: 'include'
             });
-            
+
             if (!response.ok) {
-                console.log('Сессия истекла');
-                clearInterval(sessionCheckInterval);
-                window.location.href = '/index.html';
-            }
-        } catch (error) {
-            console.error('Ошибка проверки сессии:', error);
-        }
-    }, 5 * 60 * 1000); // каждые 5 минут
-}
-// ===================================================
-
-// --- БЛОК АВТОРИЗАЦИИ И ИНИЦИАЛИЗАЦИИ ---
-document.addEventListener('DOMContentLoaded', async function() {
-    await verifyAuthentication();
-    // ===================================================
-    // 3. ЗАПУСК ПРОВЕРКИ СЕССИИ
-    // ===================================================
-    startSessionCheck(); 
-    // ===================================================
-});
-
-// ===================================================
-// 1. ОБНОВЛЕННАЯ ФУНКЦИЯ ПРОВЕРКИ АВТОРИЗАЦИИ
-// ===================================================
-async function verifyAuthentication() {
-    const maxRetries = 3;
-    let retryCount = 0;
-    
-    while (retryCount < maxRetries) {
-        try {
-            console.log(`Проверка авторизации, попытка ${retryCount + 1}...`);
-            
-            const response = await fetch(`${API_BASE}/check-auth`, {
-                method: 'GET',
-                credentials: 'include',  // ВАЖНО: отправляем cookies
-                headers: {
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            console.log('Статус ответа:', response.status);
-            
-            if (response.status === 401) {
-                console.log('Пользователь не авторизован, перенаправление...');
                 window.location.href = '/index.html';
                 return;
-            }
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
             }
             
             const data = await response.json();
-            console.log('Данные авторизации:', data);
             
-            if (!data.success) {
-                throw new Error(data.message || 'Авторизация не подтверждена');
-            }
-            
-            console.log('Авторизация подтверждена, роль:', data.user.role);
-            
-            // Управление видимостью элементов
-            const fotTabButton = document.getElementById('fot-tab-button');
-            const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
-            
-            if (data.user.role === 'admin') {
-                if (fotTabButton) fotTabButton.style.display = 'block';
-                if (clearDataButton && clearDataButton.parentElement) {
-                    clearDataButton.parentElement.style.display = 'block';
-                }
-            } else {
-                if (fotTabButton) fotTabButton.style.display = 'none';
-                if (clearDataButton && clearDataButton.parentElement) {
-                    clearDataButton.parentElement.style.display = 'none';
-                }
-            }
-            
+           // Находим кнопки
+const fotTabButton = document.getElementById('fot-tab-button');
+const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
+
+// Проверяем, существует ли кнопка очистки, чтобы избежать ошибок
+if (clearDataButton) {
+    // Проверяем роль пользователя
+    if (data.success && data.user.role === 'admin') {
+        // Показываем элементы для админа
+        if (fotTabButton) fotTabButton.style.display = 'block';
+        clearDataButton.parentElement.style.display = 'block';
+    } else {
+        // Скрываем элементы от других ролей (например, бухгалтера)
+        if (fotTabButton) fotTabButton.style.display = 'none'; // Также скроем ФОТ для не-админов
+        clearDataButton.parentElement.style.display = 'none';
+    }
+}
+
             initializePage();
-            return; // Успешно
-            
+
         } catch (error) {
-            console.error(`Ошибка проверки (попытка ${retryCount + 1}):`, error);
-            retryCount++;
+            console.error('Ошибка проверки аутентификации:', error);
+            window.location.href = '/index.html';
+        }
+    }
+
+    function initializePage() {
+        const today = new Date();
+        const todayStr = today.toISOString().split('T')[0];
+        
+        // Заполняем даты и месяцы на всех вкладках
+        const monthSelects = [
+            document.getElementById('reportMonth'),
+            document.getElementById('fotReportMonth')
+        ];
+        const yearInputs = [
+            document.getElementById('reportYear'),
+            document.getElementById('fotReportYear')
+        ];
+        const endDateInputs = [
+            document.getElementById('reportEndDate'),
+            document.getElementById('fotReportEndDate')
+        ];
+        
+        const revenueDateEl = document.getElementById('revenueDate');
+        if (revenueDateEl) revenueDateEl.value = todayStr;
+
+        const payrollDateEl = document.getElementById('payrollDate');
+        if (payrollDateEl) payrollDateEl.value = todayStr;
+
+        monthSelects.forEach(select => {
+            if (select) {
+                if (select.id === 'fotReportMonth') {
+                    const reportMonthEl = document.getElementById('reportMonth');
+                    if (reportMonthEl) select.innerHTML = reportMonthEl.innerHTML;
+                }
+                select.value = today.getMonth() + 1;
+            }
+        });
+        yearInputs.forEach(input => { if (input) input.value = today.getFullYear(); });
+        endDateInputs.forEach(input => { if (input) input.value = todayStr; });
+
+        function updateEndDateDefault() {
+            const controlPanel = this.closest('.control-panel');
+            if (!controlPanel) return;
+
+            const yearInput = controlPanel.querySelector('input[type="number"]');
+            const monthSelect = controlPanel.querySelector('select');
+            const endDateInput = controlPanel.querySelector('input[type="date"]');
             
-            if (retryCount >= maxRetries) {
-                alert('Ошибка проверки авторизации. Войдите заново.');
-                window.location.href = '/index.html';
+            if (!yearInput || !monthSelect || !endDateInput) {
+                console.error("Не удалось найти элементы управления датой в панели", controlPanel);
                 return;
             }
+
+            const year = yearInput.value;
+            const month = monthSelect.value;
             
-            // Ждем перед повторной попыткой
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-    }
-}
-// ===================================================
+            if (!year || !month) return;
 
-function initializePage() {
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    
-    const monthSelects = [
-        document.getElementById('reportMonth'),
-        document.getElementById('fotReportMonth')
-    ];
-    const yearInputs = [
-        document.getElementById('reportYear'),
-        document.getElementById('fotReportYear')
-    ];
-    const endDateInputs = [
-        document.getElementById('reportEndDate'),
-        document.getElementById('fotReportEndDate')
-    ];
-    
-    const revenueDateEl = document.getElementById('revenueDate');
-    if (revenueDateEl) revenueDateEl.value = todayStr;
-
-    const payrollDateEl = document.getElementById('payrollDate');
-    if (payrollDateEl) payrollDateEl.value = todayStr;
-
-    monthSelects.forEach(select => {
-        if (select) {
-            if (select.id === 'fotReportMonth') {
-                const reportMonthEl = document.getElementById('reportMonth');
-                if (reportMonthEl) select.innerHTML = reportMonthEl.innerHTML;
+            const lastDay = new Date(year, month, 0).getDate();
+            const lastDayOfMonthStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+            
+            if (new Date() < new Date(year, month - 1, lastDay)) {
+                 endDateInput.value = todayStr;
+            } else {
+                 endDateInput.value = lastDayOfMonthStr;
             }
-            select.value = today.getMonth() + 1;
         }
-    });
-    yearInputs.forEach(input => { if (input) input.value = today.getFullYear(); });
-    endDateInputs.forEach(input => { if (input) input.value = todayStr; });
-
-    function updateEndDateDefault() {
-        const controlPanel = this.closest('.control-panel');
-        if (!controlPanel) return;
-
-        const yearInput = controlPanel.querySelector('input[type="number"]');
-        const monthSelect = controlPanel.querySelector('select');
-        const endDateInput = controlPanel.querySelector('input[type="date"]');
         
-        if (!yearInput || !monthSelect || !endDateInput) {
-            console.error("Не удалось найти элементы управления датой в панели", controlPanel);
-            return;
-        }
-
-        const year = yearInput.value;
-        const month = monthSelect.value;
+        monthSelects.forEach(s => {
+            if(s) s.addEventListener('change', updateEndDateDefault)
+        });
+        yearInputs.forEach(i => {
+            if(i) i.addEventListener('change', updateEndDateDefault)
+        });
         
-        if (!year || !month) return;
-
-        const lastDay = new Date(year, month, 0).getDate();
-        const lastDayOfMonthStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-        
-        if (new Date() < new Date(year, month - 1, lastDay)) {
-             endDateInput.value = todayStr;
-        } else {
-             endDateInput.value = lastDayOfMonthStr;
+        // Привязываем события к кнопкам
+        const uploadBtn = document.getElementById('uploadRevenueBtn');
+        if (uploadBtn) {
+            uploadBtn.addEventListener('click', uploadRevenueFile);
         }
     }
-    
-    monthSelects.forEach(s => {
-        if(s) s.addEventListener('change', updateEndDateDefault)
-    });
-    yearInputs.forEach(i => {
-        if(i) i.addEventListener('change', updateEndDateDefault)
-    });
-    
-    const uploadBtn = document.getElementById('uploadRevenueBtn');
-    if (uploadBtn) {
-        uploadBtn.addEventListener('click', uploadRevenueFile);
-    }
-}
+
+    await verifyAuthentication();
+});
+
 
 async function logout() {
     await fetch(`${API_BASE}/logout`, { method: 'POST', credentials: 'include' });
@@ -224,44 +165,140 @@ function hideStatus(elementId) {
     if (statusEl) statusEl.style.display = 'none';
 }
 
-// --- Логика для кнопки "Вверх" ---
-const backToTopBtn = document.getElementById("back-to-top-btn");
-
-window.onscroll = function() {
-    scrollFunction();
-};
-
-function scrollFunction() {
-    if (document.body.scrollTop > 20 || document.documentElement.scrollTop > 20) {
-        if(backToTopBtn) backToTopBtn.style.display = "block";
-    } else {
-        if(backToTopBtn) backToTopBtn.style.display = "none";
-    }
-}
-
-function scrollToTop() {
-    document.body.scrollTop = 0; // For Safari
-    document.documentElement.scrollTop = 0; // For Chrome, Firefox, IE and Opera
-}
-
 // --- ФУНКЦИИ ЭКСПОРТА В EXCEL ---
-// ... (все функции экспорта остаются без изменений) ...
+function applyExcelFormatting(ws) {
+    const borderStyle = { style: 'thin', color: { auto: 1 } };
+    const borders = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
+    const headerFont = { bold: true };
+    
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    const colWidths = [];
 
-// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
-async function fetchData(url, options, statusId) {
-    try {
-        const response = await fetch(url, options);
-        const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(result.error || `Ошибка HTTP: ${response.status}`);
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+        let maxWidth = 0;
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            const cell_address = { c: C, r: R };
+            const cell_ref = XLSX.utils.encode_cell(cell_address);
+            if (ws[cell_ref]) {
+                const cell = ws[cell_ref];
+                const cellContent = cell.v ? String(cell.v) : '';
+                maxWidth = Math.max(maxWidth, cellContent.length);
+                cell.s = { ...cell.s, border: borders };
+                if (R === 0) {
+                    cell.s = { ...cell.s, font: headerFont };
+                }
+            }
         }
-        return result;
-    } catch (error) {
-        console.error(`Ошибка при запросе к ${url}:`, error);
-        showStatus(statusId, `Ошибка: ${error.message}`, 'error');
-        throw error;
+        colWidths[C] = { wch: maxWidth + 2 };
     }
+    ws['!cols'] = colWidths;
+}
+
+function exportToExcelWithFormatting(tableId, statusId, fileName) {
+    const table = document.getElementById(tableId);
+    if (!table || table.rows.length === 0) {
+        showStatus(statusId, 'Нет данных для экспорта', 'error');
+        return;
+    }
+    const tableClone = table.cloneNode(true);
+    tableClone.querySelectorAll('input').forEach(input => {
+        const parent = input.parentNode;
+        parent.textContent = input.value;
+    });
+    tableClone.querySelectorAll('.summary-row').forEach(row => row.remove());
+    const ws = XLSX.utils.table_to_sheet(tableClone);
+    applyExcelFormatting(ws);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Отчет");
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
+}
+
+function exportRevenueToExcel() {
+    const dateEl = document.getElementById('revenueDate');
+    const date = dateEl ? dateEl.value : 'unknown_date';
+    exportToExcelWithFormatting('revenueTable', 'revenueStatus', `Выручка_${date}`);
+}
+
+function exportDailyPayrollToExcel() {
+    const dateEl = document.getElementById('payrollDate');
+    const date = dateEl ? dateEl.value : 'unknown_date';
+    exportToExcelWithFormatting('payrollTable', 'payrollStatus', `Расчет_за_день_${date}`);
+}
+
+function exportMonthlyReportToExcel() {
+    const monthEl = document.getElementById('reportMonth');
+    const yearEl = document.getElementById('reportYear');
+    const month = monthEl ? monthEl.value : 'M';
+    const year = yearEl ? yearEl.value : 'Y';
+    exportToExcelWithFormatting('monthlyReportTable', 'reportStatus', `Отчет_за_месяц_${month}_${year}`);
+}
+
+function exportFotReportToExcel() {
+    const monthEl = document.getElementById('fotReportMonth');
+    const yearEl = document.getElementById('fotReportYear');
+    const month = monthEl ? monthEl.value : 'M';
+    const year = yearEl ? yearEl.value : 'Y';
+    const fileName = `Отчет_ФОТ_${month}_${year}`;
+
+    const table = document.getElementById('fotTable');
+    if (!table || table.rows.length === 0 || fotReportDataCache.length === 0) {
+        showStatus('fotReportStatus', 'Нет данных для экспорта', 'error');
+        return;
+    }
+
+    // --- Лист 1: Основной отчет (сводный) ---
+    const mainReportSheet = [];
+    const tableHeaders = [];
+    table.querySelectorAll('thead th').forEach(th => tableHeaders.push(th.textContent));
+    mainReportSheet.push(tableHeaders);
+
+    fotReportDataCache.forEach(data => {
+        mainReportSheet.push([
+            data.employee_name,
+            data.work_date,
+            data.store_id || 'N/A',
+            Number(data.daily_store_revenue),
+            Number(data.payout),
+            Number(data.tax_22),
+            Number(data.payout_with_tax),
+            Number(data.fot_personal_pct)
+        ]);
+    });
+    
+    // Добавляем итоговые данные в конец первого листа
+    mainReportSheet.push([]); // Пустая строка для разделения
+    mainReportSheet.push(['Итоговые данные']);
+    mainReportSheet.push(['Общая выручка:', document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн']);
+    mainReportSheet.push(['Общий ФОТ (выплаты + 22%):', document.getElementById('fotTotalFund')?.textContent || '0.00 грн']);
+    mainReportSheet.push(['Итоговый ФОТ % от выручки:', document.getElementById('fotPercentage')?.textContent || '0.00 %']);
+
+    const ws_report = XLSX.utils.aoa_to_sheet(mainReportSheet);
+
+    // --- Лист 2: Проверка расчетов (Детализация по начислениям) ---
+    // Этот лист теперь будет содержать детальную разбивку данных, которые были использованы для отчета.
+    const checkDataHeaders = ["Сотрудник", "Дата работы", "ID Магазина", "ЗП начислено", "Налог (22%)", "Итого (ЗП + Налог)"];
+    const checkData = [checkDataHeaders];
+    fotReportDataCache.forEach(emp => {
+        checkData.push([
+            emp.employee_name,
+            emp.work_date,
+            emp.store_id || 'N/A',
+            Number(emp.payout),
+            Number(emp.tax_22),
+            Number(emp.payout_with_tax)
+        ]);
+    });
+    const ws_check = XLSX.utils.aoa_to_sheet(checkData);
+
+    // --- Создание книги и применение форматирования ---
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws_report, "Отчет ФОТ");
+    XLSX.utils.book_append_sheet(wb, ws_check, "Проверка расчетов");
+
+    applyExcelFormatting(ws_report);
+    applyExcelFormatting(ws_check);
+
+    XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
 
 // --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
@@ -382,6 +419,25 @@ async function confirmRevenueSave() {
         cancelRevenueUpload();
     }, 2000);
 }
+
+// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
+async function fetchData(url, options, statusId) {
+    try {
+        const response = await fetch(url, options);
+        const result = await response.json();
+
+        if (!response.ok) {
+            // Если сервер вернул ошибку, отображаем ее
+            throw new Error(result.error || `Ошибка HTTP: ${response.status}`);
+        }
+        return result;
+    } catch (error) {
+        console.error(`Ошибка при запросе к ${url}:`, error);
+        showStatus(statusId, `Ошибка: ${error.message}`, 'error');
+        throw error; // Пробрасываем ошибку дальше, чтобы остановить выполнение
+    }
+}
+
 
 // --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
 async function calculatePayroll() {
