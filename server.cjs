@@ -630,7 +630,13 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
         for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
             const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
             const finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
-            results[employeeId] = { advance_payment: Math.round(finalAdvance) };
+
+            // --- НОВАЯ ЛОГИКА ОКРУГЛЕНИЯ ---
+            // Округляем ВНИЗ до ближайших 100
+            const roundedAdvance = Math.floor(finalAdvance / 100) * 100;
+            // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
+            results[employeeId] = { advance_payment: roundedAdvance };
         }
         res.json({ success: true, results });
     } catch (error) {
