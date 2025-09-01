@@ -114,7 +114,7 @@ const checkAuth = (req, res, next) => {
     }, { onConflict: 'employee_id' }).then();
     next();
   } catch (err) {
-    return res.status(401).json({ success: false, message: "Невалидный токе." });
+    return res.status(401).json({ success: false, message: "Невалидный токен." });
   }
 };
 
@@ -215,20 +215,58 @@ app.post("/login", async (req, res) => {
   }
 
   const token = jwt.sign({ id: employee.id, role: employee.role }, process.env.JWT_SECRET, { expiresIn: '8h' });
+  
+  // ===================================================
+  // 1. ИСПРАВЛЕНИЕ ДЛЯ ФУНКЦИИ LOGIN
+  // ===================================================
   const isProduction = process.env.NODE_ENV === 'production';
-  res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'strict' : 'lax' });
+  const isSecureContext = req.secure || req.headers['x-forwarded-proto'] === 'https';
+
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: isProduction || isSecureContext,
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: 8 * 60 * 60 * 1000,
+    path: '/'
+  });
+  // ===================================================
   
   return res.json({ success: true, message: responseMessage, store: storeAddress, role: employee.role });
 });
 
+// ===================================================
+// 2. ИСПРАВЛЕНИЕ ДЛЯ ФУНКЦИИ LOGOUT
+// ===================================================
 app.post('/logout', (req, res) => {
-  res.cookie('token', '', { expires: new Date(0), httpOnly: true, secure: true, sameSite: 'strict' });
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isSecureContext = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  
+  res.cookie('token', '', {
+    expires: new Date(0),
+    httpOnly: true,
+    secure: isProduction || isSecureContext,
+    sameSite: isProduction ? 'none' : 'lax',
+    path: '/'
+  });
+  
   res.status(200).json({ success: true, message: 'Выход выполнен успешно' });
 });
+// ===================================================
 
+// ===================================================
+// 3. НОВЫЙ/ОБНОВЛЕННЫЙ ENDPOINT /check-auth
+// ===================================================
 app.get('/check-auth', checkAuth, (req, res) => {
-  res.json({ success: true, user: req.user });
+  res.json({
+    success: true,
+    user: {
+      id: req.user.id,
+      role: req.user.role
+    },
+    message: 'Авторизован'
+  });
 });
+// ===================================================
 
 // --- ЗАЩИЩЕННЫЕ API ЭНДПОИНТЫ ---
 // (Остальной код остается без изменений)

@@ -7,123 +7,193 @@ const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
 const ADVANCE_PERIOD_DAYS = 15;
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
 
-// --- БЛОК АВТОРИЗАЦИИ И ИНИЦИАЛИЗАЦИИ ---
-document.addEventListener('DOMContentLoaded', async function() {
-    
-    async function verifyAuthentication() {
+// ===================================================
+// 2. ДОБАВЛЕНИЕ ПРОВЕРКИ СЕССИИ
+// ===================================================
+let sessionCheckInterval;
+
+function startSessionCheck() {
+    sessionCheckInterval = setInterval(async () => {
         try {
             const response = await fetch(`${API_BASE}/check-auth`, {
                 method: 'GET',
                 credentials: 'include'
             });
-
+            
             if (!response.ok) {
+                console.log('Сессия истекла');
+                clearInterval(sessionCheckInterval);
+                window.location.href = '/index.html';
+            }
+        } catch (error) {
+            console.error('Ошибка проверки сессии:', error);
+        }
+    }, 5 * 60 * 1000); // каждые 5 минут
+}
+// ===================================================
+
+// --- БЛОК АВТОРИЗАЦИИ И ИНИЦИАЛИЗАЦИИ ---
+document.addEventListener('DOMContentLoaded', async function() {
+    await verifyAuthentication();
+    // ===================================================
+    // 3. ЗАПУСК ПРОВЕРКИ СЕССИИ
+    // ===================================================
+    startSessionCheck(); 
+    // ===================================================
+});
+
+// ===================================================
+// 1. ОБНОВЛЕННАЯ ФУНКЦИЯ ПРОВЕРКИ АВТОРИЗАЦИИ
+// ===================================================
+async function verifyAuthentication() {
+    const maxRetries = 3;
+    let retryCount = 0;
+    
+    while (retryCount < maxRetries) {
+        try {
+            console.log(`Проверка авторизации, попытка ${retryCount + 1}...`);
+            
+            const response = await fetch(`${API_BASE}/check-auth`, {
+                method: 'GET',
+                credentials: 'include',  // ВАЖНО: отправляем cookies
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            console.log('Статус ответа:', response.status);
+            
+            if (response.status === 401) {
+                console.log('Пользователь не авторизован, перенаправление...');
                 window.location.href = '/index.html';
                 return;
             }
             
-            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             
+            const data = await response.json();
+            console.log('Данные авторизации:', data);
+            
+            if (!data.success) {
+                throw new Error(data.message || 'Авторизация не подтверждена');
+            }
+            
+            console.log('Авторизация подтверждена, роль:', data.user.role);
+            
+            // Управление видимостью элементов
             const fotTabButton = document.getElementById('fot-tab-button');
             const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
-
-            if (clearDataButton) {
-                if (data.success && data.user.role === 'admin') {
-                    if (fotTabButton) fotTabButton.style.display = 'block';
+            
+            if (data.user.role === 'admin') {
+                if (fotTabButton) fotTabButton.style.display = 'block';
+                if (clearDataButton && clearDataButton.parentElement) {
                     clearDataButton.parentElement.style.display = 'block';
-                } else {
-                    if (fotTabButton) fotTabButton.style.display = 'none';
+                }
+            } else {
+                if (fotTabButton) fotTabButton.style.display = 'none';
+                if (clearDataButton && clearDataButton.parentElement) {
                     clearDataButton.parentElement.style.display = 'none';
                 }
             }
-
-            initializePage();
-
-        } catch (error) {
-            console.error('Ошибка проверки аутентификации:', error);
-            window.location.href = '/index.html';
-        }
-    }
-
-    function initializePage() {
-        const today = new Date();
-        const todayStr = today.toISOString().split('T')[0];
-        
-        const monthSelects = [
-            document.getElementById('reportMonth'),
-            document.getElementById('fotReportMonth')
-        ];
-        const yearInputs = [
-            document.getElementById('reportYear'),
-            document.getElementById('fotReportYear')
-        ];
-        const endDateInputs = [
-            document.getElementById('reportEndDate'),
-            document.getElementById('fotReportEndDate')
-        ];
-        
-        const revenueDateEl = document.getElementById('revenueDate');
-        if (revenueDateEl) revenueDateEl.value = todayStr;
-
-        const payrollDateEl = document.getElementById('payrollDate');
-        if (payrollDateEl) payrollDateEl.value = todayStr;
-
-        monthSelects.forEach(select => {
-            if (select) {
-                if (select.id === 'fotReportMonth') {
-                    const reportMonthEl = document.getElementById('reportMonth');
-                    if (reportMonthEl) select.innerHTML = reportMonthEl.innerHTML;
-                }
-                select.value = today.getMonth() + 1;
-            }
-        });
-        yearInputs.forEach(input => { if (input) input.value = today.getFullYear(); });
-        endDateInputs.forEach(input => { if (input) input.value = todayStr; });
-
-        function updateEndDateDefault() {
-            const controlPanel = this.closest('.control-panel');
-            if (!controlPanel) return;
-
-            const yearInput = controlPanel.querySelector('input[type="number"]');
-            const monthSelect = controlPanel.querySelector('select');
-            const endDateInput = controlPanel.querySelector('input[type="date"]');
             
-            if (!yearInput || !monthSelect || !endDateInput) {
-                console.error("Не удалось найти элементы управления датой в панели", controlPanel);
+            initializePage();
+            return; // Успешно
+            
+        } catch (error) {
+            console.error(`Ошибка проверки (попытка ${retryCount + 1}):`, error);
+            retryCount++;
+            
+            if (retryCount >= maxRetries) {
+                alert('Ошибка проверки авторизации. Войдите заново.');
+                window.location.href = '/index.html';
                 return;
             }
-
-            const year = yearInput.value;
-            const month = monthSelect.value;
             
-            if (!year || !month) return;
-
-            const lastDay = new Date(year, month, 0).getDate();
-            const lastDayOfMonthStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-            
-            if (new Date() < new Date(year, month - 1, lastDay)) {
-                 endDateInput.value = todayStr;
-            } else {
-                 endDateInput.value = lastDayOfMonthStr;
-            }
-        }
-        
-        monthSelects.forEach(s => {
-            if(s) s.addEventListener('change', updateEndDateDefault)
-        });
-        yearInputs.forEach(i => {
-            if(i) i.addEventListener('change', updateEndDateDefault)
-        });
-        
-        const uploadBtn = document.getElementById('uploadRevenueBtn');
-        if (uploadBtn) {
-            uploadBtn.addEventListener('click', uploadRevenueFile);
+            // Ждем перед повторной попыткой
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
     }
+}
+// ===================================================
 
-    await verifyAuthentication();
-});
+function initializePage() {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    const monthSelects = [
+        document.getElementById('reportMonth'),
+        document.getElementById('fotReportMonth')
+    ];
+    const yearInputs = [
+        document.getElementById('reportYear'),
+        document.getElementById('fotReportYear')
+    ];
+    const endDateInputs = [
+        document.getElementById('reportEndDate'),
+        document.getElementById('fotReportEndDate')
+    ];
+    
+    const revenueDateEl = document.getElementById('revenueDate');
+    if (revenueDateEl) revenueDateEl.value = todayStr;
 
+    const payrollDateEl = document.getElementById('payrollDate');
+    if (payrollDateEl) payrollDateEl.value = todayStr;
+
+    monthSelects.forEach(select => {
+        if (select) {
+            if (select.id === 'fotReportMonth') {
+                const reportMonthEl = document.getElementById('reportMonth');
+                if (reportMonthEl) select.innerHTML = reportMonthEl.innerHTML;
+            }
+            select.value = today.getMonth() + 1;
+        }
+    });
+    yearInputs.forEach(input => { if (input) input.value = today.getFullYear(); });
+    endDateInputs.forEach(input => { if (input) input.value = todayStr; });
+
+    function updateEndDateDefault() {
+        const controlPanel = this.closest('.control-panel');
+        if (!controlPanel) return;
+
+        const yearInput = controlPanel.querySelector('input[type="number"]');
+        const monthSelect = controlPanel.querySelector('select');
+        const endDateInput = controlPanel.querySelector('input[type="date"]');
+        
+        if (!yearInput || !monthSelect || !endDateInput) {
+            console.error("Не удалось найти элементы управления датой в панели", controlPanel);
+            return;
+        }
+
+        const year = yearInput.value;
+        const month = monthSelect.value;
+        
+        if (!year || !month) return;
+
+        const lastDay = new Date(year, month, 0).getDate();
+        const lastDayOfMonthStr = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+        
+        if (new Date() < new Date(year, month - 1, lastDay)) {
+             endDateInput.value = todayStr;
+        } else {
+             endDateInput.value = lastDayOfMonthStr;
+        }
+    }
+    
+    monthSelects.forEach(s => {
+        if(s) s.addEventListener('change', updateEndDateDefault)
+    });
+    yearInputs.forEach(i => {
+        if(i) i.addEventListener('change', updateEndDateDefault)
+    });
+    
+    const uploadBtn = document.getElementById('uploadRevenueBtn');
+    if (uploadBtn) {
+        uploadBtn.addEventListener('click', uploadRevenueFile);
+    }
+}
 
 async function logout() {
     await fetch(`${API_BASE}/logout`, { method: 'POST', credentials: 'include' });
@@ -312,25 +382,6 @@ async function confirmRevenueSave() {
         cancelRevenueUpload();
     }, 2000);
 }
-
-// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
-async function fetchData(url, options, statusId) {
-    try {
-        const response = await fetch(url, options);
-        const result = await response.json();
-
-        if (!response.ok) {
-            // Если сервер вернул ошибку, отображаем ее
-            throw new Error(result.error || `Ошибка HTTP: ${response.status}`);
-        }
-        return result;
-    } catch (error) {
-        console.error(`Ошибка при запросе к ${url}:`, error);
-        showStatus(statusId, `Ошибка: ${error.message}`, 'error');
-        throw error; // Пробрасываем ошибку дальше, чтобы остановить выполнение
-    }
-}
-
 
 // --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
 async function calculatePayroll() {
