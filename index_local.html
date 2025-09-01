@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Учет смен - Локальная версия</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            width: 400px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 2rem;
+        }
+        .status-indicator {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .status-online {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status-offline {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status-checking {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #555;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        #message {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 5px;
+            text-align: center;
+            display: none;
+        }
+        .message-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .message-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .message-warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .offline-count {
+            background: #ffeaa7;
+            color: #856404;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-top: 10px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Учет смен</h1>
+        
+        <div id="connectionStatus" class="status-indicator status-checking">
+            Проверка подключения...
+        </div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Имя сотрудника:</label>
+                <input type="text" id="username" name="username" required autocomplete="off">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Пароль:</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            
+            <button type="submit">Войти</button>
+        </form>
+        
+        <div id="message"></div>
+        
+        <div id="offlineIndicator" style="text-align: center; margin-top: 15px; display: none;">
+            <span class="offline-count">Сохранено локально: <span id="offlineCount">0</span></span>
+        </div>
+    </div>
+
+    <script>
+        // Конфигурация
+        const API_BASE_URL = 'https://shifts-api.fly.dev';
+        const CHECK_INTERVAL = 10000; // Проверка каждые 10 секунд
+        
+        let isOnline = false;
+        let deviceKey = null;
+        let checkTimer = null;
+
+        // Элементы DOM
+        const statusDiv = document.getElementById('connectionStatus');
+        const messageDiv = document.getElementById('message');
+        const form = document.getElementById('loginForm');
+        const offlineIndicator = document.getElementById('offlineIndicator');
+        const offlineCount = document.getElementById('offlineCount');
+
+        // Функция проверки подключения
+        async function checkConnection() {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(`${API_BASE_URL}/employees`, {
+                    method: 'GET',
+                    signal: controller.signal,
+                    mode: 'cors'
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    setOnlineStatus(true);
+                    return true;
+                } else {
+                    setOnlineStatus(false);
+                    return false;
+                }
+            } catch (error) {
+                console.error('Ошибка проверки подключения:', error);
+                setOnlineStatus(false);
+                return false;
+            }
+        }
+
+        // Установка статуса подключения
+        function setOnlineStatus(online) {
+            isOnline = online;
+            
+            if (online) {
+                statusDiv.className = 'status-indicator status-online';
+                statusDiv.textContent = '✓ Подключение к серверу установлено';
+                // Попытка синхронизации при восстановлении связи
+                syncOfflineData();
+            } else {
+                statusDiv.className = 'status-indicator status-offline';
+                statusDiv.textContent = '✗ Нет подключения к серверу (работа в офлайн режиме)';
+            }
+            
+            updateOfflineIndicator();
+        }
+
+        // Обновление индикатора офлайн данных
+        function updateOfflineIndicator() {
+            const offlineShifts = JSON.parse(localStorage.getItem('offlineShifts') || '[]');
+            if (offlineShifts.length > 0) {
+                offlineIndicator.style.display = 'block';
+                offlineCount.textContent = offlineShifts.length;
+            } else {
+                offlineIndicator.style.display = 'none';
+            }
+        }
+
+        // Загрузка ключа устройства
+        async function loadDeviceKey() {
+            try {
+                const response = await fetch('device.json');
+                if (response.ok) {
+                    const data = await response.json();
+                    deviceKey = data.device_key;
+                    console.log('Ключ устройства загружен');
+                }
+            } catch (error) {
+                console.log('Ключ устройства не найден');
+            }
+        }
+
+        // Синхронизация офлайн данных
+        async function syncOfflineData() {
+            const offlineShifts = JSON.parse(localStorage.getItem('offlineShifts') || '[]');
+            if (offlineShifts.length === 0 || !isOnline) return;
+
+            showMessage('Синхронизация сохраненных данных...', 'warning');
+            
+            const failed = [];
+            let synced = 0;
+
+            for (const shift of offlineShifts) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(shift)
+                    });
+                    
+                    if (response.ok) {
+                        synced++;
+                    } else {
+                        failed.push(shift);
+                    }
+                } catch (error) {
+                    failed.push(shift);
+                }
+            }
+
+            localStorage.setItem('offlineShifts', JSON.stringify(failed));
+            
+            if (synced > 0) {
+                showMessage(`✓ Синхронизировано записей: ${synced}`, 'success');
+            }
+            
+            updateOfflineIndicator();
+        }
+
+        // Показ сообщения
+        function showMessage(text, type) {
+            messageDiv.textContent = text;
+            messageDiv.className = `message-${type}`;
+            messageDiv.style.display = 'block';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    messageDiv.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Обработка формы
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+            
+            const loginData = {
+                username,
+                password,
+                deviceKey,
+                timestamp: new Date().toISOString()
+            };
+
+            if (isOnline) {
+                // Онлайн режим
+                try {
+                    showMessage('Отправка данных...', 'warning');
+                    
+                    const response = await fetch(`${API_BASE_URL}/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(loginData)
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        showMessage(`✓ ${data.message}`, 'success');
+                        form.reset();
+                        
+                        // Проверка роли для редиректа
+                        if (data.role === 'admin' || data.role === 'accountant') {
+                            setTimeout(() => {
+                                window.location.href = `${API_BASE_URL}/payroll.html`;
+                            }, 2000);
+                        }
+                    } else {
+                        showMessage(data.message || 'Ошибка авторизации', 'error');
+                    }
+                } catch (error) {
+                    // Сохраняем в офлайн при ошибке
+                    saveOffline(loginData);
+                }
+            } else {
+                // Офлайн режим
+                saveOffline(loginData);
+            }
+        });
+
+        // Сохранение в офлайн
+        function saveOffline(data) {
+            const offlineShifts = JSON.parse(localStorage.getItem('offlineShifts') || '[]');
+            offlineShifts.push(data);
+            localStorage.setItem('offlineShifts', JSON.stringify(offlineShifts));
+            
+            showMessage('✓ Данные сохранены локально. Будут отправлены при восстановлении связи.', 'warning');
+            form.reset();
+            updateOfflineIndicator();
+        }
+
+        // Инициализация
+        async function init() {
+            await loadDeviceKey();
+            await checkConnection();
+            updateOfflineIndicator();
+            
+            // Периодическая проверка подключения
+            checkTimer = setInterval(checkConnection, CHECK_INTERVAL);
+        }
+
+        // Обработчики событий сети
+        window.addEventListener('online', () => {
+            console.log('Сеть доступна');
+            checkConnection();
+        });
+
+        window.addEventListener('offline', () => {
+            console.log('Сеть недоступна');
+            setOnlineStatus(false);
+        });
+
+        // Запуск при загрузке страницы
+        init();
+    </script>
+</body>
+</html>

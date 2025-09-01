@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест подключения</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test-item {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .warning { background-color: #fff3cd; color: #856404; }
+        .pending { background-color: #cce5ff; color: #004085; }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Тестирование подключения к серверу Shifts API</h1>
+    
+    <div id="tests"></div>
+    
+    <button onclick="runAllTests()">Запустить все тесты</button>
+    <button onclick="clearResults()">Очистить результаты</button>
+    
+    <script>
+        const API_BASE = 'https://shifts-api.fly.dev';
+        const testsDiv = document.getElementById('tests');
+        
+        function addTestResult(name, status, details = '') {
+            const div = document.createElement('div');
+            div.className = `test-item ${status}`;
+            div.innerHTML = `
+                <h3>${name}</h3>
+                <p>Статус: ${status.toUpperCase()}</p>
+                ${details ? `<pre>${details}</pre>` : ''}
+            `;
+            testsDiv.appendChild(div);
+        }
+        
+        function clearResults() {
+            testsDiv.innerHTML = '';
+        }
+        
+        async function testJavaScript() {
+            try {
+                const result = eval('2 + 2');
+                if (result === 4) {
+                    addTestResult('JavaScript', 'success', 'JavaScript работает корректно');
+                } else {
+                    addTestResult('JavaScript', 'error', 'JavaScript работает некорректно');
+                }
+            } catch (e) {
+                addTestResult('JavaScript', 'error', e.message);
+            }
+        }
+        
+        async function testLocalStorage() {
+            try {
+                localStorage.setItem('test', 'value');
+                const value = localStorage.getItem('test');
+                localStorage.removeItem('test');
+                
+                if (value === 'value') {
+                    addTestResult('LocalStorage', 'success', 'LocalStorage доступен и работает');
+                } else {
+                    addTestResult('LocalStorage', 'error', 'LocalStorage не работает корректно');
+                }
+            } catch (e) {
+                addTestResult('LocalStorage', 'error', `LocalStorage недоступен: ${e.message}`);
+            }
+        }
+        
+        async function testInternetConnection() {
+            addTestResult('Интернет соединение', 'pending', 'Проверка...');
+            
+            try {
+                const response = await fetch('https://www.google.com/favicon.ico', {
+                    mode: 'no-cors',
+                    cache: 'no-cache'
+                });
+                
+                // В no-cors режиме мы не можем прочитать ответ, но если fetch выполнился - интернет есть
+                testsDiv.lastChild.className = 'test-item success';
+                testsDiv.lastChild.querySelector('p').textContent = 'Статус: SUCCESS';
+                testsDiv.lastChild.querySelector('pre').textContent = 'Интернет соединение активно';
+            } catch (e) {
+                testsDiv.lastChild.className = 'test-item error';
+                testsDiv.lastChild.querySelector('p').textContent = 'Статус: ERROR';
+                testsDiv.lastChild.querySelector('pre').textContent = `Нет интернет соединения: ${e.message}`;
+            }
+        }
+        
+        async function testServerConnection() {
+            addTestResult('Подключение к серверу', 'pending', 'Проверка...');
+            
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                const response = await fetch(`${API_BASE}/employees`, {
+                    method: 'GET',
+                    signal: controller.signal,
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    testsDiv.lastChild.className = 'test-item success';
+                    testsDiv.lastChild.querySelector('p').textContent = 'Статус: SUCCESS';
+                    testsDiv.lastChild.querySelector('pre').textContent = `Сервер доступен. Получено ${data.length} сотрудников`;
+                } else {
+                    testsDiv.lastChild.className = 'test-item error';
+                    testsDiv.lastChild.querySelector('p').textContent = 'Статус: ERROR';
+                    testsDiv.lastChild.querySelector('pre').textContent = `HTTP ${response.status}: ${response.statusText}`;
+                }
+            } catch (e) {
+                testsDiv.lastChild.className = 'test-item error';
+                testsDiv.lastChild.querySelector('p').textContent = 'Статус: ERROR';
+                testsDiv.lastChild.querySelector('pre').textContent = `Ошибка подключения: ${e.message}\n\nВозможные причины:\n- Блокировка файрволом\n- Блокировка антивирусом\n- Проблемы с CORS\n- Сервер недоступен`;
+            }
+        }
+        
+        async function testCORS() {
+            addTestResult('CORS политика', 'pending', 'Проверка...');
+            
+            try {
+                const response = await fetch(`${API_BASE}/employees`, {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Origin': window.location.origin,
+                        'Access-Control-Request-Method': 'GET'
+                    }
+                });
+                
+                const corsHeader = response.headers.get('Access-Control-Allow-Origin');
+                
+                if (corsHeader) {
+                    testsDiv.lastChild.className = 'test-item success';
+                    testsDiv.lastChild.querySelector('p').textContent = 'Статус: SUCCESS';
+                    testsDiv.lastChild.querySelector('pre').textContent = `CORS разрешен для: ${corsHeader}`;
+                } else {
+                    testsDiv.lastChild.className = 'test-item warning';
+                    testsDiv.lastChild.querySelector('p').textContent = 'Статус: WARNING';
+                    testsDiv.lastChild.querySelector('pre').textContent = 'CORS заголовки не найдены';
+                }
+            } catch (e) {
+                testsDiv.lastChild.className = 'test-item error';
+                testsDiv.lastChild.querySelector('p').textContent = 'Статус: ERROR';
+                testsDiv.lastChild.querySelector('pre').textContent = `Ошибка CORS: ${e.message}`;
+            }
+        }
+        
+        async function testDeviceFile() {
+            addTestResult('Файл device.json', 'pending', 'Проверка...');
+            
+            try {
+                const response = await fetch('device.json');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    testsDiv.lastChild.className = 'test-item success';
+                    testsDiv.lastChild.querySelector('p').textContent = 'Статус: SUCCESS';
+                    testsDiv.lastChild.querySelector('pre').textContent = `Ключ устройства: ${data.device_key || 'НЕ НАЙДЕН'}`;
+                } else {
+                    testsDiv.lastChild.className = 'test-item warning';
+                    testsDiv.lastChild.querySelector('p').textContent = 'Статус: WARNING';
+                    testsDiv.lastChild.querySelector('pre').textContent = 'Файл device.json не найден (это нормально для некоторых компьютеров)';
+                }
+            } catch (e) {
+                testsDiv.lastChild.className = 'test-item warning';
+                testsDiv.lastChild.querySelector('p').textContent = 'Статус: WARNING';
+                testsDiv.lastChild.querySelector('pre').textContent = `device.json недоступен: ${e.message}`;
+            }
+        }
+        
+        async function runAllTests() {
+            clearResults();
+            
+            await testJavaScript();
+            await testLocalStorage();
+            await testInternetConnection();
+            await testServerConnection();
+            await testCORS();
+            await testDeviceFile();
+            
+            // Итоговый результат
+            const errors = document.querySelectorAll('.test-item.error').length;
+            const warnings = document.querySelectorAll('.test-item.warning').length;
+            
+            if (errors === 0) {
+                addTestResult('ИТОГ', 'success', `Все основные тесты пройдены успешно!${warnings > 0 ? ` (Предупреждений: ${warnings})` : ''}`);
+            } else {
+                addTestResult('ИТОГ', 'error', `Обнаружено ошибок: ${errors}\nСм. результаты выше для деталей`);
+            }
+        }
+        
+        // Автозапуск при загрузке
+        window.addEventListener('load', runAllTests);
+    </script>
+</body>
+</html>

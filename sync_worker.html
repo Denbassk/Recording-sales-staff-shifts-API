@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sync Worker</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <script>
+        // Автоматический worker для синхронизации офлайн данных
+        const API_BASE_URL = 'https://shifts-api.fly.dev';
+        
+        async function syncOfflineData() {
+            const offlineShifts = JSON.parse(localStorage.getItem('offlineShifts') || '[]');
+            
+            if (offlineShifts.length === 0) {
+                console.log('Нет данных для синхронизации');
+                window.close();
+                return;
+            }
+            
+            console.log(`Найдено ${offlineShifts.length} записей для синхронизации`);
+            
+            const failed = [];
+            let synced = 0;
+            
+            for (const shift of offlineShifts) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(shift)
+                    });
+                    
+                    if (response.ok) {
+                        synced++;
+                        console.log(`Синхронизирована запись ${synced}`);
+                    } else {
+                        failed.push(shift);
+                    }
+                } catch (error) {
+                    console.error('Ошибка синхронизации:', error);
+                    failed.push(shift);
+                }
+            }
+            
+            // Сохраняем только неудачные попытки
+            localStorage.setItem('offlineShifts', JSON.stringify(failed));
+            
+            console.log(`Синхронизация завершена. Успешно: ${synced}, Ошибок: ${failed.length}`);
+            
+            // Закрываем окно через 2 секунды
+            setTimeout(() => window.close(), 2000);
+        }
+        
+        // Запуск синхронизации при загрузке
+        window.addEventListener('load', syncOfflineData);
+    </script>
+</body>
+</html>
