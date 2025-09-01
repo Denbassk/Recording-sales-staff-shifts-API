@@ -174,23 +174,35 @@ app.post("/login", async (req, res) => {
   const isSeniorSeller = employee.id.startsWith('SProd');
 
   if (employee.role === 'seller') {
-    if (isSeniorSeller) {
+    // --- ИСПРАВЛЕННАЯ ЛОГИКА ---
+    // Для ВСЕХ продавцов сначала пытаемся определить магазин по устройству
+    if (deviceKey) {
+      const { data: device } = await supabase.from('devices').select('store_id').eq('device_key', deviceKey).single();
+      if (device) storeId = device.store_id;
+    }
+
+    // Если это старший продавец и магазин не определился, адрес будет "Старший продавец"
+    if (isSeniorSeller && !storeId) {
         storeAddress = "Старший продавец";
-    } else {
-        if (deviceKey) {
-          const { data: device } = await supabase.from('devices').select('store_id').eq('device_key', deviceKey).single();
-          if (device) storeId = device.store_id;
-        }
-        if (!storeId) {
-          const { data: storeLink } = await supabase.from('employee_store').select('store_id').eq('employee_id', employee.id).single();
-          if (storeLink) storeId = storeLink.store_id;
-        }
-        if (!storeId) return res.status(404).json({ success: false, message: "Для этого сотрудника не удалось определить магазин." });
-        
+    } 
+    // Если это обычный продавец, и магазин не определился по устройству, ищем его основное место
+    else if (!isSeniorSeller && !storeId) {
+        const { data: storeLink } = await supabase.from('employee_store').select('store_id').eq('employee_id', employee.id).single();
+        if (storeLink) storeId = storeLink.store_id;
+    }
+    
+    // Получаем адрес магазина, если ID известен
+    if (storeId) {
         const { data: store, error: storeError } = await supabase.from('stores').select('address').eq('id', storeId).single();
         if (storeError || !store) return res.status(404).json({ success: false, message: "Магазин не найден" });
         storeAddress = store.address;
     }
+    
+    // Если в итоге адрес не определен (даже для обычного продавца) - ошибка
+    if (!storeAddress) {
+        return res.status(404).json({ success: false, message: "Для этого сотрудника не удалось определить магазин." });
+    }
+    // --- КОНЕЦ ИСПРАВЛЕННОЙ ЛОГИКИ ---
 
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
@@ -328,6 +340,8 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
             shifts.forEach(shift => {
                 if (!shift.employees) return;
 
+                // --- ИСПРАВЛЕННАЯ ЛОГИКА АДРЕСА ---
+                // Адрес берется из связи, если она есть. Если нет (store_id = null), то это "Старший продавец"
                 const address = shift.stores?.address || 'Старший продавец';
                 if (!storeShifts[address]) storeShifts[address] = [];
                 
@@ -341,6 +355,8 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
             const calculations = [];
             for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
                 let revenue = 0;
+                // --- ИСПРАВЛЕННАЯ ЛОГИКА ВЫРУЧКИ ---
+                // Запрашиваем выручку для всех групп, КРОМЕ "Старший продавец"
                 if (storeAddress !== 'Старший продавец') {
                     const { data: storeData } = await supabase.from('stores').select('id').eq('address', storeAddress).single();
                     if (storeData) {
