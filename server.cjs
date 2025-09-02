@@ -356,19 +356,38 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                 });
             });
             
+            // --- ОПТИМИЗАЦИЯ: Получаем все данные о выручке одним запросом ---
+            // Сначала собираем все уникальные store_id
+            const uniqueStoreIds = new Set();
+            for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
+                if (storeAddress !== 'Старший продавец') {
+                    const storeId = storeEmployees[0]?.store_id;
+                    if (storeId) uniqueStoreIds.add(storeId);
+                }
+            }
+            
+            // Получаем выручку для всех магазинов одним запросом
+            const revenueMap = new Map();
+            if (uniqueStoreIds.size > 0) {
+                const { data: revenueData } = await supabase.from('daily_revenue')
+                    .select('store_id, revenue')
+                    .in('store_id', Array.from(uniqueStoreIds))
+                    .eq('revenue_date', revenueDateString);
+                
+                if (revenueData) {
+                    revenueData.forEach(item => {
+                        revenueMap.set(item.store_id, item.revenue || 0);
+                    });
+                }
+            }
+            
             const calculations = [];
             for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
                 let revenue = 0;
                 if (storeAddress !== 'Старший продавец') {
-                    const { data: storeData } = await supabase.from('stores').select('id').eq('address', storeAddress).single();
-                    if (storeData) {
-                        // --- ИЗМЕНЕНИЕ ЗДЕСЬ: ИСПОЛЬЗУЕМ ДАТУ ПРЕДЫДУЩЕГО ДНЯ ---
-                        const { data: revenueData } = await supabase.from('daily_revenue')
-                            .select('revenue')
-                            .eq('store_id', storeData.id)
-                            .eq('revenue_date', revenueDateString) // <-- Используем новую переменную
-                            .single();
-                        revenue = revenueData?.revenue || 0;
+                    const storeId = storeEmployees[0]?.store_id;
+                    if (storeId) {
+                        revenue = revenueMap.get(storeId) || 0;
                     }
                 }
                 const numSellers = storeEmployees.length;
@@ -479,8 +498,11 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
         const results = {};
         for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
             const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
-            const finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
-            results[employeeId] = { advance_payment: Math.round(finalAdvance) };
+            let finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
+            // --- НОВОЕ: Округляем в меньшую сторону до десятков ---
+            // Например: 6520 -> 6500, 5132 -> 5100
+            finalAdvance = Math.floor(finalAdvance / 100) * 100;
+            results[employeeId] = { advance_payment: finalAdvance };
         }
         res.json({ success: true, results });
     } catch (error) {
@@ -672,7 +694,19 @@ app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
       return res.status(400).json({ success: false, error: dateValidation.error });
     }
 
-    const { rows, summary } = await buildFotReport({ startDate, endDate: reportEndDate });
+    const { rows } = await buildFotReport({ startDate, endDate: reportEndDate });
+
+    // --- ИСПРАВЛЕНИЕ: Рассчитываем итоги на основе полученных строк ---
+    let totalRevenue = 0;
+    let totalPayoutWithTax = 0;
+    
+    // Подсчитываем итоги из строк
+    for (const r of rows) {
+      totalRevenue += Number(r.daily_store_revenue || 0);
+      totalPayoutWithTax += Number(r.payout_with_tax || 0);
+    }
+    
+    const fotPercentage = totalRevenue > 0 ? (totalPayoutWithTax / totalRevenue) * 100 : 0;
 
     // Подготовка данных в Excel
     const sheetRows = [
@@ -692,9 +726,9 @@ app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
     }
     sheetRows.push([]);
     sheetRows.push(['ИТОГО по периоду']);
-    sheetRows.push(['Общая выручка', Number(summary.total_revenue)]);
-    sheetRows.push(['Общий ФОТ (выплаты + 22%)', Number(summary.total_payout_with_tax)]);
-    sheetRows.push(['ФОТ % от выручки', Number(summary.fot_percentage)]);
+    sheetRows.push(['Общая выручка', totalRevenue]);
+    sheetRows.push(['Общий ФОТ (выплаты + 22%)', totalPayoutWithTax]);
+    sheetRows.push(['ФОТ % от выручки', fotPercentage.toFixed(2)]);
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(sheetRows);

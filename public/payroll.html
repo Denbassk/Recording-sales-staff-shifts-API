@@ -49,6 +49,7 @@
 
         .content {
             padding: 30px;
+            padding-bottom: 60px; /* Добавляем отступ снизу для фиксированной полосы */
         }
 
         .tab-navigation {
@@ -213,6 +214,8 @@
 
         .table-container {
             overflow-x: auto;
+            max-height: calc(100vh - 400px);
+            position: relative;
             -webkit-overflow-scrolling: touch;
         }
         
@@ -424,6 +427,54 @@
             th, td {
                 padding: 10px;
             }
+        }
+
+        /* Кнопка "Вверх" */
+        .scroll-to-top {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .scroll-to-top:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .scroll-to-top svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+        }
+
+        /* Кнопка "Вверх" */
+        #monthlyReportTable td,
+        #monthlyReportTable th {
+            padding: 8px 10px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        #monthlyReportTable input[type="number"],
+        #monthlyReportTable input[type="text"] {
+            width: 80px;
+            padding: 4px 6px;
+            font-size: 11px;
+        }
+
+        #monthlyReportTable input[type="text"] {
+            width: 120px;
         }
     </style>
     <style media="print">
@@ -779,5 +830,24 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="payroll.js" defer></script>
+
+    <!-- Кнопка "Вверх" -->
+    <div class="scroll-to-top" id="scrollToTop" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M7 14l5-5 5 5z"/>
+        </svg>
+    </div>
+
+    <script>
+    // Показываем/скрываем кнопку "Вверх"
+    window.addEventListener('scroll', function() {
+        const scrollButton = document.getElementById('scrollToTop');
+        if (window.pageYOffset > 200) {
+            scrollButton.style.display = 'flex';
+        } else {
+            scrollButton.style.display = 'none';
+        }
+    });
+    </script>
 </body>
 </html>
