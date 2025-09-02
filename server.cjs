@@ -529,7 +529,10 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             const advancePayments = {};
             for (const [employeeId, totalEarned] of Object.entries(totalBasePayMap)) {
                 const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
-                advancePayments[employeeId] = Math.round(Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT));
+                let finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
+                // Округляем аванс в меньшую сторону до сотен
+                finalAdvance = Math.floor(finalAdvance / 100) * 100;
+                advancePayments[employeeId] = finalAdvance;
             }
 
             const { data: adjustments, error: adjError } = await supabase.from('monthly_adjustments')
@@ -638,6 +641,9 @@ async function buildFotReport({ startDate, endDate }) {
 
     const storeRevenueThatDay = (c.store_id && revenueBy[c.store_id] && revenueBy[c.store_id][c.work_date]) || 0;
     
+    // Рассчитываем персональный процент ФОТ
+    const fotPersonalPct = storeRevenueThatDay > 0 ? (payoutWithTax / storeRevenueThatDay) * 100 : 0;
+    
     rows.push({
       employee_id: c.employee_id,
       employee_name: employeeName.get(c.employee_id) || 'Неизвестный',
@@ -647,7 +653,8 @@ async function buildFotReport({ startDate, endDate }) {
       daily_store_revenue: storeRevenueThatDay,
       payout: payout,
       tax_22: tax,
-      payout_with_tax: payoutWithTax
+      payout_with_tax: payoutWithTax,
+      fot_personal_pct: fotPersonalPct
     });
   }
   

@@ -988,7 +988,6 @@ async function generateFotReport() {
 
             // Отображаем детальную таблицу по сотрудникам
             reportData.sort((a,b) => a.employee_name.localeCompare(b.employee_name)).forEach(data => {
-                const fotPersonalPct = data.daily_store_revenue > 0 ? (data.payout_with_tax / data.daily_store_revenue) * 100 : 0;
                 const row = `
                     <tr>
                         <td>${data.employee_name}</td>
@@ -998,7 +997,7 @@ async function generateFotReport() {
                         <td>${formatNumber(data.payout)} грн</td>
                         <td>${formatNumber(data.tax_22)} грн</td>
                         <td><strong>${formatNumber(data.payout_with_tax)} грн</strong></td>
-                        <td>${formatNumber(fotPersonalPct)} %</td>
+                        <td>${formatNumber(data.fot_personal_pct || 0)} %</td>
                     </tr>
                 `;
                 tbody.innerHTML += row;

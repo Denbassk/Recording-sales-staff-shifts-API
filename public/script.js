@@ -26,11 +26,16 @@
 document.addEventListener("DOMContentLoaded", async () => {
   const API_BASE_URL = "https://shifts-api.fly.dev";
   
+  // ВАЖНО: Очищаем старые куки при загрузке страницы входа
+  document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.fly.dev";
+  document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/";
+  
   const loginForm = document.getElementById("loginForm");
   const message = document.getElementById("message");
   const usernameInput = document.getElementById("username");
   const usernameHint = document.getElementById("username-hint");
   const clearButton = document.getElementById("clearButton");
+  const submitButton = loginForm.querySelector('button[type="submit"]');
   
   let allNames = [];
   let deviceKey = null;
@@ -47,29 +52,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     deviceKey = localStorage.getItem('deviceKey');
   }
 
-  // Если все еще нет deviceKey, пробуем загрузить device.json (для обратной совместимости)
-  if (!deviceKey) {
-    try {
-      const res = await fetch("device.json");
-      if (res.ok) {
-        const data = await res.json();
-        deviceKey = data.device_key;
-        localStorage.setItem('deviceKey', deviceKey);
-      }
-    } catch (err) {
-      console.warn("Файл device.json не найден");
-    }
-  }
+  // Не пытаемся загрузить device.json через fetch, чтобы не создавать ошибку 404
+  // deviceKey должен приходить через URL параметры или localStorage
 
   async function checkServerConnection() {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch(`${API_BASE_URL}/employees`, { signal: controller.signal });
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // Увеличиваем таймаут до 15 секунд
+      const res = await fetch(`${API_BASE_URL}/employees`, { 
+        signal: controller.signal,
+        credentials: 'include' // Важно для куки
+      });
       clearTimeout(timeoutId);
       return res.ok;
     } catch (err) {
-      console.error("Сервер недоступен:", err);
+      console.warn("Проверка подключения:", err.message);
       return false;
     }
   }
@@ -171,22 +168,31 @@ document.addEventListener("DOMContentLoaded", async () => {
   loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     
+    // Предотвращаем повторные нажатия
+    if (submitButton.disabled) return;
+    
     const username = usernameInput.value.trim();
     const password = document.getElementById("password").value.trim();
     const shiftData = { username, password, deviceKey };
 
-    message.textContent = "Отправка данных...";
+    // Блокируем кнопку и меняем текст
+    submitButton.disabled = true;
+    const originalButtonText = submitButton.textContent;
+    submitButton.textContent = "Вход...";
+    
+    message.textContent = "Подключение к серверу...";
     message.style.color = "blue";
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 20000); // Увеличиваем до 20 секунд для медленных соединений
       
       const res = await fetch(`${API_BASE_URL}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(shiftData),
-        signal: controller.signal
+        signal: controller.signal,
+        credentials: 'include' // Важно для куки
       });
       
       clearTimeout(timeoutId);
@@ -201,42 +207,61 @@ document.addEventListener("DOMContentLoaded", async () => {
         message.style.color = "green";
         message.textContent = `✓ ${data.message}`;
         
+        // Восстанавливаем кнопку
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
+        
         if (data.role === 'admin' || data.role === 'accountant') {
           message.textContent += ". Перенаправление...";
           setTimeout(() => {
             window.location.href = '/payroll.html';
           }, 1000);
         } else {
-          // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-          // Надпись об успехе уже отображена, теперь мы ждем 10 секунд
+          // Для продавцов: очищаем форму через 5 секунд
           setTimeout(() => {
-            // Этот код выполнится через 10 секунд
             loginForm.reset();
             usernameHint.value = "";
-            message.textContent = ""; // Также очищаем само сообщение
-          }, 10000); // 10000 миллисекунд = 10 секунд
+            message.textContent = "";
+          }, 5000); // Уменьшаем до 5 секунд для удобства
 
-          // Синхронизацию можно запустить в фоне, как и раньше
+          // Синхронизация в фоне
           setTimeout(() => syncOfflineShifts(), 1000);
         }
 
       } else {
         message.style.color = "red";
         message.textContent = data.message || "Ошибка авторизации";
+        // Восстанавливаем кнопку при ошибке
+        submitButton.disabled = false;
+        submitButton.textContent = originalButtonText;
       }
     } catch (err) {
       console.error("Ошибка при отправке:", err);
       
-      const offlineShifts = JSON.parse(localStorage.getItem('offlineShifts') || '[]');
-      shiftData.savedAt = new Date().toISOString();
-      offlineShifts.push(shiftData);
-      localStorage.setItem('offlineShifts', JSON.stringify(offlineShifts));
+      // Восстанавливаем кнопку
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
       
-      message.style.color = "orange";
-      message.textContent = `⚠ Нет подключения к серверу. Смена сохранена локально (${offlineShifts.length})`;
-      
-      loginForm.reset();
-      usernameHint.value = "";
+      // Определяем тип ошибки и показываем соответствующее сообщение
+      if (err.name === 'AbortError') {
+        message.style.color = "red";
+        message.textContent = "Сервер не отвечает. Проверьте интернет-соединение и попробуйте снова.";
+      } else {
+        // Сохраняем смену локально
+        const offlineShifts = JSON.parse(localStorage.getItem('offlineShifts') || '[]');
+        shiftData.savedAt = new Date().toISOString();
+        offlineShifts.push(shiftData);
+        localStorage.setItem('offlineShifts', JSON.stringify(offlineShifts));
+        
+        message.style.color = "orange";
+        message.textContent = `⚠ Нет подключения к серверу. Смена сохранена локально (${offlineShifts.length})`;
+        
+        // Очищаем форму через 3 секунды
+        setTimeout(() => {
+          loginForm.reset();
+          usernameHint.value = "";
+        }, 3000);
+      }
     }
   });
 
