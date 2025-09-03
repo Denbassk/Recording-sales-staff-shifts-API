@@ -11,6 +11,23 @@ const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
 const ADVANCE_PERIOD_DAYS = 15;
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
 
+// --- Функция прокрутки наверх ---
+function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// --- Показать/скрыть кнопку вверх при прокрутке ---
+window.onscroll = function() {
+    const btn = document.getElementById("back-to-top-btn");
+    if (btn) {
+        if (document.body.scrollTop > 100 || document.documentElement.scrollTop > 100) {
+            btn.style.display = "block";
+        } else {
+            btn.style.display = "none";
+        }
+    }
+};
+
 // --- БЛОК АВТОРИЗАЦИИ И ИНИЦИАЛИЗАЦИИ ---
 document.addEventListener('DOMContentLoaded', async function() {
     
@@ -301,7 +318,7 @@ function exportFotReportToExcel() {
     XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
 
-// --- НАЧАЛО ИЗМЕНЕННОГО БЛОКА ---
+
 async function uploadRevenueFile() {
     const fileInput = document.getElementById('revenueFile');
     const dateInput = document.getElementById('revenueDate');
@@ -378,7 +395,6 @@ async function uploadRevenueFile() {
         showStatus('revenueStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
-// --- КОНЕЦ ИЗМЕНЕННОГО БЛОКА ---
 
 
 function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
@@ -433,21 +449,35 @@ function cancelRevenueUpload() {
 }
 
 
-// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
+// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ (ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
 async function fetchData(url, options, statusId) {
     try {
         const response = await fetch(url, options);
-        
-        // --- УЛУЧШЕННАЯ ОБРАБОТКА ОШИБОК ---
+
         if (!response.ok) {
             let errorText = `Ошибка HTTP: ${response.status}`;
+            
+            // Клонируем response чтобы можно было прочитать тело несколько раз
+            const responseClone = response.clone();
+            
             try {
-                // Пытаемся прочитать тело ответа как JSON, если это возможно
-                const errorResult = await response.json();
+                // Пытаемся прочитать тело ответа как JSON
+                const errorResult = await responseClone.json();
                 errorText = errorResult.error || errorResult.message || JSON.stringify(errorResult);
             } catch (e) {
-                // Если тело не JSON, читаем как текст
-                errorText = await response.text();
+                // Если тело не JSON, пытаемся прочитать как текст
+                try {
+                    const textError = await response.text();
+                    // Если это HTML страница 404, извлечем только важную информацию
+                    if (textError.includes('<!DOCTYPE') || textError.includes('<html')) {
+                        errorText = `Ошибка ${response.status}: Эндпоинт не найден`;
+                    } else {
+                        errorText = textError || errorText;
+                    }
+                } catch (textError) {
+                    // Если и текст не читается, используем стандартное сообщение
+                    errorText = `Ошибка HTTP: ${response.status} - ${response.statusText}`;
+                }
             }
             throw new Error(errorText);
         }
@@ -604,61 +634,83 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
     const employeeData = {};
     dailyData.forEach(calc => {
         if (!employeeData[calc.employee_id]) {
-            employeeData[calc.employee_id] = { name: calc.employee_name, totalPay: 0, shifts: [], stores: {} };
+            employeeData[calc.employee_id] = { 
+                name: calc.employee_name, 
+                totalPay: 0, 
+                shifts: [], 
+                stores: {},
+                primaryStore: calc.store_address || 'Не определен' 
+            };
         }
         employeeData[calc.employee_id].totalPay += calc.total_pay;
         employeeData[calc.employee_id].shifts.push(new Date(calc.work_date).getDate());
         const store = calc.store_address || 'Старший продавец';
         employeeData[calc.employee_id].stores[store] = (employeeData[calc.employee_id].stores[store] || 0) + 1;
     });
+    
+    // Определяем основной магазин для каждого сотрудника
+    for (const [id, data] of Object.entries(employeeData)) {
+        if (Object.keys(data.stores).length > 0) {
+            data.primaryStore = Object.keys(data.stores).reduce((a, b) => data.stores[a] > data.stores[b] ? a : b);
+        }
+    }
+    
     const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
+    
+    // Сортируем сотрудников по магазину и имени
+    const sortedEmployees = Object.entries(employeeData).sort((a, b) => {
+        const storeCompare = a[1].primaryStore.localeCompare(b[1].primaryStore);
+        if (storeCompare !== 0) return storeCompare;
+        return a[1].name.localeCompare(b[1].name);
+    });
+    
     let tableHtml = `
         <h3 style="margin-top: 30px; margin-bottom: 20px;">👥 Детализация по сотрудникам:</h3>
-        <table id="monthlyReportTable" style="font-size: 12px; white-space: nowrap;">
+        <div class="table-container">
+        <table id="monthlyReportTable" style="font-size: 11px; white-space: nowrap;">
             <thead>
                 <tr>
-                    <th rowspan="2" style="vertical-align: middle;">Сотрудник</th>
-                    <th rowspan="2" style="vertical-align: middle;">Всего начислено</th>
-                    <th colspan="2">Премирование</th>
-                    <th colspan="2">Депремирование</th>
-                    <th rowspan="2" style="vertical-align: middle;">Вычет за недостачу</th>
-                    <th rowspan="2" style="vertical-align: middle;">Аванс (на карту)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Остаток (на карту)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Зарплата (наличными)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Итого к выплате</th>
+                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Сотрудник</th>
+                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Магазин</th>
+                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Всего начислено</th>
+                    <th colspan="2" style="padding: 8px 5px;">Премирование</th>
+                    <th colspan="2" style="padding: 8px 5px;">Депремирование</th>
+                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Вычет за недостачу</th>
+                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Аванс (на карту)</th>
+                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Остаток (на карту)</th>
+                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Зарплата (наличными)</th>
+                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Итого к выплате</th>
                 </tr>
-                <tr><th>Сумма</th><th>Причина</th><th>Сумма</th><th>Причина</th></tr>
+                <tr><th style="padding: 8px 5px;">Сумма</th><th style="padding: 8px 5px;">Причина</th><th style="padding: 8px 5px;">Сумма</th><th style="padding: 8px 5px;">Причина</th></tr>
             </thead>
             <tbody>`;
-    if (Object.keys(employeeData).length === 0) {
-        tableHtml += '<tr><td colspan="11" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
+    
+    if (sortedEmployees.length === 0) {
+        tableHtml += '<tr><td colspan="12" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
     } else {
-        for (const [id, data] of Object.entries(employeeData)) {
-            let primaryStore = 'Не определен';
-            if (Object.keys(data.stores).length > 0) {
-                primaryStore = Object.keys(data.stores).reduce((a, b) => data.stores[a] > data.stores[b] ? a : b);
-            }
+        for (const [id, data] of sortedEmployees) {
             const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
             const totalToPay = data.totalPay + (adj.manual_bonus || 0) - (adj.penalty || 0) - (adj.shortage || 0);
-            tableHtml += `<tr data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
-                            <td>${data.name}</td>
-                            <td class="total-gross">${formatNumber(data.totalPay + (adj.manual_bonus || 0))}</td>
-                            <td><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}"></td>
-                            <td><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина"></td>
-                            <td><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}"></td>
-                            <td><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина"></td>
-                            <td><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}"></td>
-                            <td class="advance-payment">0,00</td>
-                            <td class="card-remainder">0,00</td>
-                            <td class="cash-payout"><strong>0,00</strong></td>
-                            <td class="total-payout"><strong>${formatNumber(totalToPay)}</strong></td>
+            tableHtml += `<tr data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${data.primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
+                            <td style="padding: 5px;">${data.name}</td>
+                            <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
+                            <td class="total-gross" style="padding: 5px;">${formatNumber(data.totalPay + (adj.manual_bonus || 0))}</td>
+                            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
+                            <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+                            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
+                            <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+                            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
+                            <td class="advance-payment" style="padding: 5px;">0,00</td>
+                            <td class="card-remainder" style="padding: 5px;">0,00</td>
+                            <td class="cash-payout" style="padding: 5px;"><strong>0,00</strong></td>
+                            <td class="total-payout" style="padding: 5px;"><strong>${formatNumber(totalToPay)}</strong></td>
                         </tr>`;
         }
     }
-    tableHtml += `</tbody></table>`;
+    tableHtml += `</tbody></table></div>`;
     reportContentEl.innerHTML = tableHtml;
     document.querySelectorAll('.adjustment-input').forEach(input => input.addEventListener('input', handleAdjustmentInput));
-    if (Object.keys(employeeData).length > 0) {
+    if (sortedEmployees.length > 0) {
         calculateAdvance15(true);
     }
 }

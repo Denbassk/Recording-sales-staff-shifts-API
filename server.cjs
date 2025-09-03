@@ -243,7 +243,6 @@ const canManagePayroll = checkRole(['admin', 'accountant']);
 const canManageFot = checkRole(['admin']);
 
 
-// --- НАЧАЛО ИЗМЕНЕННОГО БЛОКА ---
 app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('file'), async (req, res) => {
     try {
         const { date } = req.body; // Это дата когда загружаем (например, 02.09)
@@ -358,8 +357,99 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         res.status(500).json({ success: false, error: error.message });
     }
 });
-// --- КОНЕЦ ИЗМЕНЕННОГО БЛОКА ---
 
+app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => {
+    const { date } = req.body;
+    const dateValidation = validateDate(date);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
+    
+    // Выручка за предыдущий день от даты смены
+    const calculationDate = new Date(date);
+    const revenueDate = new Date(calculationDate);
+    revenueDate.setDate(calculationDate.getDate() - 1);
+    const revenueDateString = revenueDate.toISOString().split('T')[0];
+
+    return withLock(`payroll_${date}`, async () => {
+        try {
+            const { data: shifts, error: shiftsError } = await supabase.from('shifts')
+                .select(`store_id, stores (address), employees (fullname, id)`)
+                .eq('shift_date', date);
+
+            if (shiftsError) throw shiftsError;
+            if (!shifts || shifts.length === 0) return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
+            
+            const storeShifts = {};
+            shifts.forEach(shift => {
+                if (!shift.employees) return;
+                const address = shift.stores?.address || 'Старший продавец';
+                if (!storeShifts[address]) storeShifts[address] = [];
+                
+                storeShifts[address].push({
+                    employee_id: shift.employees.id,
+                    employee_name: shift.employees.fullname,
+                    store_id: shift.store_id
+                });
+            });
+            
+            // Получаем все данные о выручке одним запросом
+            const uniqueStoreIds = new Set();
+            for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
+                if (storeAddress !== 'Старший продавец') {
+                    const storeId = storeEmployees[0]?.store_id;
+                    if (storeId) uniqueStoreIds.add(storeId);
+                }
+            }
+            
+            const revenueMap = new Map();
+            if (uniqueStoreIds.size > 0) {
+                const { data: revenueData } = await supabase.from('daily_revenue')
+                    .select('store_id, revenue')
+                    .in('store_id', Array.from(uniqueStoreIds))
+                    .eq('revenue_date', revenueDateString);
+                
+                if (revenueData) {
+                    revenueData.forEach(item => {
+                        revenueMap.set(item.store_id, item.revenue || 0);
+                    });
+                }
+            }
+            
+            const calculations = [];
+            for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
+                let revenue = 0;
+                if (storeAddress !== 'Старший продавец') {
+                    const storeId = storeEmployees[0]?.store_id;
+                    if (storeId) {
+                        revenue = revenueMap.get(storeId) || 0;
+                    }
+                }
+                const numSellers = storeEmployees.length;
+                for (const employee of storeEmployees) {
+                    const isSenior = employee.employee_id.startsWith('SProd');
+                    const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
+                    const calculation = {
+                        employee_id: employee.employee_id,
+                        employee_name: employee.employee_name,
+                        store_address: storeAddress,
+                        store_id: employee.store_id,
+                        work_date: date, revenue, num_sellers: numSellers,
+                        is_senior: isSenior, base_rate: payDetails.baseRate, bonus: payDetails.bonus,
+                        total_pay: payDetails.totalPay
+                    };
+                    await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
+                    calculations.push(calculation);
+                }
+            }
+            
+            const totalPayroll = calculations.reduce((sum, c) => sum + c.total_pay, 0);
+            await logFinancialOperation('calculate_payroll', { date, employeesCount: calculations.length, totalPayroll }, req.user.id);
+            res.json({ success: true, calculations, summary: { date, total_employees: calculations.length, total_payroll: totalPayroll } });
+        } catch(error) {
+            console.error(`Ошибка при расчете ЗП за ${date}:`, error);
+            res.status(500).json({ success: false, error: `Внутренняя ошибка сервера при расчете ЗП.` });
+        }
+    });
+});
 
 app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
     const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;

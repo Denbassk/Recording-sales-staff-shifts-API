@@ -463,13 +463,55 @@
 
         /* Всегда видимый горизонтальный скроллбар */
         .table-container {
+            overflow-x: auto;
+            overflow-y: visible;
             padding-bottom: 15px;
+            -webkit-overflow-scrolling: touch;
+            position: relative;
+        }
+        
+        /* Фиксированные заголовки таблиц */
+        #monthlyReportTable thead,
+        #fotTable thead,
+        #payrollTable thead {
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }
         
         /* Уменьшение ширины столбцов в таблице расчета за день */
         #payrollTable th, #payrollTable td {
             padding: 12px 8px;
             white-space: nowrap;
+        }
+        
+        /* Стили для input полей в таблицах */
+        .adjustment-input {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 4px 8px;
+            transition: all 0.2s ease;
+        }
+        
+        .adjustment-input:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+            outline: none;
+        }
+        
+        /* Фиксированный контейнер для отчета за месяц */
+        #monthlyReportContent {
+            max-height: calc(100vh - 350px);
+            overflow-y: auto;
+            overflow-x: auto;
+            position: relative;
+        }
+        
+        #fotReportContent {
+            max-height: calc(100vh - 350px);
+            overflow-y: auto;
+            overflow-x: auto;
+            position: relative;
         }
 
     </style>
