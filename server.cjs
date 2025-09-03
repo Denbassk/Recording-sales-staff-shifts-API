@@ -242,9 +242,12 @@ app.get('/check-auth', checkAuth, (req, res) => {
 const canManagePayroll = checkRole(['admin', 'accountant']);
 const canManageFot = checkRole(['admin']);
 
+// ИСПРАВЛЕННАЯ ФУНКЦИЯ ЗАГРУЗКИ ВЫРУЧКИ
+// Замените функцию app.post('/upload-revenue-file'...) в server.cjs на эту:
+
 app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('file'), async (req, res) => {
     try {
-        const { date } = req.body;
+        const { date } = req.body; // Это дата когда загружаем (например, 02.09)
         const dateValidation = validateDate(date);
         if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
         if (!req.file) return res.status(400).json({ success: false, error: 'Файл не загружен' }); 
@@ -252,18 +255,32 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         const fileName = req.file.originalname;
         const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4}|\d{2})/);
 
+        // КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Определяем дату кассы
+        let revenueDate; // Дата, за которую эта выручка
+        
         if (dateMatch) {
+            // Если в имени файла есть дата - используем её как дату кассы
             let [, day, month, year] = dateMatch;
             if (year.length === 2) {
                 year = "20" + year;
             }
-            const dateFromFile = `${year}-${month}-${day}`;
-            if (dateFromFile !== date) {
-                return res.status(400).json({
-                    success: false,
-                    error: `Дата в имени файла (${dateFromFile}) не совпадает с выбранной датой (${date}).`
-                });
+            revenueDate = `${year}-${month}-${day}`;
+            
+            // Проверяем, что дата загрузки = дата из файла + 1 день
+            const fileDateObj = new Date(revenueDate);
+            const uploadDateObj = new Date(date);
+            const dayDiff = Math.round((uploadDateObj - fileDateObj) / (1000 * 60 * 60 * 24));
+            
+            if (dayDiff !== 1) {
+                // Предупреждаем, если загружаем не на следующий день
+                console.warn(`Внимание: касса за ${revenueDate} загружается ${date} (разница ${dayDiff} дней)`);
             }
+        } else {
+            // Если в имени файла нет даты - считаем, что касса за предыдущий день
+            const uploadDate = new Date(date);
+            uploadDate.setDate(uploadDate.getDate() - 1);
+            revenueDate = uploadDate.toISOString().split('T')[0];
+            console.log(`Дата в имени файла не найдена. Считаем кассу за ${revenueDate}`);
         }
         
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
@@ -299,7 +316,12 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         for (const item of revenues) {
             const storeId = storeAddressToIdMap.get(item.store_address.trim());
             if (storeId) {
-                dataToUpsert.push({ store_id: storeId, revenue_date: date, revenue: item.revenue });
+                // ВАЖНО: Сохраняем с датой КАССЫ (revenueDate), а не датой загрузки (date)
+                dataToUpsert.push({ 
+                    store_id: storeId, 
+                    revenue_date: revenueDate,  // <-- ИСПОЛЬЗУЕМ ДАТУ КАССЫ!
+                    revenue: item.revenue 
+                });
                 matched.push(item.store_address);
             } else {
                 unmatched.push(item.store_address);
@@ -307,115 +329,35 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         }
 
         if (dataToUpsert.length > 0) {
-            await withLock(`revenue_${date}`, async () => {
+            await withLock(`revenue_${revenueDate}`, async () => {
                 const { error: upsertError } = await supabase.from('daily_revenue').upsert(dataToUpsert, { onConflict: 'store_id,revenue_date' });
                 if (upsertError) throw upsertError;
             });
         }
 
         const totalRevenue = revenues.reduce((sum, current) => sum + current.revenue, 0);
-        await logFinancialOperation('upload_revenue', { date, totalRevenue, storesCount: dataToUpsert.length }, req.user.id);
-        res.json({ success: true, message: 'Выручка успешно загружена', revenues, matched, unmatched, totalRevenue });
+        await logFinancialOperation('upload_revenue', { 
+            uploadDate: date,
+            revenueDate: revenueDate, 
+            totalRevenue, 
+            storesCount: dataToUpsert.length 
+        }, req.user.id);
+        
+        // В ответе сообщаем обе даты для ясности
+        res.json({ 
+            success: true, 
+            message: `Выручка за ${revenueDate} успешно загружена (дата загрузки: ${date})`, 
+            revenues, 
+            matched, 
+            unmatched, 
+            totalRevenue,
+            revenueDate: revenueDate,
+            uploadDate: date
+        });
     } catch (error) {
         console.error('Ошибка загрузки выручки из Excel:', error);
         res.status(500).json({ success: false, error: error.message });
     }
-});
-
-app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => {
-    const { date } = req.body;
-    const dateValidation = validateDate(date);
-    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
-    
-    // --- НОВАЯ ЛОГИКА: ВЫЧИСЛЯЕМ ДАТУ ВЫРУЧКИ (ПРЕДЫДУЩИЙ ДЕНЬ) ---
-    const calculationDate = new Date(date);
-    const revenueDate = new Date(calculationDate);
-    revenueDate.setDate(calculationDate.getDate() - 1);
-    const revenueDateString = revenueDate.toISOString().split('T')[0];
-    // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
-
-    return withLock(`payroll_${date}`, async () => {
-        try {
-            const { data: shifts, error: shiftsError } = await supabase.from('shifts')
-                .select(`store_id, stores (address), employees (fullname, id)`)
-                .eq('shift_date', date);
-
-            if (shiftsError) throw shiftsError;
-            if (!shifts || shifts.length === 0) return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
-            
-            const storeShifts = {};
-            shifts.forEach(shift => {
-                if (!shift.employees) return;
-                const address = shift.stores?.address || 'Старший продавец';
-                if (!storeShifts[address]) storeShifts[address] = [];
-                
-                storeShifts[address].push({
-                    employee_id: shift.employees.id,
-                    employee_name: shift.employees.fullname,
-                    store_id: shift.store_id
-                });
-            });
-            
-            // --- ОПТИМИЗАЦИЯ: Получаем все данные о выручке одним запросом ---
-            // Сначала собираем все уникальные store_id
-            const uniqueStoreIds = new Set();
-            for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
-                if (storeAddress !== 'Старший продавец') {
-                    const storeId = storeEmployees[0]?.store_id;
-                    if (storeId) uniqueStoreIds.add(storeId);
-                }
-            }
-            
-            // Получаем выручку для всех магазинов одним запросом
-            const revenueMap = new Map();
-            if (uniqueStoreIds.size > 0) {
-                const { data: revenueData } = await supabase.from('daily_revenue')
-                    .select('store_id, revenue')
-                    .in('store_id', Array.from(uniqueStoreIds))
-                    .eq('revenue_date', revenueDateString);
-                
-                if (revenueData) {
-                    revenueData.forEach(item => {
-                        revenueMap.set(item.store_id, item.revenue || 0);
-                    });
-                }
-            }
-            
-            const calculations = [];
-            for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
-                let revenue = 0;
-                if (storeAddress !== 'Старший продавец') {
-                    const storeId = storeEmployees[0]?.store_id;
-                    if (storeId) {
-                        revenue = revenueMap.get(storeId) || 0;
-                    }
-                }
-                const numSellers = storeEmployees.length;
-                for (const employee of storeEmployees) {
-                    const isSenior = employee.employee_id.startsWith('SProd');
-                    const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
-                    const calculation = {
-                        employee_id: employee.employee_id,
-                        employee_name: employee.employee_name,
-                        store_address: storeAddress,
-                        store_id: employee.store_id,
-                        work_date: date, revenue, num_sellers: numSellers,
-                        is_senior: isSenior, base_rate: payDetails.baseRate, bonus: payDetails.bonus,
-                        total_pay: payDetails.totalPay
-                    };
-                    await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
-                    calculations.push(calculation);
-                }
-            }
-            
-            const totalPayroll = calculations.reduce((sum, c) => sum + c.total_pay, 0);
-            await logFinancialOperation('calculate_payroll', { date, employeesCount: calculations.length, totalPayroll }, req.user.id);
-            res.json({ success: true, calculations, summary: { date, total_employees: calculations.length, total_payroll: totalPayroll } });
-        } catch(error) {
-            console.error(`Ошибка при расчете ЗП за ${date}:`, error);
-            res.status(500).json({ success: false, error: `Внутренняя ошибка сервера при расчете ЗП.` });
-        }
-    });
 });
 
 app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {

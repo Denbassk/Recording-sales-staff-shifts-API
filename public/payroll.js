@@ -301,7 +301,7 @@ function exportFotReportToExcel() {
     XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
 
-// --- ВКЛАДКА "ЗАГРУЗКА ВЫРУЧКИ" ---
+
 async function uploadRevenueFile() {
     const fileInput = document.getElementById('revenueFile');
     const dateInput = document.getElementById('revenueDate');
@@ -315,24 +315,30 @@ async function uploadRevenueFile() {
         return;
     }
 
-    // --- ИСПРАВЛЕННАЯ ПРОВЕРКА ИМЕНИ ФАЙЛА ---
+    // --- ОБНОВЛЕННАЯ ПРОВЕРКА ИМЕНИ ФАЙЛА ---
     const fileName = file.name;
-    // Регулярное выражение теперь ищет ДД.ММ.ГГГГ или ДД.ММ.ГГ
     const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4}|\d{2})/);
 
     if (dateMatch) {
         let [, day, month, year] = dateMatch;
         
-        // Если год двузначный (напр. "25"), добавляем "20" впереди
         if (year.length === 2) {
             year = "20" + year;
         }
         
         const dateFromFile = `${year}-${month}-${day}`;
+        const selectedDate = new Date(date);
+        const fileDate = new Date(dateFromFile);
+        const dayDiff = Math.round((selectedDate - fileDate) / (1000 * 60 * 60 * 24));
         
-        if (dateFromFile !== date) {
+        // Проверяем, что дата загрузки = дата из файла + 1 день
+        if (dayDiff !== 1) {
             const userConfirmation = confirm(
-                `ВНИМАНИЕ!\n\nВыбрана дата ${date}, а в имени файла указана дата ${dateFromFile}.\n\nПродолжить загрузку для даты ${date}?`
+                `ВНИМАНИЕ!\n\n` +
+                `Файл содержит кассу за ${dateFromFile}\n` +
+                `Обычно она загружается на следующий день (${new Date(fileDate.getTime() + 86400000).toISOString().split('T')[0]})\n` +
+                `Но вы выбрали дату ${date}\n\n` +
+                `Продолжить загрузку?`
             );
             if (!userConfirmation) {
                 showStatus('revenueStatus', 'Загрузка отменена пользователем.', 'info');
@@ -340,7 +346,7 @@ async function uploadRevenueFile() {
             }
         }
     }
-    // --- КОНЕЦ ИСПРАВЛЕННОЙ ПРОВЕРКИ ---
+    // --- КОНЕЦ ОБНОВЛЕННОЙ ПРОВЕРКИ ---
 
     showStatus('revenueStatus', 'Загрузка и обработка файла...', 'info');
     
@@ -358,7 +364,11 @@ async function uploadRevenueFile() {
         const result = await response.json();
 
         if (result.success) {
-            showStatus('revenueStatus', result.message, 'success');
+            // Обновленное сообщение с двумя датами
+            const message = result.revenueDate && result.uploadDate 
+                ? `Выручка за ${result.revenueDate} успешно загружена (дата обработки: ${result.uploadDate})`
+                : result.message;
+            showStatus('revenueStatus', message, 'success');
             displayRevenuePreview(result.revenues, result.matched, result.unmatched, result.totalRevenue);
         } else {
             throw new Error(result.error || 'Неизвестная ошибка сервера');
@@ -368,6 +378,7 @@ async function uploadRevenueFile() {
         showStatus('revenueStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
+
 
 function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
     const revenuePreviewEl = document.getElementById('revenuePreview');
