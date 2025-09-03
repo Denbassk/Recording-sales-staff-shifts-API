@@ -301,7 +301,7 @@ function exportFotReportToExcel() {
     XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
 
-
+// --- НАЧАЛО ИЗМЕНЕННОГО БЛОКА ---
 async function uploadRevenueFile() {
     const fileInput = document.getElementById('revenueFile');
     const dateInput = document.getElementById('revenueDate');
@@ -378,23 +378,22 @@ async function uploadRevenueFile() {
         showStatus('revenueStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
+// --- КОНЕЦ ИЗМЕНЕННОГО БЛОКА ---
 
 
 function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
     const revenuePreviewEl = document.getElementById('revenuePreview');
-    const revenueEmptyEl = document.getElementById('revenueEmpty');
     const tbody = document.getElementById('revenueTableBody');
-    const totalRevenueValueEl = document.getElementById('totalRevenueValue');
 
-    if (!revenuePreviewEl || !revenueEmptyEl || !tbody || !totalRevenueValueEl) return;
+    if (!revenuePreviewEl || !tbody) return;
 
     revenuePreviewEl.style.display = 'block';
-    revenueEmptyEl.style.display = 'none';
     tbody.innerHTML = '';
     let counter = 1;
+    let tableHtml = '';
     revenues.forEach(item => {
         const isMatched = matched.includes(item.store_address);
-        tbody.innerHTML += `
+        tableHtml += `
             <tr>
                 <td>${counter++}</td>
                 <td>${item.store_address}</td>
@@ -407,7 +406,18 @@ function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
             </tr>
         `;
     });
-    totalRevenueValueEl.textContent = `${formatNumber(totalRevenue)} грн`;
+    
+    // Добавляем строку с итогом
+    tableHtml += `
+        <tr class="summary-row" style="font-weight: bold; background-color: #f8f9fa;">
+            <td colspan="2" style="text-align: right;">Итого загружено:</td>
+            <td>${formatNumber(totalRevenue)} грн</td>
+            <td></td>
+        </tr>
+    `;
+
+    tbody.innerHTML = tableHtml;
+
     if (unmatched.length > 0) {
         showStatus('revenueStatus', `Внимание: ${unmatched.length} торговых точек не найдены в базе: ${unmatched.join(', ')}`, 'warning');
     }
@@ -415,33 +425,35 @@ function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
 
 function cancelRevenueUpload() {
     const revenuePreviewEl = document.getElementById('revenuePreview');
-    const revenueEmptyEl = document.getElementById('revenueEmpty');
     const revenueFileEl = document.getElementById('revenueFile');
 
     if (revenuePreviewEl) revenuePreviewEl.style.display = 'none';
-    if (revenueEmptyEl) revenueEmptyEl.style.display = 'block';
     if (revenueFileEl) revenueFileEl.value = '';
     hideStatus('revenueStatus');
 }
 
-async function confirmRevenueSave() {
-    showStatus('revenueStatus', 'Данные были успешно сохранены при обработке файла.', 'success');
-    setTimeout(() => {
-        cancelRevenueUpload();
-    }, 2000);
-}
 
 // --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
 async function fetchData(url, options, statusId) {
     try {
         const response = await fetch(url, options);
-        const result = await response.json();
-
+        
+        // --- УЛУЧШЕННАЯ ОБРАБОТКА ОШИБОК ---
         if (!response.ok) {
-            // Если сервер вернул ошибку, отображаем ее
-            throw new Error(result.error || `Ошибка HTTP: ${response.status}`);
+            let errorText = `Ошибка HTTP: ${response.status}`;
+            try {
+                // Пытаемся прочитать тело ответа как JSON, если это возможно
+                const errorResult = await response.json();
+                errorText = errorResult.error || errorResult.message || JSON.stringify(errorResult);
+            } catch (e) {
+                // Если тело не JSON, читаем как текст
+                errorText = await response.text();
+            }
+            throw new Error(errorText);
         }
-        return result;
+        
+        return await response.json();
+
     } catch (error) {
         console.error(`Ошибка при запросе к ${url}:`, error);
         showStatus(statusId, `Ошибка: ${error.message}`, 'error');

@@ -242,9 +242,8 @@ app.get('/check-auth', checkAuth, (req, res) => {
 const canManagePayroll = checkRole(['admin', 'accountant']);
 const canManageFot = checkRole(['admin']);
 
-// ИСПРАВЛЕННАЯ ФУНКЦИЯ ЗАГРУЗКИ ВЫРУЧКИ
-// Замените функцию app.post('/upload-revenue-file'...) в server.cjs на эту:
 
+// --- НАЧАЛО ИЗМЕНЕННОГО БЛОКА ---
 app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('file'), async (req, res) => {
     try {
         const { date } = req.body; // Это дата когда загружаем (например, 02.09)
@@ -359,6 +358,8 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         res.status(500).json({ success: false, error: error.message });
     }
 });
+// --- КОНЕЦ ИЗМЕНЕННОГО БЛОКА ---
+
 
 app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
     const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;

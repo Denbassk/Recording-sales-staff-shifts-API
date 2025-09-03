@@ -49,7 +49,6 @@
 
         .content {
             padding: 30px;
-            padding-bottom: 60px; /* Добавляем отступ снизу для фиксированной полосы */
         }
 
         .tab-navigation {
@@ -214,8 +213,6 @@
 
         .table-container {
             overflow-x: auto;
-            max-height: calc(100vh - 400px);
-            position: relative;
             -webkit-overflow-scrolling: touch;
         }
         
@@ -390,6 +387,13 @@
             background: #fff3cd;
             color: #856404;
         }
+        
+        /* ДОБАВЛЕННЫЙ СТИЛЬ */
+        .form-hint {
+            font-size: 12px;
+            color: #6c757d;
+            padding-left: 2px;
+        }
 
         .empty-state {
             text-align: center;
@@ -428,54 +432,46 @@
                 padding: 10px;
             }
         }
+        
+        /* --- НОВЫЕ СТИЛИ ДЛЯ УЛУЧШЕНИЙ ИНТЕРФЕЙСА --- */
 
         /* Кнопка "Вверх" */
-        .scroll-to-top {
+        #back-to-top-btn {
+            display: none; /* Скрыта по умолчанию */
             position: fixed;
-            bottom: 30px;
+            bottom: 20px;
             right: 30px;
+            z-index: 99;
+            border: none;
+            outline: none;
+            background-color: #667eea;
+            color: white;
+            cursor: pointer;
+            padding: 15px;
+            border-radius: 50%;
+            font-size: 18px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
             width: 50px;
             height: 50px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 50%;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-            z-index: 1000;
-            transition: all 0.3s ease;
+            line-height: 20px;
+            text-align: center;
         }
 
-        .scroll-to-top:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        #back-to-top-btn:hover {
+            background-color: #5a6edc;
         }
 
-        .scroll-to-top svg {
-            width: 24px;
-            height: 24px;
-            fill: white;
+        /* Всегда видимый горизонтальный скроллбар */
+        .table-container {
+            padding-bottom: 15px;
         }
-
-        /* Кнопка "Вверх" */
-        #monthlyReportTable td,
-        #monthlyReportTable th {
-            padding: 8px 10px;
-            font-size: 11px;
+        
+        /* Уменьшение ширины столбцов в таблице расчета за день */
+        #payrollTable th, #payrollTable td {
+            padding: 12px 8px;
             white-space: nowrap;
         }
 
-        #monthlyReportTable input[type="number"],
-        #monthlyReportTable input[type="text"] {
-            width: 80px;
-            padding: 4px 6px;
-            font-size: 11px;
-        }
-
-        #monthlyReportTable input[type="text"] {
-            width: 120px;
-        }
     </style>
     <style media="print">
         @page {
@@ -532,18 +528,10 @@
 
         <div class="content">
             <div class="tab-navigation">
-                <button class="tab-button active" onclick="switchTab('revenue', this)">
-                    📊 Загрузка выручки
-                </button>
-                <button class="tab-button" onclick="switchTab('payroll', this)">
-                    💵 Расчет зарплаты
-                </button>
-                <button class="tab-button" onclick="switchTab('report', this)">
-                    📈 Отчет за месяц
-                </button>
-                <button id="fot-tab-button" class="tab-button" onclick="switchTab('fot', this)" style="display: none;">
-                    💼 Фонд оплаты труда
-                </button>
+                <button class="tab-button active" onclick="switchTab('revenue', this)">📊 Загрузка выручки</button>
+                <button class="tab-button" onclick="switchTab('payroll', this)">💵 Расчет зарплаты</button>
+                <button class="tab-button" onclick="switchTab('report', this)">📈 Отчет за месяц</button>
+                <button id="fot-tab-button" class="tab-button" onclick="switchTab('fot', this)" style="display: none;">💼 Фонд оплаты труда</button>
             </div>
 
             <div id="revenue-tab" class="tab-content active">
@@ -552,6 +540,7 @@
                         <div class="control-group">
                             <label>Дата выручки:</label>
                             <input type="date" id="revenueDate">
+                            <small class="form-hint">Выберите дату обработки (обычно следующий день после кассы)</small>
                         </div>
                         <div class="control-group">
                             <label>Файл с данными (CSV/Excel):</label>
@@ -559,9 +548,7 @@
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
-                            <button id="uploadRevenueBtn" class="success">
-                                Загрузить и обработать
-                            </button>
+                            <button id="uploadRevenueBtn" class="success">Загрузить и обработать</button>
                         </div>
                         <div class="control-group" style="margin-left: auto;">
                             <label>&nbsp;</label>
@@ -569,11 +556,9 @@
                         </div>
                     </div>
                 </div>
-
                 <div id="revenueStatus" class="status" style="display:none;"></div>
-
                 <div id="revenuePreview" style="display:none;">
-                    <h3 style="margin-bottom: 20px;">📋 Предпросмотр загруженных данных:</h3>
+                    <h3>📋 Предпросмотр загруженных данных:</h3>
                     <div class="table-container">
                         <table id="revenueTable">
                             <thead>
@@ -587,32 +572,6 @@
                             <tbody id="revenueTableBody"></tbody>
                         </table>
                     </div>
-                    <div class="summary-panel" style="margin-top: 0; text-align: right; padding: 15px;">
-                        <div class="summary-row" style="font-size: 18px;">
-                            <span class="summary-label">Итого выручка:</span>
-                            <span class="summary-value" id="totalRevenueValue">0.00 грн</span>
-                        </div>
-                    </div>
-                    <div style="text-align: center; margin-top: 20px;">
-                        <button class="success" onclick="confirmRevenueSave()" style="margin-right: 10px;">
-                            Подтвердить и сохранить
-                        </button>
-                        <button class="secondary" onclick="cancelRevenueUpload()">
-                            Отменить
-                        </button>
-                    </div>
-                </div>
-
-                <div id="revenueEmpty" class="empty-state">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                        <polyline points="14 2 14 8 20 8"></polyline>
-                        <line x1="16" y1="13" x2="8" y2="13"></line>
-                        <line x1="16" y1="17" x2="8" y2="17"></line>
-                        <polyline points="10 9 9 9 8 9"></polyline>
-                    </svg>
-                    <h3>Нет загруженных данных</h3>
-                    <p>Выберите файл с выручкой для загрузки</p>
                 </div>
             </div>
 
@@ -625,9 +584,7 @@
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
-                            <button onclick="calculatePayroll()">
-                                Рассчитать зарплату
-                            </button>
+                            <button onclick="calculatePayroll()">Рассчитать зарплату</button>
                         </div>
                         <div class="control-group" style="margin-left: auto;">
                             <label>&nbsp;</label>
@@ -635,10 +592,8 @@
                         </div>
                     </div>
                 </div>
-
                 <div id="payrollStatus" class="status" style="display:none;"></div>
                 <div class="loader" id="loader"></div>
-                
                 <div class="table-container">
                     <table id="payrollTable" style="display:none;">
                         <thead>
@@ -655,7 +610,6 @@
                         <tbody id="payrollTableBody"></tbody>
                     </table>
                 </div>
-
                 <div id="payrollSummary" class="summary-panel" style="display:none;">
                     <h3>💼 Итого за день (Общий):</h3>
                     <div class="summary-row">
@@ -668,10 +622,10 @@
                     </div>
                 </div>
             </div>
-
+            
             <div id="report-tab" class="tab-content">
                 <div class="control-panel">
-                    <div class="control-row">
+                     <div class="control-row">
                         <div class="control-group">
                             <label>Месяц:</label>
                             <select id="reportMonth">
@@ -735,11 +689,9 @@
                         </div>
                     </div>
                 </div>
-
                 <div id="reportStatus" class="status" style="display:none;"></div>
-
                 <div id="monthlyReportContent" style="display:none;" class="table-container">
-                </div>
+                    </div>
             </div>
             
             <div id="fot-tab" class="tab-content">
@@ -768,10 +720,8 @@
                         </div>
                     </div>
                 </div>
-
                 <div id="fotReportStatus" class="status" style="display:none;"></div>
                 <div class="loader" id="fotLoader"></div>
-
                 <div id="fotReportContent" style="display:none;">
                     <div class="table-container">
                         <table id="fotTable">
@@ -823,31 +773,13 @@
                     </div>
                 </div>
             </div>
-
         </div>
     </div>
+    
+    <button onclick="scrollToTop()" id="back-to-top-btn" title="Go to top">↑</button>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="payroll.js" defer></script>
-
-    <!-- Кнопка "Вверх" -->
-    <div class="scroll-to-top" id="scrollToTop" onclick="window.scrollTo({top: 0, behavior: 'smooth'})">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-            <path d="M7 14l5-5 5 5z"/>
-        </svg>
-    </div>
-
-    <script>
-    // Показываем/скрываем кнопку "Вверх"
-    window.addEventListener('scroll', function() {
-        const scrollButton = document.getElementById('scrollToTop');
-        if (window.pageYOffset > 200) {
-            scrollButton.style.display = 'flex';
-        } else {
-            scrollButton.style.display = 'none';
-        }
-    });
-    </script>
 </body>
 </html>
