@@ -388,7 +388,6 @@
             color: #856404;
         }
         
-        /* ДОБАВЛЕННЫЙ СТИЛЬ */
         .form-hint {
             font-size: 12px;
             color: #6c757d;
@@ -433,11 +432,11 @@
             }
         }
         
-        /* --- НОВЫЕ СТИЛИ ДЛЯ УЛУЧШЕНИЙ ИНТЕРФЕЙСА --- */
+        /* --- ИСПРАВЛЕННЫЕ СТИЛИ ДЛЯ ФИКСИРОВАННЫХ ЗАГОЛОВКОВ --- */
 
         /* Кнопка "Вверх" */
         #back-to-top-btn {
-            display: none; /* Скрыта по умолчанию */
+            display: none;
             position: fixed;
             bottom: 20px;
             right: 30px;
@@ -461,22 +460,21 @@
             background-color: #5a6edc;
         }
 
-        /* Всегда видимый горизонтальный скроллбар */
-        .table-container {
-            overflow-x: auto;
-            overflow-y: visible;
-            padding-bottom: 15px;
-            -webkit-overflow-scrolling: touch;
-            position: relative;
-        }
-        
-        /* Фиксированные заголовки таблиц */
-        #monthlyReportTable thead,
-        #fotTable thead,
-        #payrollTable thead {
+        /* Общие стили для "липких" заголовков */
+        thead th {
+            position: -webkit-sticky; /* для Safari */
             position: sticky;
             top: 0;
             z-index: 10;
+        }
+
+        /* Контейнеры с прокруткой для таблиц */
+        #monthlyReportContent,
+        #fotReportContent,
+        #payroll-tab .table-container,
+        #revenue-tab .table-container {
+            max-height: calc(100vh - 380px); /* Адаптируем высоту под размер окна */
+            overflow-y: auto;
         }
         
         /* Уменьшение ширины столбцов в таблице расчета за день */
@@ -497,21 +495,6 @@
             border-color: #667eea;
             box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
             outline: none;
-        }
-        
-        /* Фиксированный контейнер для отчета за месяц */
-        #monthlyReportContent {
-            max-height: calc(100vh - 350px);
-            overflow-y: auto;
-            overflow-x: auto;
-            position: relative;
-        }
-        
-        #fotReportContent {
-            max-height: calc(100vh - 350px);
-            overflow-y: auto;
-            overflow-x: auto;
-            position: relative;
         }
 
     </style>
@@ -765,7 +748,7 @@
                 <div id="fotReportStatus" class="status" style="display:none;"></div>
                 <div class="loader" id="fotLoader"></div>
                 <div id="fotReportContent" style="display:none;">
-                    <div class="table-container">
+                    <div id="fotDetailTableContainer" class="table-container" style="display: none;">
                         <table id="fotTable">
                             <thead>
                                 <tr>

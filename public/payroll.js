@@ -46,22 +46,22 @@ document.addEventListener('DOMContentLoaded', async function() {
             const data = await response.json();
             
            // Находим кнопки
-const fotTabButton = document.getElementById('fot-tab-button');
-const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
+            const fotTabButton = document.getElementById('fot-tab-button');
+            const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
 
-// Проверяем, существует ли кнопка очистки, чтобы избежать ошибок
-if (clearDataButton) {
-    // Проверяем роль пользователя
-    if (data.success && data.user.role === 'admin') {
-        // Показываем элементы для админа
-        if (fotTabButton) fotTabButton.style.display = 'block';
-        clearDataButton.parentElement.style.display = 'block';
-    } else {
-        // Скрываем элементы от других ролей (например, бухгалтера)
-        if (fotTabButton) fotTabButton.style.display = 'none'; // Также скроем ФОТ для не-админов
-        clearDataButton.parentElement.style.display = 'none';
-    }
-}
+            // Проверяем, существует ли кнопка очистки, чтобы избежать ошибок
+            if (clearDataButton) {
+                // Проверяем роль пользователя
+                if (data.success && data.user.role === 'admin') {
+                    // Показываем элементы для админа
+                    if (fotTabButton) fotTabButton.style.display = 'block';
+                    clearDataButton.parentElement.style.display = 'block';
+                } else {
+                    // Скрываем элементы от других ролей (например, бухгалтера)
+                    if (fotTabButton) fotTabButton.style.display = 'none'; // Также скроем ФОТ для не-админов
+                    clearDataButton.parentElement.style.display = 'none';
+                }
+            }
 
             initializePage();
 
@@ -255,66 +255,18 @@ function exportFotReportToExcel() {
     const yearEl = document.getElementById('fotReportYear');
     const month = monthEl ? monthEl.value : 'M';
     const year = yearEl ? yearEl.value : 'Y';
-    const fileName = `Отчет_ФОТ_${month}_${year}`;
+    const fileName = `Отчет_ФОТ_по_магазинам_${month}_${year}`;
 
-    const table = document.getElementById('fotTable');
+    const table = document.getElementById('fotByStoreTable'); // Экспортируем правильную таблицу
     if (!table || table.rows.length === 0 || fotReportDataCache.length === 0) {
         showStatus('fotReportStatus', 'Нет данных для экспорта', 'error');
         return;
     }
-
-    // --- Лист 1: Основной отчет (сводный) ---
-    const mainReportSheet = [];
-    const tableHeaders = [];
-    table.querySelectorAll('thead th').forEach(th => tableHeaders.push(th.textContent));
-    mainReportSheet.push(tableHeaders);
-
-    fotReportDataCache.forEach(data => {
-        mainReportSheet.push([
-            data.employee_name,
-            data.work_date,
-            data.store_id || 'N/A',
-            Number(data.daily_store_revenue),
-            Number(data.payout),
-            Number(data.tax_22),
-            Number(data.payout_with_tax),
-            Number(data.fot_personal_pct)
-        ]);
-    });
     
-    // Добавляем итоговые данные в конец первого листа
-    mainReportSheet.push([]); // Пустая строка для разделения
-    mainReportSheet.push(['Итоговые данные']);
-    mainReportSheet.push(['Общая выручка:', document.getElementById('fotTotalRevenue')?.textContent || '0.00 грн']);
-    mainReportSheet.push(['Общий ФОТ (выплаты + 22%):', document.getElementById('fotTotalFund')?.textContent || '0.00 грн']);
-    mainReportSheet.push(['Итоговый ФОТ % от выручки:', document.getElementById('fotPercentage')?.textContent || '0.00 %']);
-
-    const ws_report = XLSX.utils.aoa_to_sheet(mainReportSheet);
-
-    // --- Лист 2: Проверка расчетов (Детализация по начислениям) ---
-    // Этот лист теперь будет содержать детальную разбивку данных, которые были использованы для отчета.
-    const checkDataHeaders = ["Сотрудник", "Дата работы", "ID Магазина", "ЗП начислено", "Налог (22%)", "Итого (ЗП + Налог)"];
-    const checkData = [checkDataHeaders];
-    fotReportDataCache.forEach(emp => {
-        checkData.push([
-            emp.employee_name,
-            emp.work_date,
-            emp.store_id || 'N/A',
-            Number(emp.payout),
-            Number(emp.tax_22),
-            Number(emp.payout_with_tax)
-        ]);
-    });
-    const ws_check = XLSX.utils.aoa_to_sheet(checkData);
-
-    // --- Создание книги и применение форматирования ---
+    const ws = XLSX.utils.table_to_sheet(table);
+    applyExcelFormatting(ws);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws_report, "Отчет ФОТ");
-    XLSX.utils.book_append_sheet(wb, ws_check, "Проверка расчетов");
-
-    applyExcelFormatting(ws_report);
-    applyExcelFormatting(ws_check);
-
+    XLSX.utils.book_append_sheet(wb, ws, "ФОТ по магазинам");
     XLSX.writeFile(wb, `${fileName}.xlsx`);
 }
 
@@ -332,7 +284,6 @@ async function uploadRevenueFile() {
         return;
     }
 
-    // --- ОБНОВЛЕННАЯ ПРОВЕРКА ИМЕНИ ФАЙЛА ---
     const fileName = file.name;
     const dateMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4}|\d{2})/);
 
@@ -348,7 +299,6 @@ async function uploadRevenueFile() {
         const fileDate = new Date(dateFromFile);
         const dayDiff = Math.round((selectedDate - fileDate) / (1000 * 60 * 60 * 24));
         
-        // Проверяем, что дата загрузки = дата из файла + 1 день
         if (dayDiff !== 1) {
             const userConfirmation = confirm(
                 `ВНИМАНИЕ!\n\n` +
@@ -363,7 +313,6 @@ async function uploadRevenueFile() {
             }
         }
     }
-    // --- КОНЕЦ ОБНОВЛЕННОЙ ПРОВЕРКИ ---
 
     showStatus('revenueStatus', 'Загрузка и обработка файла...', 'info');
     
@@ -381,7 +330,6 @@ async function uploadRevenueFile() {
         const result = await response.json();
 
         if (result.success) {
-            // Обновленное сообщение с двумя датами
             const message = result.revenueDate && result.uploadDate 
                 ? `Выручка за ${result.revenueDate} успешно загружена (дата обработки: ${result.uploadDate})`
                 : result.message;
@@ -423,7 +371,6 @@ function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
         `;
     });
     
-    // Добавляем строку с итогом
     tableHtml += `
         <tr class="summary-row" style="font-weight: bold; background-color: #f8f9fa;">
             <td colspan="2" style="text-align: right;">Итого загружено:</td>
@@ -449,33 +396,27 @@ function cancelRevenueUpload() {
 }
 
 
-// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ (ИСПРАВЛЕННАЯ ВЕРСИЯ) ---
+// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
 async function fetchData(url, options, statusId) {
     try {
         const response = await fetch(url, options);
 
         if (!response.ok) {
             let errorText = `Ошибка HTTP: ${response.status}`;
-            
-            // Клонируем response чтобы можно было прочитать тело несколько раз
             const responseClone = response.clone();
             
             try {
-                // Пытаемся прочитать тело ответа как JSON
                 const errorResult = await responseClone.json();
                 errorText = errorResult.error || errorResult.message || JSON.stringify(errorResult);
             } catch (e) {
-                // Если тело не JSON, пытаемся прочитать как текст
                 try {
                     const textError = await response.text();
-                    // Если это HTML страница 404, извлечем только важную информацию
                     if (textError.includes('<!DOCTYPE') || textError.includes('<html')) {
                         errorText = `Ошибка ${response.status}: Эндпоинт не найден`;
                     } else {
                         errorText = textError || errorText;
                     }
                 } catch (textError) {
-                    // Если и текст не читается, используем стандартное сообщение
                     errorText = `Ошибка HTTP: ${response.status} - ${response.statusText}`;
                 }
             }
@@ -487,7 +428,7 @@ async function fetchData(url, options, statusId) {
     } catch (error) {
         console.error(`Ошибка при запросе к ${url}:`, error);
         showStatus(statusId, `Ошибка: ${error.message}`, 'error');
-        throw error; // Пробрасываем ошибку дальше, чтобы остановить выполнение
+        throw error;
     }
 }
 
@@ -648,7 +589,6 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
         employeeData[calc.employee_id].stores[store] = (employeeData[calc.employee_id].stores[store] || 0) + 1;
     });
     
-    // Определяем основной магазин для каждого сотрудника
     for (const [id, data] of Object.entries(employeeData)) {
         if (Object.keys(data.stores).length > 0) {
             data.primaryStore = Object.keys(data.stores).reduce((a, b) => data.stores[a] > data.stores[b] ? a : b);
@@ -657,7 +597,6 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
     
     const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
     
-    // Сортируем сотрудников по магазину и имени
     const sortedEmployees = Object.entries(employeeData).sort((a, b) => {
         const storeCompare = a[1].primaryStore.localeCompare(b[1].primaryStore);
         if (storeCompare !== 0) return storeCompare;
@@ -775,7 +714,6 @@ async function saveAdjustments(row) {
             },
             'reportStatus'
         );
-        // Можно добавить индикатор сохранения, но пока просто отправляем
     } catch (error) {
         // Ошибка уже обработана и показана пользователю
     }
@@ -1024,88 +962,47 @@ async function generateFotReport() {
             hideStatus('fotReportStatus');
             contentEl.style.display = 'block';
             
-            fotReportDataCache = result.rows; // Теперь сервер возвращает 'rows'
+            fotReportDataCache = result.rows; // Кэшируем новые агрегированные данные
             const reportData = result.rows;
 
-            const tbody = document.getElementById('fotTableBody');
-            tbody.innerHTML = '';
-            
-            if (reportData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
-                // Скрываем итоговые панели
-                document.querySelector('.summary-panel').style.display = 'none';
-                document.getElementById('fotByStorePanel').style.display = 'none';
-                return;
-            } else {
-                 document.querySelector('.summary-panel').style.display = 'block';
-            }
+            // Скрываем старую детальную таблицу (она больше не нужна)
+            document.getElementById('fotDetailTableContainer').style.display = 'none';
 
-            // --- НОВЫЙ БЛОК: НАКОПИТЕЛЬНЫЙ РАСЧЕТ И ГРУППИРОВКА ---
-            const fotByStore = {};
-            let totalRevenue = 0;
-            let totalFotFund = 0;
-
-            // Накапливаем данные по магазинам и общие итоги
-            reportData.forEach(item => {
-                const store = item.store_address || 'Не присвоено';
-                if (!fotByStore[store]) {
-                    fotByStore[store] = { revenue: 0, fot: 0 };
-                }
-                fotByStore[store].revenue += item.daily_store_revenue;
-                fotByStore[store].fot += item.payout_with_tax;
-                
-                totalRevenue += item.daily_store_revenue;
-                totalFotFund += item.payout_with_tax;
-            });
-
-            // Сортируем магазины по алфавиту
-            const sortedStores = Object.keys(fotByStore).sort((a, b) => a.localeCompare(b));
-
-            // Отображаем детальную таблицу по сотрудникам
-            reportData.sort((a,b) => a.employee_name.localeCompare(b.employee_name)).forEach(data => {
-                const row = `
-                    <tr>
-                        <td>${data.employee_name}</td>
-                        <td>${data.work_date}</td>
-                        <td>${data.store_address || 'N/A'}</td>
-                        <td>${formatNumber(data.daily_store_revenue)} грн</td>
-                        <td>${formatNumber(data.payout)} грн</td>
-                        <td>${formatNumber(data.tax_22)} грн</td>
-                        <td><strong>${formatNumber(data.payout_with_tax)} грн</strong></td>
-                        <td>${formatNumber(data.fot_personal_pct || 0)} %</td>
-                    </tr>
-                `;
-                tbody.innerHTML += row;
-            });
-            
-            // Отображаем таблицу ФОТ по магазинам
-            const fotByStorePanel = document.getElementById('fotByStorePanel');
             const fotByStoreBody = document.getElementById('fotByStoreTableBody');
             fotByStoreBody.innerHTML = '';
+            
+            if (reportData.length === 0) {
+                fotByStoreBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
+                document.querySelector('.summary-panel').style.display = 'none';
+                document.getElementById('fotByStorePanel').style.display = 'block';
+                return;
+            } 
+            
+            document.getElementById('fotByStorePanel').style.display = 'block';
+            document.querySelector('.summary-panel').style.display = 'block';
+            
+            let grandTotalRevenue = 0;
+            let grandTotalFotFund = 0;
 
-            if (sortedStores.length > 0) {
-                fotByStorePanel.style.display = 'block';
-                for (const storeName of sortedStores) {
-                    const data = fotByStore[storeName];
-                    const percentage = data.revenue > 0 ? (data.fot / data.revenue) * 100 : 0;
-                    const row = `
-                        <tr>
-                            <td>${storeName}</td>
-                            <td>${formatNumber(data.revenue)} грн</td>
-                            <td>${formatNumber(data.fot)} грн</td>
-                            <td><strong>${formatNumber(percentage)} %</strong></td>
-                        </tr>
-                    `;
-                    fotByStoreBody.innerHTML += row;
-                }
-            }
+            reportData.sort((a, b) => a.store_address.localeCompare(b.store_address)).forEach(data => {
+                const row = `
+                    <tr>
+                        <td>${data.store_address}</td>
+                        <td>${formatNumber(data.total_revenue)} грн</td>
+                        <td>${formatNumber(data.total_payout_with_tax)} грн</td>
+                        <td><strong>${formatNumber(data.fot_percentage)} %</strong></td>
+                    </tr>
+                `;
+                fotByStoreBody.innerHTML += row;
+                grandTotalRevenue += data.total_revenue;
+                grandTotalFotFund += data.total_payout_with_tax;
+            });
             
             // Заполняем итоговую панель (общую)
-            const totalFotPercentage = totalRevenue > 0 ? (totalFotFund / totalRevenue) * 100 : 0;
-            document.getElementById('fotTotalRevenue').textContent = `${formatNumber(totalRevenue)} грн`;
-            document.getElementById('fotTotalFund').textContent = `${formatNumber(totalFotFund)} грн`;
-            document.getElementById('fotPercentage').textContent = `${formatNumber(totalFotPercentage)} %`;
-            // --- КОНЕЦ НОВОГО БЛОКА ---
+            const grandTotalFotPercentage = grandTotalRevenue > 0 ? (grandTotalFotFund / grandTotalRevenue) * 100 : 0;
+            document.getElementById('fotTotalRevenue').textContent = `${formatNumber(grandTotalRevenue)} грн`;
+            document.getElementById('fotTotalFund').textContent = `${formatNumber(grandTotalFotFund)} грн`;
+            document.getElementById('fotPercentage').textContent = `${formatNumber(grandTotalFotPercentage)} %`;
         }
     } catch (error) {
         // Ошибка уже отображена
@@ -1115,7 +1012,6 @@ async function generateFotReport() {
 }
 
 async function clearDatabase() {
-  // Первое подтверждение
   const firstConfirm = confirm("ВНИМАНИЕ!\nВы собираетесь удалить все данные о сменах, расчетах зарплаты и выручке. Эта операция необратима.\n\nВы уверены, что хотите продолжить?");
 
   if (!firstConfirm) {
@@ -1123,7 +1019,6 @@ async function clearDatabase() {
     return;
   }
   
-  // Второе, контрольное подтверждение
   const secondConfirm = confirm("ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ.\nВсе операционные данные будут стерты. Справочники (сотрудники, магазины) останутся.\n\nПодтверждаете удаление?");
 
   if (!secondConfirm) {
@@ -1146,7 +1041,6 @@ async function clearDatabase() {
 
     if (result.success) {
       showStatus('reportStatus', result.message, 'success');
-      // Опционально: можно перезагрузить страницу или очистить текущие отчеты
       document.getElementById('monthlyReportContent').innerHTML = '';
     }
   } catch (error) {
