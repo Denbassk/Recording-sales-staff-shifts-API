@@ -25,7 +25,7 @@
             background: white;
             border-radius: 15px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            overflow: hidden;
+            /* overflow: hidden; <-- ЭТА СТРОКА БЫЛА УДАЛЕНА, ОНА БЛОКИРОВАЛА "ЛИПКИЕ" ЗАГОЛОВКИ */
         }
 
         .header {
@@ -210,11 +210,6 @@
             color: #333;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
         }
-
-        .table-container {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-        }
         
         table {
             width: 100%;
@@ -223,7 +218,6 @@
             margin: 25px 0;
             background: white;
             border-radius: 10px;
-            overflow: hidden;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
@@ -432,9 +426,8 @@
             }
         }
         
-        /* --- ИСПРАВЛЕННЫЕ СТИЛИ ДЛЯ ФИКСИРОВАННЫХ ЗАГОЛОВКОВ --- */
+        /* --- НОВЫЕ ИСПРАВЛЕННЫЕ СТИЛИ ДЛЯ ЗАГОЛОВКОВ И СКРОЛЛБАРОВ --- */
 
-        /* Кнопка "Вверх" */
         #back-to-top-btn {
             display: none;
             position: fixed;
@@ -460,30 +453,27 @@
             background-color: #5a6edc;
         }
 
-        /* Общие стили для "липких" заголовков */
+        /* Универсальный контейнер для всех таблиц */
+        .table-container {
+            overflow: auto; /* Включаем и вертикальную, и горизонтальную прокрутку */
+            max-height: calc(100vh - 420px); /* Единая высота для всех таблиц */
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        /* "Липкие" заголовки для ВСЕХ таблиц */
         thead th {
-            position: -webkit-sticky; /* для Safari */
+            position: -webkit-sticky; /* Для Safari */
             position: sticky;
             top: 0;
-            z-index: 10;
-        }
-
-        /* Контейнеры с прокруткой для таблиц */
-        #monthlyReportContent,
-        #fotReportContent,
-        #payroll-tab .table-container,
-        #revenue-tab .table-container {
-            max-height: calc(100vh - 380px); /* Адаптируем высоту под размер окна */
-            overflow-y: auto;
+            z-index: 1; 
         }
         
-        /* Уменьшение ширины столбцов в таблице расчета за день */
-        #payrollTable th, #payrollTable td {
-            padding: 12px 8px;
-            white-space: nowrap;
+        /* Убираем лишние стили с ID, так как теперь все управляется классом .table-container */
+        #monthlyReportContent, #fotReportContent {
+            max-height: none;
+            overflow: visible;
         }
         
-        /* Стили для input полей в таблицах */
         .adjustment-input {
             border: 1px solid #ddd;
             border-radius: 4px;
@@ -715,7 +705,7 @@
                     </div>
                 </div>
                 <div id="reportStatus" class="status" style="display:none;"></div>
-                <div id="monthlyReportContent" style="display:none;" class="table-container">
+                <div id="monthlyReportContent">
                     </div>
             </div>
             
@@ -747,56 +737,8 @@
                 </div>
                 <div id="fotReportStatus" class="status" style="display:none;"></div>
                 <div class="loader" id="fotLoader"></div>
-                <div id="fotReportContent" style="display:none;">
-                    <div id="fotDetailTableContainer" class="table-container" style="display: none;">
-                        <table id="fotTable">
-                            <thead>
-                                <tr>
-                                    <th>Сотрудник</th>
-                                    <th>Дата</th>
-                                    <th>Адрес магазина</th>
-                                    <th>Касса дня</th>
-                                    <th>Начислено (ЗП)</th>
-                                    <th>Налог (22%)</th>
-                                    <th>Выплата + налог</th>
-                                    <th>ФОТ % (персональный)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="fotTableBody"></tbody>
-                        </table>
+                <div id="fotReportContent">
                     </div>
-                    <div class="summary-panel">
-                        <h3>Итоговый отчет по ФОТ</h3>
-                        <div class="summary-row">
-                            <span class="summary-label">Общая выручка (только по активным магазинам):</span>
-                            <span class="summary-value" id="fotTotalRevenue">0.00 грн</span>
-                        </div>
-                        <div class="summary-row">
-                            <span class="summary-label">Общий ФОТ за период (выплаты + 22%):</span>
-                            <span class="summary-value" id="fotTotalFund">0.00 грн</span>
-                        </div>
-                        <div class="summary-row" style="font-size: 22px; color: #764ba2;">
-                            <span class="summary-label">Итоговый ФОТ % от выручки:</span>
-                            <span class="summary-value" id="fotPercentage">0.00 %</span>
-                        </div>
-                    </div>
-                    <div id="fotByStorePanel" class="summary-panel" style="display: none; margin-top: 20px;">
-                        <h3>📊 ФОТ по магазинам</h3>
-                        <div class="table-container">
-                            <table id="fotByStoreTable">
-                                <thead>
-                                    <tr>
-                                        <th>Адрес магазина</th>
-                                        <th>Выручка магазина</th>
-                                        <th>Фонд оплаты труда</th>
-                                        <th>ФОТ %</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="fotByStoreTableBody"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
