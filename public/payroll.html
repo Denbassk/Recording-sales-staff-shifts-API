@@ -439,6 +439,11 @@
             -webkit-overflow-scrolling: touch;
         }
         
+        thead {
+            /* === НОВЫЙ БЛОК: ИСПРАВЛЕНИЕ ДЛЯ "ДЫРКИ" В ЗАГОЛОВКЕ === */
+            background-color: white; /* Добавляем фон для всей шапки */
+        }
+
         thead th {
             position: -webkit-sticky;
             position: sticky;
@@ -446,14 +451,12 @@
             z-index: 1; 
         }
         
-        /* === НОВЫЙ БЛОК: ИСПРАВЛЕНИЕ ДЛЯ ДВУХУРОВНЕВОГО ЗАГОЛОВКА === */
         .monthly-report-head tr:first-child th {
-            top: 0; /* Верхний ряд прилипает к самому верху */
+            top: 0; 
         }
         .monthly-report-head tr:last-child th {
-            top: 50px; /* Нижний ряд прилипает ниже, с отступом на высоту верхнего ряда */
+            top: 50px; 
         }
-        /* === КОНЕЦ НОВОГО БЛОКА === */
         
         #monthlyReportContent, #fotReportContent {
             max-height: none;

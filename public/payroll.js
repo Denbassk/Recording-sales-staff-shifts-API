@@ -532,6 +532,7 @@ async function generateMonthlyReport() {
         return;
     }
     showStatus('reportStatus', 'Формирование отчета...', 'info');
+    reportContentEl.innerHTML = ''; // Очищаем содержимое перед генерацией
     reportContentEl.style.display = 'none';
 
     try {
@@ -592,10 +593,9 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
     });
     
     let tableHtml = `
-        <h3 style="margin-top: 30px; margin-bottom: 20px;">👥 Детализация по сотрудникам:</h3>
+        <h3>👥 Детализация по сотрудникам:</h3>
         <div class="table-container">
         <table id="monthlyReportTable" style="font-size: 11px; white-space: nowrap;">
-            // === ИЗМЕНЕНИЕ: Добавлен класс для двухуровневого заголовка ===
             <thead class="monthly-report-head">
                 <tr>
                     <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Сотрудник</th>
@@ -916,12 +916,10 @@ async function generateFotReport() {
     showStatus('fotReportStatus', 'Формирование отчета ФОТ...', 'info');
     loader.style.display = 'block';
     
-    // Прячем панели перед загрузкой
     const summaryPanel = contentEl.querySelector('.summary-panel');
     const storePanel = document.getElementById('fotByStorePanel');
     if (summaryPanel) summaryPanel.style.display = 'none';
     if (storePanel) storePanel.style.display = 'none';
-
 
     try {
         const result = await fetchData(
@@ -940,12 +938,12 @@ async function generateFotReport() {
             const reportData = result.rows;
 
             const fotByStoreBody = document.getElementById('fotByStoreTableBody');
-            if (fotByStoreBody) fotByStoreBody.innerHTML = ''; // Очищаем только если нашли
+            if (fotByStoreBody) fotByStoreBody.innerHTML = ''; 
             
             if (reportData.length === 0) {
                 if (fotByStoreBody) fotByStoreBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
                 if (summaryPanel) summaryPanel.style.display = 'none';
-                if (storePanel) storePanel.style.display = 'block'; // Показываем панель с сообщением "нет данных"
+                if (storePanel) storePanel.style.display = 'block';
                 return;
             } 
             
