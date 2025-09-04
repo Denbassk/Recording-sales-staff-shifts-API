@@ -257,7 +257,7 @@ function exportFotReportToExcel() {
     const year = yearEl ? yearEl.value : 'Y';
     const fileName = `Отчет_ФОТ_по_магазинам_${month}_${year}`;
 
-    const table = document.getElementById('fotByStoreTable'); // Экспортируем правильную таблицу
+    const table = document.getElementById('fotByStoreTable'); 
     if (!table || table.rows.length === 0 || fotReportDataCache.length === 0) {
         showStatus('fotReportStatus', 'Нет данных для экспорта', 'error');
         return;
@@ -386,16 +386,6 @@ function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
     }
 }
 
-function cancelRevenueUpload() {
-    const revenuePreviewEl = document.getElementById('revenuePreview');
-    const revenueFileEl = document.getElementById('revenueFile');
-
-    if (revenuePreviewEl) revenuePreviewEl.style.display = 'none';
-    if (revenueFileEl) revenueFileEl.value = '';
-    hideStatus('revenueStatus');
-}
-
-
 // --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
 async function fetchData(url, options, statusId) {
     try {
@@ -470,7 +460,6 @@ async function calculatePayroll() {
             displayPayrollResults(result.calculations, result.summary);
         }
     } catch (error) {
-        // Ошибка уже отображена в fetchData
     } finally {
         if (loader) loader.style.display = 'none';
     }
@@ -563,7 +552,6 @@ async function generateMonthlyReport() {
             displayMonthlyReport(result.dailyData, result.adjustments, month, year);
         }
     } catch (error) {
-        // Ошибка уже отображена
     }
 }
 
@@ -607,7 +595,8 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
         <h3 style="margin-top: 30px; margin-bottom: 20px;">👥 Детализация по сотрудникам:</h3>
         <div class="table-container">
         <table id="monthlyReportTable" style="font-size: 11px; white-space: nowrap;">
-            <thead>
+            // === ИЗМЕНЕНИЕ: Добавлен класс для двухуровневого заголовка ===
+            <thead class="monthly-report-head">
                 <tr>
                     <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Сотрудник</th>
                     <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Магазин</th>
@@ -715,7 +704,6 @@ async function saveAdjustments(row) {
             'reportStatus'
         );
     } catch (error) {
-        // Ошибка уже обработана и показана пользователю
     }
 }
 
@@ -758,7 +746,6 @@ async function calculateAdvance15(silent = false) {
             if (!silent) showStatus('reportStatus', 'Аванс успешно рассчитан и отображен.', 'success');
         }
     } catch (error) {
-        // Ошибка уже отображена
     }
 }
 
@@ -796,31 +783,20 @@ async function calculateFinalPayroll() {
                 const employeeId = row.dataset.employeeId;
                 const result = data.results[employeeId];
                 if (result) {
-                    const totalGrossCell = row.querySelector('.total-gross');
-                    if (totalGrossCell) totalGrossCell.textContent = formatNumber(result.total_gross);
-
-                    const advanceCell = row.querySelector('.advance-payment');
-                    if (advanceCell) advanceCell.textContent = formatNumber(result.advance_payment);
-
-                    const remainderCell = row.querySelector('.card-remainder');
-                    if (remainderCell) remainderCell.textContent = formatNumber(result.card_remainder);
-                    
-                    const cashCell = row.querySelector('.cash-payout strong');
-                    if (cashCell) cashCell.textContent = formatNumber(result.cash_payout);
+                    row.querySelector('.total-gross').textContent = formatNumber(result.total_gross);
+                    row.querySelector('.advance-payment').textContent = formatNumber(result.advance_payment);
+                    row.querySelector('.card-remainder').textContent = formatNumber(result.card_remainder);
+                    row.querySelector('.cash-payout strong').textContent = formatNumber(result.cash_payout);
 
                     const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
                     const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
                     const totalToPay = result.total_gross - penalty - shortage;
-                    const totalPayoutCell = row.querySelector('.total-payout strong');
-                    if (totalPayoutCell) {
-                        totalPayoutCell.textContent = formatNumber(totalToPay);
-                    }
+                    row.querySelector('.total-payout strong').textContent = formatNumber(totalToPay);
                 }
             });
             showStatus('reportStatus', 'Окончательный расчет выполнен.', 'success');
         }
     } catch (error) {
-       // Ошибка уже отображена
     }
 }
 
@@ -908,12 +884,7 @@ function printAllPayslips() {
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`<html><head><title>Расчетные ведомости</title><style>
         body { font-family: Arial, sans-serif; }
-        #print-area { display: flex; flex-direction: column; }
-        .payslip-compact {
-            font-size: 9pt; height: 30%; box-sizing: border-box;
-            padding-bottom: 5mm; margin-bottom: 5mm;
-            border-bottom: 2px dashed #999; page-break-inside: avoid;
-        }
+        .payslip-compact { font-size: 9pt; height: 30%; box-sizing: border-box; padding-bottom: 5mm; margin-bottom: 5mm; border-bottom: 2px dashed #999; page-break-inside: avoid; }
         .payslip-compact:last-child { border-bottom: none; }
         .payslip-compact h3 { text-align: center; font-size: 12pt; margin-bottom: 10px; }
         .payslip-compact table { width: 100%; border-collapse: collapse; margin: 5px 0; }
@@ -944,8 +915,13 @@ async function generateFotReport() {
     }
     showStatus('fotReportStatus', 'Формирование отчета ФОТ...', 'info');
     loader.style.display = 'block';
-    contentEl.style.display = 'none';
-    document.getElementById('fotByStorePanel').style.display = 'none';
+    
+    // Прячем панели перед загрузкой
+    const summaryPanel = contentEl.querySelector('.summary-panel');
+    const storePanel = document.getElementById('fotByStorePanel');
+    if (summaryPanel) summaryPanel.style.display = 'none';
+    if (storePanel) storePanel.style.display = 'none';
+
 
     try {
         const result = await fetchData(
@@ -960,26 +936,21 @@ async function generateFotReport() {
 
         if (result.success) {
             hideStatus('fotReportStatus');
-            contentEl.style.display = 'block';
-            
-            fotReportDataCache = result.rows; // Кэшируем новые агрегированные данные
+            fotReportDataCache = result.rows;
             const reportData = result.rows;
 
-            // Скрываем старую детальную таблицу (она больше не нужна)
-            document.getElementById('fotDetailTableContainer').style.display = 'none';
-
             const fotByStoreBody = document.getElementById('fotByStoreTableBody');
-            fotByStoreBody.innerHTML = '';
+            if (fotByStoreBody) fotByStoreBody.innerHTML = ''; // Очищаем только если нашли
             
             if (reportData.length === 0) {
-                fotByStoreBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
-                document.querySelector('.summary-panel').style.display = 'none';
-                document.getElementById('fotByStorePanel').style.display = 'block';
+                if (fotByStoreBody) fotByStoreBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
+                if (summaryPanel) summaryPanel.style.display = 'none';
+                if (storePanel) storePanel.style.display = 'block'; // Показываем панель с сообщением "нет данных"
                 return;
             } 
             
-            document.getElementById('fotByStorePanel').style.display = 'block';
-            document.querySelector('.summary-panel').style.display = 'block';
+            if (summaryPanel) summaryPanel.style.display = 'block';
+            if (storePanel) storePanel.style.display = 'block';
             
             let grandTotalRevenue = 0;
             let grandTotalFotFund = 0;
@@ -993,19 +964,17 @@ async function generateFotReport() {
                         <td><strong>${formatNumber(data.fot_percentage)} %</strong></td>
                     </tr>
                 `;
-                fotByStoreBody.innerHTML += row;
+                if (fotByStoreBody) fotByStoreBody.innerHTML += row;
                 grandTotalRevenue += data.total_revenue;
                 grandTotalFotFund += data.total_payout_with_tax;
             });
             
-            // Заполняем итоговую панель (общую)
             const grandTotalFotPercentage = grandTotalRevenue > 0 ? (grandTotalFotFund / grandTotalRevenue) * 100 : 0;
             document.getElementById('fotTotalRevenue').textContent = `${formatNumber(grandTotalRevenue)} грн`;
             document.getElementById('fotTotalFund').textContent = `${formatNumber(grandTotalFotFund)} грн`;
             document.getElementById('fotPercentage').textContent = `${formatNumber(grandTotalFotPercentage)} %`;
         }
     } catch (error) {
-        // Ошибка уже отображена
     } finally {
         if(loader) loader.style.display = 'none';
     }
@@ -1013,21 +982,16 @@ async function generateFotReport() {
 
 async function clearDatabase() {
   const firstConfirm = confirm("ВНИМАНИЕ!\nВы собираетесь удалить все данные о сменах, расчетах зарплаты и выручке. Эта операция необратима.\n\nВы уверены, что хотите продолжить?");
-
   if (!firstConfirm) {
     showStatus('reportStatus', 'Очистка данных отменена.', 'info');
     return;
   }
-  
   const secondConfirm = confirm("ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ.\nВсе операционные данные будут стерты. Справочники (сотрудники, магазины) останутся.\n\nПодтверждаете удаление?");
-
   if (!secondConfirm) {
     showStatus('reportStatus', 'Очистка данных отменена.', 'info');
     return;
   }
-
   showStatus('reportStatus', 'Выполняется очистка данных...', 'info');
-
   try {
     const result = await fetchData(
       `${API_BASE}/clear-transactional-data`,
@@ -1038,12 +1002,10 @@ async function clearDatabase() {
       },
       'reportStatus'
     );
-
     if (result.success) {
       showStatus('reportStatus', result.message, 'success');
       document.getElementById('monthlyReportContent').innerHTML = '';
     }
   } catch (error) {
-    // Ошибка уже отображена в функции fetchData
   }
 }

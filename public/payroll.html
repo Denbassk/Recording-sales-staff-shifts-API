@@ -25,7 +25,6 @@
             background: white;
             border-radius: 15px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            /* overflow: hidden; <-- ЭТА СТРОКА БЫЛА УДАЛЕНА, ОНА БЛОКИРОВАЛА "ЛИПКИЕ" ЗАГОЛОВКИ */
         }
 
         .header {
@@ -388,24 +387,6 @@
             padding-left: 2px;
         }
 
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #999;
-        }
-
-        .empty-state svg {
-            width: 100px;
-            height: 100px;
-            margin-bottom: 20px;
-            opacity: 0.3;
-        }
-
-        .empty-state h3 {
-            color: #666;
-            margin-bottom: 10px;
-        }
-
         @media (max-width: 768px) {
             .control-row {
                 flex-direction: column;
@@ -426,8 +407,7 @@
             }
         }
         
-        /* --- НОВЫЕ ИСПРАВЛЕННЫЕ СТИЛИ ДЛЯ ЗАГОЛОВКОВ И СКРОЛЛБАРОВ --- */
-
+        /* --- ИСПРАВЛЕННЫЕ СТИЛИ ДЛЯ ЗАГОЛОВКОВ И СКРОЛЛБАРОВ --- */
         #back-to-top-btn {
             display: none;
             position: fixed;
@@ -453,22 +433,28 @@
             background-color: #5a6edc;
         }
 
-        /* Универсальный контейнер для всех таблиц */
         .table-container {
-            overflow: auto; /* Включаем и вертикальную, и горизонтальную прокрутку */
-            max-height: calc(100vh - 420px); /* Единая высота для всех таблиц */
+            overflow: auto; 
+            max-height: calc(100vh - 420px);
             -webkit-overflow-scrolling: touch;
         }
         
-        /* "Липкие" заголовки для ВСЕХ таблиц */
         thead th {
-            position: -webkit-sticky; /* Для Safari */
+            position: -webkit-sticky;
             position: sticky;
             top: 0;
             z-index: 1; 
         }
         
-        /* Убираем лишние стили с ID, так как теперь все управляется классом .table-container */
+        /* === НОВЫЙ БЛОК: ИСПРАВЛЕНИЕ ДЛЯ ДВУХУРОВНЕВОГО ЗАГОЛОВКА === */
+        .monthly-report-head tr:first-child th {
+            top: 0; /* Верхний ряд прилипает к самому верху */
+        }
+        .monthly-report-head tr:last-child th {
+            top: 50px; /* Нижний ряд прилипает ниже, с отступом на высоту верхнего ряда */
+        }
+        /* === КОНЕЦ НОВОГО БЛОКА === */
+        
         #monthlyReportContent, #fotReportContent {
             max-height: none;
             overflow: visible;
@@ -493,21 +479,10 @@
             size: A4;
             margin: 15mm;
         }
-        body {
-            background: white !important;
-        }
-        body * {
-            visibility: hidden;
-        }
-        #print-area, #print-area * {
-            visibility: visible;
-        }
-        #print-area {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-        }
+        body { background: white !important; }
+        body * { visibility: hidden; }
+        #print-area, #print-area * { visibility: visible; }
+        #print-area { position: absolute; left: 0; top: 0; width: 100%; }
         .payslip-compact {
             font-family: Arial, sans-serif;
             font-size: 9pt;
@@ -516,22 +491,10 @@
             border-bottom: 2px dashed #999;
             page-break-inside: avoid;
         }
-        .payslip-compact:last-child {
-            border-bottom: none;
-        }
-        .payslip-compact h3 {
-            text-align: center;
-            font-size: 12pt;
-            margin-bottom: 10px;
-        }
-        .payslip-compact table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 5px 0;
-        }
-        .payslip-compact td {
-            padding: 2px 0;
-        }
+        .payslip-compact:last-child { border-bottom: none; }
+        .payslip-compact h3 { text-align: center; font-size: 12pt; margin-bottom: 10px; }
+        .payslip-compact table { width: 100%; border-collapse: collapse; margin: 5px 0; }
+        .payslip-compact td { padding: 2px 0; }
     </style>
 </head>
 <body>
@@ -706,7 +669,7 @@
                 </div>
                 <div id="reportStatus" class="status" style="display:none;"></div>
                 <div id="monthlyReportContent">
-                    </div>
+                </div>
             </div>
             
             <div id="fot-tab" class="tab-content">
@@ -738,7 +701,38 @@
                 <div id="fotReportStatus" class="status" style="display:none;"></div>
                 <div class="loader" id="fotLoader"></div>
                 <div id="fotReportContent">
+                    <div class="summary-panel" style="display:none;">
+                        <h3>Итоговый отчет по ФОТ</h3>
+                        <div class="summary-row">
+                            <span class="summary-label">Общая выручка (только по активным магазинам):</span>
+                            <span class="summary-value" id="fotTotalRevenue">0.00 грн</span>
+                        </div>
+                        <div class="summary-row">
+                            <span class="summary-label">Общий ФОТ за период (выплаты + 22%):</span>
+                            <span class="summary-value" id="fotTotalFund">0.00 грн</span>
+                        </div>
+                        <div class="summary-row" style="font-size: 22px; color: #764ba2;">
+                            <span class="summary-label">Итоговый ФОТ % от выручки:</span>
+                            <span class="summary-value" id="fotPercentage">0.00 %</span>
+                        </div>
                     </div>
+                    <div id="fotByStorePanel" class="summary-panel" style="display: none; margin-top: 20px;">
+                        <h3>📊 ФОТ по магазинам</h3>
+                        <div class="table-container">
+                            <table id="fotByStoreTable">
+                                <thead>
+                                    <tr>
+                                        <th>Адрес магазина</th>
+                                        <th>Выручка магазина</th>
+                                        <th>Фонд оплаты труда</th>
+                                        <th>ФОТ %</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fotByStoreTableBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
