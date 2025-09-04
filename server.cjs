@@ -363,11 +363,9 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     const dateValidation = validateDate(date);
     if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
     
-    // Выручка за предыдущий день от даты смены
-    const calculationDate = new Date(date);
-    const revenueDate = new Date(calculationDate);
-    revenueDate.setDate(calculationDate.getDate() - 1);
-    const revenueDateString = revenueDate.toISOString().split('T')[0];
+    // НОВАЯ ЛОГИКА: Выручка должна быть за ТОТ ЖЕ ДЕНЬ, что и смена
+    // Раньше брали за предыдущий день, теперь за тот же
+    const revenueDateString = date;
 
     return withLock(`payroll_${date}`, async () => {
         try {
@@ -417,16 +415,33 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
             const calculations = [];
             for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
                 let revenue = 0;
+                let hasRevenue = true;
+                
                 if (storeAddress !== 'Старший продавец') {
                     const storeId = storeEmployees[0]?.store_id;
                     if (storeId) {
                         revenue = revenueMap.get(storeId) || 0;
+                        // ВАЖНО: Если выручка 0 или не найдена, не начисляем зарплату
+                        hasRevenue = revenue > 0;
                     }
                 }
+                
                 const numSellers = storeEmployees.length;
                 for (const employee of storeEmployees) {
                     const isSenior = employee.employee_id.startsWith('SProd');
-                    const payDetails = calculateDailyPay(revenue, numSellers, isSenior);
+                    
+                    // Старшие продавцы получают фиксированную ставку независимо от выручки
+                    // Обычные продавцы получают зарплату только если есть выручка
+                    let payDetails;
+                    if (isSenior) {
+                        payDetails = calculateDailyPay(0, 0, true); // Старший продавец всегда получает 1300
+                    } else if (hasRevenue) {
+                        payDetails = calculateDailyPay(revenue, numSellers, false);
+                    } else {
+                        // Нет выручки = нет зарплаты для обычных продавцов
+                        payDetails = { baseRate: 0, bonus: 0, totalPay: 0 };
+                    }
+                    
                     const calculation = {
                         employee_id: employee.employee_id,
                         employee_name: employee.employee_name,
@@ -608,23 +623,47 @@ async function buildFotReport({ startDate, endDate }) {
   if (empError) throw empError;
   const employeeName = new Map(employees.map(e => [e.id, e.fullname]));
 
-  // 2) Все начисления, отсортированные по дате для корректного накопления
+  // 2) Все начисления за период (только где total_pay > 0)
   const { data: calcs, error: calcErr } = await supabase
     .from('payroll_calculations')
     .select('employee_id, work_date, total_pay, store_id, store_address')
     .gte('work_date', startDate)
     .lte('work_date', endDate)
-    .order('work_date', { ascending: true }); // Важная сортировка для накопления
+    .gt('total_pay', 0) // Исключаем дни без начислений
+    .order('work_date', { ascending: true });
   if (calcErr) throw calcErr;
 
-  // Если за период не было ни одной смены, возвращаем пустой отчет
+  // Если за период не было начислений
   if (!calcs || calcs.length === 0) {
-    return {
-      rows: []
-    };
+    return { rows: [] };
   }
   
-  const activeStoreIds = [...new Set(calcs.map(c => c.store_id).filter(id => id !== null))];
+  // НОВАЯ ЛОГИКА: Группируем начисления по магазинам и дням
+  const storePayrollByDay = {};
+  const activeStoreIds = new Set();
+  
+  // Собираем все выплаты по магазинам и дням
+  for (const c of calcs) {
+    if (c.store_id) {
+      activeStoreIds.add(c.store_id);
+      const key = `${c.store_id}_${c.work_date}`;
+      if (!storePayrollByDay[key]) {
+        storePayrollByDay[key] = {
+          store_id: c.store_id,
+          store_address: c.store_address,
+          work_date: c.work_date,
+          employees: [],
+          total_payout: 0
+        };
+      }
+      storePayrollByDay[key].employees.push({
+        employee_id: c.employee_id,
+        employee_name: employeeName.get(c.employee_id) || 'Неизвестный',
+        payout: Number(c.total_pay || 0)
+      });
+      storePayrollByDay[key].total_payout += Number(c.total_pay || 0);
+    }
+  }
 
   // 3) Выручка магазинов по дням
   const { data: revs, error: revErr } = await supabase
@@ -632,69 +671,71 @@ async function buildFotReport({ startDate, endDate }) {
     .select('store_id, revenue_date, revenue')
     .gte('revenue_date', startDate)
     .lte('revenue_date', endDate)
-    .in('store_id', activeStoreIds);
+    .in('store_id', Array.from(activeStoreIds));
   if (revErr) throw revErr;
 
   // Индекс выручки для быстрого доступа
   const revenueBy = {};
   for (const r of revs || []) {
-    if (!revenueBy[r.store_id]) revenueBy[r.store_id] = {};
-    revenueBy[r.store_id][r.revenue_date] = (revenueBy[r.store_id][r.revenue_date] || 0) + Number(r.revenue || 0);
+    const key = `${r.store_id}_${r.revenue_date}`;
+    revenueBy[key] = Number(r.revenue || 0);
   }
 
-  // --- НОВАЯ ЛОГИКА РАСЧЕТА НАЛОГА ---
+  // УПРОЩЕННАЯ ЛОГИКА ФОТ: Считаем ФОТ по магазинам за день
   const TAX = 0.22;
   const rows = [];
-  const employeeCardTracker = {}; // Отслеживаем накопленные выплаты на карту для каждого сотрудника
-
-  for (const c of calcs) {
-    const payout = Number(c.total_pay || 0);
-    const employeeId = c.employee_id;
-
-    // Инициализируем трекер для нового сотрудника
-    if (!employeeCardTracker[employeeId]) {
-      employeeCardTracker[employeeId] = { paid_to_card: 0 };
-    }
-
-    let paidToCardToday = 0;
-    // Считаем, сколько еще можно выплатить на карту в этом месяце (в рамках лимита 8600)
-    const remainingCardCapacity = FIXED_CARD_PAYMENT_FOR_REPORT - employeeCardTracker[employeeId].paid_to_card;
-
-    if (remainingCardCapacity > 0) {
-      // На карту сегодня пойдет либо вся дневная ЗП, либо остаток до лимита
-      paidToCardToday = Math.min(payout, remainingCardCapacity);
-      // Обновляем счетчик выплат на карту для этого сотрудника
-      employeeCardTracker[employeeId].paid_to_card += paidToCardToday;
-    }
-
-    // Налог начисляется ТОЛЬКО на ту часть, что пошла на карту
-    const tax = paidToCardToday * TAX;
-    // Общая стоимость для ФОТ = вся выплата сотруднику + налог с карточной части
-    const payoutWithTax = payout + tax;
-
-    const storeRevenueThatDay = (c.store_id && revenueBy[c.store_id] && revenueBy[c.store_id][c.work_date]) || 0;
+  const employeeCardTracker = {}; // Отслеживаем выплаты на карту накопительно
+  
+  // Обрабатываем каждый день каждого магазина
+  for (const [key, dayData] of Object.entries(storePayrollByDay)) {
+    const dailyRevenue = revenueBy[key] || 0;
     
-    // Рассчитываем персональный процент ФОТ
-    const fotPersonalPct = storeRevenueThatDay > 0 ? (payoutWithTax / storeRevenueThatDay) * 100 : 0;
+    // Считаем налоги для всех сотрудников этого магазина в этот день
+    let dailyTotalPayout = 0;
+    let dailyTotalTax = 0;
     
-    rows.push({
-      employee_id: c.employee_id,
-      employee_name: employeeName.get(c.employee_id) || 'Неизвестный',
-      store_id: c.store_id || null,
-      store_address: c.store_address || 'Старший продавец',
-      work_date: c.work_date,
-      daily_store_revenue: storeRevenueThatDay,
-      payout: payout,
-      tax_22: tax,
-      payout_with_tax: payoutWithTax,
-      fot_personal_pct: fotPersonalPct
-    });
+    for (const emp of dayData.employees) {
+      const employeeId = emp.employee_id;
+      const payout = emp.payout;
+      
+      // Инициализируем трекер для нового сотрудника
+      if (!employeeCardTracker[employeeId]) {
+        employeeCardTracker[employeeId] = { paid_to_card: 0 };
+      }
+      
+      // Считаем, сколько еще можно выплатить на карту
+      const remainingCardCapacity = FIXED_CARD_PAYMENT_FOR_REPORT - employeeCardTracker[employeeId].paid_to_card;
+      let paidToCardToday = 0;
+      
+      if (remainingCardCapacity > 0) {
+        paidToCardToday = Math.min(payout, remainingCardCapacity);
+        employeeCardTracker[employeeId].paid_to_card += paidToCardToday;
+      }
+      
+      // Налог только на карточную часть
+      const tax = paidToCardToday * TAX;
+      const payoutWithTax = payout + tax;
+      
+      dailyTotalPayout += payout;
+      dailyTotalTax += tax;
+      
+      // Добавляем строку для сотрудника
+      rows.push({
+        employee_id: employeeId,
+        employee_name: emp.employee_name,
+        store_id: dayData.store_id,
+        store_address: dayData.store_address,
+        work_date: dayData.work_date,
+        daily_store_revenue: dailyRevenue,
+        payout: payout,
+        tax_22: tax,
+        payout_with_tax: payoutWithTax,
+        fot_personal_pct: dailyRevenue > 0 ? (payoutWithTax / dailyRevenue) * 100 : 0
+      });
+    }
   }
   
-  // Отдаем только детальные строки, итоги теперь считаются на фронтенде
-  return {
-    rows: rows
-  };
+  return { rows: rows };
 }
 
 app.post('/get-fot-report', checkAuth, canManageFot, async (req, res) => {
