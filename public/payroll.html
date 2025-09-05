@@ -437,34 +437,49 @@
             overflow: auto; 
             max-height: calc(100vh - 420px);
             -webkit-overflow-scrolling: touch;
+            position: relative;
         }
         
-        thead {
-            /* === НОВЫЙ БЛОК: ИСПРАВЛЕНИЕ ДЛЯ "ДЫРКИ" В ЗАГОЛОВКЕ === */
-            background-color: white; /* Добавляем фон для всей шапки */
+        /* Исправление для двухуровневых заголовков */
+        .monthly-report-head {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background-color: white;
         }
-
+        
+        .monthly-report-head tr:first-child th {
+            position: sticky;
+            top: 0;
+            z-index: 11;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .monthly-report-head tr:last-child th {
+            position: sticky;
+            top: 51px; /* Высота первого ряда + 1px */
+            z-index: 11;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-top: none;
+        }
+        
+        /* Убираем щель между рядами */
+        .monthly-report-head tr {
+            background-color: white;
+        }
+        
+        /* Убираем padding для второго ряда, чтобы не было щели */
+        .monthly-report-head tr:last-child th {
+            padding-top: 15px;
+            padding-bottom: 15px;
+        }
+        
         thead th {
             position: -webkit-sticky;
             position: sticky;
             top: 0;
             z-index: 1; 
         }
-        
-        .monthly-report-head tr {
-    position: -webkit-sticky; /* Для Safari */
-    position: sticky;
-}
-
-.monthly-report-head tr:first-child {
-    top: 0;
-    z-index: 2; /* Ставим верхний ряд выше */
-}
-
-.monthly-report-head tr:last-child {
-    top: 50px; /* Отступ на высоту первого ряда */
-    z-index: 2;
-}
         
         #monthlyReportContent, #fotReportContent {
             max-height: none;
