@@ -78,10 +78,25 @@ button {
 /* Красная кнопка "Войти" */
 button[type="submit"] {
   background-color: #d60000;
+  position: relative;
+  overflow: hidden;
 }
 
 button[type="submit"]:hover {
   background-color: #b50000;
+}
+
+/* Состояние успеха для кнопки */
+button[type="submit"].success {
+  background-color: #28a745 !important;
+  animation: pulse 0.5s ease;
+}
+
+/* Заблокированное состояние кнопки */
+button[type="submit"]:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.8;
 }
 
 /* --- НОВЫЕ СТИЛИ ДЛЯ СИНЕЙ КНОПКИ --- */
@@ -94,11 +109,77 @@ button[type="submit"]:hover {
 }
 
 
-/* Сообщения */
+/* Сообщения - улучшенные стили */
 #message {
   margin-top: 15px;
   font-size: 14px;
   min-height: 20px;
+  transition: all 0.3s ease;
+  border-radius: 5px;
+  display: none; /* По умолчанию скрыто */
+  word-break: break-word;
+}
+
+/* Показываем когда есть контент */
+#message:not(:empty) {
+  display: block;
+}
+
+/* Успешные сообщения */
+#message.success {
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  color: #155724;
+  padding: 10px;
+}
+
+/* Ошибки */
+#message.error {
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+  padding: 10px;
+}
+
+/* Предупреждения */
+#message.warning {
+  background-color: #fff3cd;
+  border: 1px solid #ffeeba;
+  color: #856404;
+  padding: 10px;
+}
+
+/* Информационные сообщения */
+#message.info {
+  background-color: #d1ecf1;
+  border: 1px solid #bee5eb;
+  color: #0c5460;
+  padding: 10px;
+}
+
+/* Анимация пульсации для успеха */
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+/* Индикатор загрузки */
+.loading-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 /* Стили для автодополнения */
@@ -126,4 +207,40 @@ button[type="submit"]:hover {
 #username-hint:focus {
   border-color: #ddd;
   box-shadow: none;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 480px) {
+  .login-container {
+    width: 90%;
+    padding: 30px 20px;
+  }
+  
+  h2 {
+    font-size: 20px;
+  }
+  
+  button {
+    font-size: 14px;
+    padding: 10px;
+  }
+}
+
+/* Визуальная индикация офлайн режима */
+body.offline .login-container {
+  border: 2px solid #ff9800;
+}
+
+body.offline::before {
+  content: "Офлайн режим";
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: #ff9800;
+  color: white;
+  padding: 5px 20px;
+  border-radius: 20px;
+  font-size: 12px;
+  z-index: 1000;
 }
