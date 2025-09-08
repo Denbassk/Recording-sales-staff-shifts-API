@@ -947,18 +947,18 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
         <table id="monthlyReportTable" style="font-size: 11px; white-space: nowrap;">
             <thead class="monthly-report-head">
                 <tr>
-                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Сотрудник</th>
-                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Магазин</th>
-                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Всего начислено</th>
-                    <th colspan="2" style="padding: 8px 5px;">Премирование</th>
-                    <th colspan="2" style="padding: 8px 5px;">Депремирование</th>
-                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Вычет за недостачу</th>
-                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Аванс (на карту)</th>
-                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Остаток (на карту)</th>
-                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Зарплата (наличными)</th>
-                    <th rowspan="2" style="vertical-align: middle; padding: 8px 5px;">Итого к выплате</th>
+                    <th rowspan="2" style="vertical-align: middle;">Сотрудник</th>
+                    <th rowspan="2" style="vertical-align: middle;">Магазин</th>
+                    <th rowspan="2" style="vertical-align: middle;">Всего начислено</th>
+                    <th colspan="2">Премирование</th>
+                    <th colspan="2">Депремирование</th>
+                    <th rowspan="2" style="vertical-align: middle;">Вычет за недостачу</th>
+                    <th rowspan="2" style="vertical-align: middle;">Аванс (на карту)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Остаток (на карту)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Зарплата (наличными)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Итого к выплате</th>
                 </tr>
-                <tr><th style="padding: 8px 5px;">Сумма</th><th style="padding: 8px 5px;">Причина</th><th style="padding: 8px 5px;">Сумма</th><th style="padding: 8px 5px;">Причина</th></tr>
+                <tr><th>Сумма</th><th>Причина</th><th>Сумма</th><th>Причина</th></tr>
             </thead>
             <tbody>`;
     
@@ -1169,7 +1169,7 @@ function generateCashPayoutReport() {
         const employees = groupedByStore[storeName];
         let storeTotal = 0;
         reportHtml += `<table border="1" style="width:100%; border-collapse: collapse; margin-top: 20px; font-size: 10pt;">
-                        <thead>
+                        <thead class="monthly-report-head">
                             <tr><th colspan="2" style="padding: 5px; text-align: left;">Магазин: ${storeName}</th></tr>
                             <tr><th style="padding: 5px; text-align: left;">Сотрудник</th><th style="padding: 5px;">Сумма наличными, грн</th></tr>
                         </thead><tbody>`;
