@@ -321,7 +321,7 @@ function exportDailyPayrollToExcel() {
         } else {
             // Это строка с данными сотрудника
             const cells = row.cells;
-            if (cells.length >= 7) {
+            if (cells.length >= 8) {
                 const rowData = {
                     'Дата': date,
                     'Магазин': currentStore,
@@ -331,7 +331,8 @@ function exportDailyPayrollToExcel() {
                     'Кол-во продавцов': parseInt(cells[3].textContent) || 0,
                     'Ставка': parseFloat(cells[4].textContent.replace(/\s/g, '').replace(',', '.').replace('грн', '')) || 0,
                     'Бонус': parseFloat(cells[5].textContent.replace(/\s/g, '').replace(',', '.').replace('грн', '')) || 0,
-                    'Итого начислено': parseFloat(cells[6].textContent.replace(/\s/g, '').replace(',', '.').replace('грн', '')) || 0
+                    'Расшифровка бонуса': cells[6].textContent.trim(),
+                    'Итого начислено': parseFloat(cells[7].textContent.replace(/\s/g, '').replace(',', '.').replace('грн', '')) || 0
                 };
                 exportData.push(rowData);
             }
@@ -354,9 +355,10 @@ function exportDailyPayrollToExcel() {
         { wch: 25 }, // Сотрудник
         { wch: 15 }, // Старший продавец
         { wch: 15 }, // Касса
-        { wch: 15 }, // Кол-во продавцов
+        { wch: 10 }, // Кол-во продавцов
         { wch: 12 }, // Ставка
         { wch: 12 }, // Бонус
+        { wch: 35 }, // Расшифровка бонуса
         { wch: 15 }  // Итого
     ];
     
@@ -823,7 +825,7 @@ function displayPayrollResults(calculations, summary) {
 
     tbody.innerHTML = '';
     if (calculations.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">Нет данных за выбранную дату.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 20px;">Нет данных за выбранную дату.</td></tr>';
         payrollTable.style.display = 'table';
         payrollSummary.style.display = 'none';
         return;
@@ -839,12 +841,22 @@ function displayPayrollResults(calculations, summary) {
     for (const storeName of sortedStores) {
         const storeCalculations = groupedByStore[storeName];
         let storeTotalPay = 0;
-        tbody.innerHTML += `<tr class="summary-row" style="background-color: #f0f2f5;"><td colspan="7" style="font-weight: bold;">Магазин: ${storeName}</td></tr>`;
+        tbody.innerHTML += `<tr class="summary-row" style="background-color: #f0f2f5;"><td colspan="8" style="font-weight: bold;">Магазин: ${storeName}</td></tr>`;
         storeCalculations.forEach(calc => {
             storeTotalPay += calc.total_pay;
-            tbody.innerHTML += `<tr><td>${calc.employee_name} ${calc.is_senior ? '<span class="badge warning">СП</span>' : ''}</td><td>${calc.store_address}</td><td>${formatNumber(calc.revenue)} грн</td><td>${calc.num_sellers}</td><td>${formatNumber(calc.base_rate)} грн</td><td>${formatNumber(calc.bonus)} грн</td><td><strong>${formatNumber(calc.total_pay)} грн</strong></td></tr>`;
+            const bonusDetails = calc.bonus_details || '';
+            tbody.innerHTML += `<tr>
+                <td>${calc.employee_name} ${calc.is_senior ? '<span class="badge warning">СП</span>' : ''}</td>
+                <td>${calc.store_address}</td>
+                <td>${formatNumber(calc.revenue)} грн</td>
+                <td style="text-align: center;">${calc.num_sellers}</td>
+                <td>${formatNumber(calc.base_rate)} грн</td>
+                <td>${formatNumber(calc.bonus)} грн</td>
+                <td style="font-size: 11px; color: #666;">${bonusDetails}</td>
+                <td><strong>${formatNumber(calc.total_pay)} грн</strong></td>
+            </tr>`;
         });
-        tbody.innerHTML += `<tr class="summary-row" style="background-color: #e9ecef;"><td colspan="6" style="font-weight: bold; text-align: right;">Итого по магазину:</td><td style="font-weight: bold;"><strong>${formatNumber(storeTotalPay)} грн</strong></td></tr>`;
+        tbody.innerHTML += `<tr class="summary-row" style="background-color: #e9ecef;"><td colspan="7" style="font-weight: bold; text-align: right;">Итого по магазину:</td><td style="font-weight: bold;"><strong>${formatNumber(storeTotalPay)} грн</strong></td></tr>`;
     }
     payrollTable.style.display = 'table';
     updatePayrollSummary(summary.total_payroll, calculations.length);

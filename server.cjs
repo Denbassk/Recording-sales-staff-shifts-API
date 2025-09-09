@@ -127,31 +127,57 @@ const checkRole = (roles) => {
 
 // --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ РАСЧЕТА ДНЕВНОЙ ЗАРПЛАТЫ ---
 function calculateDailyPay(revenue, numSellers, isSenior = false) {
-  if (isSenior) return { baseRate: 1300, bonus: 0, totalPay: 1300 };
-  if (numSellers === 0) return { baseRate: 0, bonus: 0, totalPay: 0 };
+  if (isSenior) return { baseRate: 1300, bonus: 0, totalPay: 1300, bonusDetails: 'Старший продавец - фиксированная ставка' };
+  if (numSellers === 0) return { baseRate: 0, bonus: 0, totalPay: 0, bonusDetails: 'Нет продавцов' };
   
   let baseRatePerPerson = (numSellers === 1) ? 975 : 825;
-  let totalBonus = 0;
+  let bonusPerPerson = 0;
+  let bonusDetails = '';
 
   if (revenue > 13000) {
     const bonusBase = revenue - 13000;
     const wholeThousands = Math.floor(bonusBase / 1000);
     let ratePerThousand = 0;
     
-    if (revenue > 50000) ratePerThousand = 12;
-    else if (revenue > 45000) ratePerThousand = 11;
-    else if (revenue > 40000) ratePerThousand = 10;
-    else if (revenue > 35000) ratePerThousand = 9;
-    else if (revenue > 30000) ratePerThousand = 8;
-    else if (revenue > 25000) ratePerThousand = 7;
-    else if (revenue > 20000) ratePerThousand = 6;
-    else ratePerThousand = 5;
+    // ИСПРАВЛЕННАЯ ЛОГИКА: определяем ставку по ФАКТИЧЕСКОЙ выручке
+    if (revenue >= 50000) {
+      ratePerThousand = 12;
+      bonusDetails = `Касса ${revenue}грн (50-60к): ${wholeThousands}т × 12грн`;
+    } else if (revenue >= 45000) {
+      ratePerThousand = 11;
+      bonusDetails = `Касса ${revenue}грн (45-50к): ${wholeThousands}т × 11грн`;
+    } else if (revenue >= 40000) {
+      ratePerThousand = 10;
+      bonusDetails = `Касса ${revenue}грн (40-45к): ${wholeThousands}т × 10грн`;
+    } else if (revenue >= 35000) {
+      ratePerThousand = 9;
+      bonusDetails = `Касса ${revenue}грн (35-40к): ${wholeThousands}т × 9грн`;
+    } else if (revenue >= 30000) {
+      ratePerThousand = 8;
+      bonusDetails = `Касса ${revenue}грн (30-35к): ${wholeThousands}т × 8грн`;
+    } else if (revenue >= 25000) {
+      ratePerThousand = 7;
+      bonusDetails = `Касса ${revenue}грн (25-30к): ${wholeThousands}т × 7грн`;
+    } else if (revenue >= 20000) {
+      ratePerThousand = 6;
+      bonusDetails = `Касса ${revenue}грн (20-25к): ${wholeThousands}т × 6грн`;
+    } else {
+      ratePerThousand = 5;
+      bonusDetails = `Касса ${revenue}грн (13-20к): ${wholeThousands}т × 5грн`;
+    }
     
-    totalBonus = wholeThousands * ratePerThousand;
+    // ВАЖНО: Бонус НЕ делится! Каждый продавец получает полный бонус
+    bonusPerPerson = wholeThousands * ratePerThousand;
+  } else {
+    bonusDetails = `Касса ${revenue}грн < 13000 - без бонуса`;
   }
   
-  const bonusPerPerson = (numSellers > 0) ? totalBonus / numSellers : 0;
-  return { baseRate: baseRatePerPerson, bonus: bonusPerPerson, totalPay: baseRatePerPerson + bonusPerPerson };
+  return { 
+    baseRate: baseRatePerPerson, 
+    bonus: bonusPerPerson, 
+    totalPay: baseRatePerPerson + bonusPerPerson,
+    bonusDetails: bonusDetails
+  };
 }
 
 // --- ОСНОВНЫЕ API ЭНДПОИНТЫ ---
@@ -437,7 +463,8 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                         is_senior: isSenior,
                         base_rate: payDetails.baseRate,
                         bonus: payDetails.bonus,
-                        total_pay: payDetails.totalPay
+                        total_pay: payDetails.totalPay,
+                        bonus_details: payDetails.bonusDetails
                     };
                     
                     await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });

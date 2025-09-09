@@ -30,41 +30,41 @@
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 30px;
+            padding: 20px 30px; /* Уменьшено с 30px */
             text-align: center;
         }
 
         .header h1 {
-            font-size: 32px;
+            font-size: 28px; /* Уменьшено с 32px */
             font-weight: 600;
-            margin-bottom: 10px;
+            margin-bottom: 5px; /* Уменьшено с 10px */
             text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }
 
         .header p {
-            font-size: 16px;
+            font-size: 14px; /* Уменьшено с 16px */
             opacity: 0.9;
         }
 
         .content {
-            padding: 30px;
+            padding: 20px; /* Уменьшено с 30px */
         }
 
         .tab-navigation {
             display: flex;
             gap: 10px;
-            margin-bottom: 30px;
+            margin-bottom: 20px; /* Уменьшено с 30px */
             border-bottom: 2px solid #e0e0e0;
             padding-bottom: 0;
         }
 
         .tab-button {
-            padding: 15px 30px;
+            padding: 12px 25px; /* Уменьшено с 15px 30px */
             background: transparent;
             border: none;
             border-bottom: 3px solid transparent;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 15px; /* Уменьшено с 16px */
             font-weight: 500;
             color: #666;
             transition: all 0.3s ease;
@@ -99,9 +99,9 @@
 
         .control-panel {
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            padding: 25px;
+            padding: 15px 20px; /* Уменьшено с 25px */
             border-radius: 10px;
-            margin-bottom: 25px;
+            margin-bottom: 15px; /* Уменьшено с 25px */
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
@@ -110,7 +110,7 @@
             gap: 15px;
             align-items: center;
             flex-wrap: wrap;
-            margin-bottom: 15px;
+            margin-bottom: 10px; /* Уменьшено с 15px */
         }
 
         .control-row:last-child {
@@ -214,7 +214,7 @@
             width: 100%;
             border-collapse: separate;
             border-spacing: 0;
-            margin: 25px 0;
+            margin: 15px 0; /* Уменьшено с 25px */
             background: white;
             border-radius: 10px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
@@ -224,17 +224,17 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             font-weight: 600;
-            padding: 15px;
+            padding: 12px; /* Уменьшено с 15px */
             text-align: left;
-            font-size: 14px;
+            font-size: 13px; /* Уменьшено с 14px */
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
         td {
-            padding: 15px;
+            padding: 10px 12px; /* Уменьшено с 15px */
             border-bottom: 1px solid #f0f0f0;
-            font-size: 14px;
+            font-size: 13px; /* Уменьшено с 14px */
             vertical-align: middle;
         }
 
@@ -306,33 +306,33 @@
 
         .summary-panel {
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            padding: 25px;
+            padding: 15px 20px; /* Уменьшено с 25px */
             border-radius: 10px;
-            margin-top: 25px;
+            margin-top: 15px; /* Уменьшено с 25px */
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
 
         .summary-panel h3 {
-            margin: 0 0 20px 0;
+            margin: 0 0 15px 0; /* Уменьшено с 20px */
             color: #333;
-            font-size: 20px;
+            font-size: 18px; /* Уменьшено с 20px */
             border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
+            padding-bottom: 8px; /* Уменьшено с 10px */
         }
 
         .summary-row {
             display: flex;
             justify-content: space-between;
-            padding: 10px 0;
+            padding: 8px 0; /* Уменьшено с 10px */
             border-bottom: 1px solid rgba(0,0,0,0.05);
         }
 
         .summary-row:last-child {
             border-bottom: none;
             font-weight: 700;
-            font-size: 18px;
+            font-size: 16px; /* Уменьшено с 18px */
             color: #667eea;
-            padding-top: 15px;
+            padding-top: 12px; /* Уменьшено с 15px */
         }
 
         .summary-label {
@@ -407,6 +407,58 @@
             }
         }
         
+        /* Компактные контролы */
+        .compact-controls {
+            padding: 10px 15px !important;
+            margin-bottom: 10px !important;
+        }
+        
+        .compact-controls .control-group label {
+            font-size: 12px;
+            margin-bottom: 2px;
+        }
+        
+        .compact-controls input,
+        .compact-controls select,
+        .compact-controls button {
+            padding: 8px 12px;
+            font-size: 14px;
+        }
+        
+        .compact-controls button {
+            padding: 8px 15px;
+            font-size: 13px;
+        }
+        
+        /* Компактная панель итогов */
+        .compact-summary {
+            padding: 12px 20px !important;
+            margin-top: 10px !important;
+        }
+        
+        .summary-inline {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            font-size: 15px;
+        }
+        
+        .summary-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .summary-item strong {
+            color: #667eea;
+        }
+        
+        .summary-divider {
+            color: #ccc;
+            font-size: 20px;
+        }
+        
         /* --- ИСПРАВЛЕННЫЕ СТИЛИ ДЛЯ ЗАГОЛОВКОВ И СКРОЛЛБАРОВ --- */
         #back-to-top-btn {
             display: none;
@@ -435,7 +487,7 @@
 
         .table-container {
             overflow: auto; 
-            max-height: calc(100vh - 420px);
+            max-height: calc(100vh - 280px); /* Увеличено с 420px */
             -webkit-overflow-scrolling: touch;
             position: relative;
         }
@@ -611,33 +663,34 @@
                     <table id="payrollTable" style="display:none;">
                         <thead>
                             <tr>
-                                <th>Сотрудник</th>
-                                <th>Магазин</th>
-                                <th>Выручка магазина</th>
-                                <th>Кол-во продавцов</th>
-                                <th>Базовая ставка</th>
-                                <th>Бонус</th>
-                                <th>Итого за день</th>
+                                <th style="width: 18%;">Сотрудник</th>
+                                <th style="width: 18%;">Магазин</th>
+                                <th style="width: 12%;">Выручка магазина</th>
+                                <th style="width: 5%;">Кол-во</th>
+                                <th style="width: 10%;">Базовая ставка</th>
+                                <th style="width: 8%;">Бонус</th>
+                                <th style="width: 20%;">Расшифровка бонуса</th>
+                                <th style="width: 10%;">Итого за день</th>
                             </tr>
                         </thead>
                         <tbody id="payrollTableBody"></tbody>
                     </table>
                 </div>
-                <div id="payrollSummary" class="summary-panel" style="display:none;">
-                    <h3>💼 Итого за день (Общий):</h3>
-                    <div class="summary-row">
-                        <span class="summary-label">Сотрудников:</span>
-                        <span class="summary-value" id="totalEmployees">0</span>
-                    </div>
-                    <div class="summary-row">
-                        <span class="summary-label">Общая сумма к начислению:</span>
-                        <span class="summary-value"><span id="totalPayroll">0</span> грн</span>
+                <div id="payrollSummary" class="summary-panel compact-summary" style="display:none;">
+                    <div class="summary-inline">
+                        <span class="summary-item">
+                            <strong>👥 Сотрудников:</strong> <span id="totalEmployees">0</span>
+                        </span>
+                        <span class="summary-divider">|</span>
+                        <span class="summary-item">
+                            <strong>💰 Общая сумма:</strong> <span id="totalPayroll">0</span> грн
+                        </span>
                     </div>
                 </div>
             </div>
             
             <div id="report-tab" class="tab-content">
-                <div class="control-panel">
+                <div class="control-panel compact-controls">
                      <div class="control-row">
                         <div class="control-group">
                             <label>Месяц:</label>
