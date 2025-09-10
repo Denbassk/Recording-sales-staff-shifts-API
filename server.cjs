@@ -449,7 +449,7 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                     } else if (hasRevenue) {
                         payDetails = calculateDailyPay(revenue, numSellers, false);
                     } else {
-                        payDetails = { baseRate: 0, bonus: 0, totalPay: 0 };
+                        payDetails = { baseRate: 0, bonus: 0, totalPay: 0, bonusDetails: 'Нет выручки' };
                     }
                     
                     const calculation = {
@@ -464,10 +464,22 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
                         base_rate: payDetails.baseRate,
                         bonus: payDetails.bonus,
                         total_pay: payDetails.totalPay,
-                        bonus_details: payDetails.bonusDetails
+                        bonus_details: payDetails.bonusDetails  // ВАЖНО: добавлено поле bonus_details
                     };
                     
-                    await supabase.from('payroll_calculations').upsert(calculation, { onConflict: 'employee_id,work_date' });
+                    // ИСПРАВЛЕННОЕ СОХРАНЕНИЕ С ОБРАБОТКОЙ ОШИБОК
+                    try {
+                        const { data: savedCalc, error: saveError } = await supabase
+                            .from('payroll_calculations')
+                            .upsert(calculation, { onConflict: 'employee_id,work_date' });
+                        
+                        if (saveError) {
+                            console.error(`Ошибка сохранения для ${employee.employee_name} за ${date}:`, saveError);
+                        }
+                    } catch (err) {
+                        console.error(`Критическая ошибка при сохранении:`, err);
+                    }
+                    
                     calculations.push(calculation);
                 }
             }
