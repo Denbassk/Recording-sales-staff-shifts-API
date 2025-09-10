@@ -1,10 +1,11 @@
 {
   "name": "shifts-api",
   "version": "1.0.0",
-  "main": "server.cjs",
+  "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.cjs"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",
