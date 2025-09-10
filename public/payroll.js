@@ -892,6 +892,10 @@ async function generateMonthlyReport() {
         showStatus('reportStatus', 'Пожалуйста, выберите месяц, год и конечную дату.', 'error');
         return;
     }
+    
+    // Логируем параметры запроса
+    console.log(`Формирование отчета за ${month}/${year} до ${reportEndDate}`);
+    
     showStatus('reportStatus', 'Формирование отчета...', 'info');
     reportContentEl.innerHTML = ''; // Очищаем содержимое перед генерацией
     reportContentEl.style.display = 'none';
@@ -903,17 +907,19 @@ async function generateMonthlyReport() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ year, month, reportEndDate })
+                body: JSON.stringify({ year: parseInt(year), month: parseInt(month), reportEndDate })
             },
             'reportStatus'
         );
         
         if (result.success) {
+            console.log(`Получено ${result.dailyData.length} записей и ${result.adjustments.length} корректировок`);
             hideStatus('reportStatus');
             reportContentEl.style.display = 'block';
             displayMonthlyReport(result.dailyData, result.adjustments, month, year);
         }
     } catch (error) {
+        console.error('Ошибка генерации отчета:', error);
     }
 }
 
@@ -922,7 +928,12 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
     const reportContentEl = document.getElementById('monthlyReportContent');
     if (!reportContentEl) return;
 
+    // ИСПРАВЛЕНИЕ: правильно суммируем данные за весь период
     const employeeData = {};
+    
+    // Логируем для отладки
+    console.log(`Обработка ${dailyData.length} записей за месяц`);
+    
     dailyData.forEach(calc => {
         if (!employeeData[calc.employee_id]) {
             employeeData[calc.employee_id] = { 
@@ -930,13 +941,26 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
                 totalPay: 0, 
                 shifts: [], 
                 stores: {},
-                primaryStore: calc.store_address || 'Не определен' 
+                primaryStore: calc.store_address || 'Не определен',
+                workDates: [] // Добавляем массив дат для отладки
             };
         }
+        // Суммируем все начисления за период
         employeeData[calc.employee_id].totalPay += calc.total_pay;
-        employeeData[calc.employee_id].shifts.push(new Date(calc.work_date).getDate());
+        
+        // Сохраняем дату работы
+        const workDate = new Date(calc.work_date);
+        employeeData[calc.employee_id].shifts.push(workDate.getDate());
+        employeeData[calc.employee_id].workDates.push(calc.work_date);
+        
         const store = calc.store_address || 'Старший продавец';
         employeeData[calc.employee_id].stores[store] = (employeeData[calc.employee_id].stores[store] || 0) + 1;
+    });
+    
+    // Логируем итоговые суммы
+    console.log('Итоговые суммы по сотрудникам:');
+    Object.entries(employeeData).forEach(([id, data]) => {
+        console.log(`${data.name}: ${data.totalPay} грн за ${data.shifts.length} дней`);
     });
     
     for (const [id, data] of Object.entries(employeeData)) {
@@ -953,22 +977,29 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
         return a[1].name.localeCompare(b[1].name);
     });
     
+    // Считаем общие суммы для отображения в заголовке
+    const totalBasePay = Object.values(employeeData).reduce((sum, data) => sum + data.totalPay, 0);
+    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
+                       "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+    
     let tableHtml = `
-        <h3>👥 Детализация по сотрудникам:</h3>
+        <h3>👥 Детализация по сотрудникам за ${monthNames[month - 1]} ${year}:</h3>
+        <p style="margin: 10px 0; color: #666;">Общая сумма начислений (база): <strong>${formatNumber(totalBasePay)} грн</strong></p>
         <div class="table-container">
         <table id="monthlyReportTable" style="font-size: 11px; white-space: nowrap;">
             <thead class="monthly-report-head">
                 <tr>
                     <th rowspan="2" style="vertical-align: middle;">Сотрудник</th>
                     <th rowspan="2" style="vertical-align: middle;">Магазин</th>
-                    <th rowspan="2" style="vertical-align: middle;">Всего начислено</th>
+                    <th rowspan="2" style="vertical-align: middle;">Всего начислено<br/>(база)</th>
                     <th colspan="2">Премирование</th>
                     <th colspan="2">Депремирование</th>
-                    <th rowspan="2" style="vertical-align: middle;">Вычет за недостачу</th>
-                    <th rowspan="2" style="vertical-align: middle;">Аванс (на карту)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Остаток (на карту)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Зарплата (наличными)</th>
-                    <th rowspan="2" style="vertical-align: middle;">Итого к выплате</th>
+                    <th rowspan="2" style="vertical-align: middle;">Вычет за<br/>недостачу</th>
+                    <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(на карту)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Остаток<br/>(на карту)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Зарплата<br/>(наличными)</th>
+                    <th rowspan="2" style="vertical-align: middle;">Итого<br/>к выплате</th>
+                    <th rowspan="2" style="vertical-align: middle;">Рабочие<br/>дни</th>
                 </tr>
                 <tr><th>Сумма</th><th>Причина</th><th>Сумма</th><th>Причина</th></tr>
             </thead>

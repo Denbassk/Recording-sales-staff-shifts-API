@@ -523,12 +523,24 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
         if (empError) throw empError;
         const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
 
+        // ИСПРАВЛЕНИЕ: получаем ВСЕ расчеты за период от startDate до reportEndDate
         const { data: dailyData, error: dailyError } = await supabase.from('payroll_calculations')
-            .select('*').gte('work_date', startDate).lte('work_date', reportEndDate);
+            .select('*')
+            .gte('work_date', startDate)
+            .lte('work_date', reportEndDate)
+            .order('work_date', { ascending: true });
         if (dailyError) throw dailyError;
 
-        const enrichedDailyData = dailyData.map(calc => ({ ...calc, employee_name: employeeMap.get(calc.employee_id) || 'Неизвестный' }));
+        // Обогащаем данные именами сотрудников
+        const enrichedDailyData = dailyData.map(calc => ({ 
+            ...calc, 
+            employee_name: employeeMap.get(calc.employee_id) || 'Неизвестный' 
+        }));
         
+        // Логируем для отладки
+        console.log(`Получено расчетов за период ${startDate} - ${reportEndDate}: ${enrichedDailyData.length}`);
+        
+        // Получаем корректировки
         const { data: adjustments, error: adjError } = await supabase.from('monthly_adjustments')
             .select('*').eq('year', year).eq('month', month);
         if (adjError) throw adjError;
