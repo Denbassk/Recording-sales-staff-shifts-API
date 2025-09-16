@@ -583,16 +583,213 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
             return acc;
         }, {});
 
+        // Проверяем, есть ли уже зафиксированный аванс за этот месяц
+        const { data: existingAdvances, error: advanceError } = await supabase
+            .from('payroll_payments')
+            .select('employee_id, amount')
+            .eq('payment_type', 'advance')
+            .eq('payment_period_month', month)
+            .eq('payment_period_year', year)
+            .eq('is_cancelled', false);
+        
+        if (advanceError) throw advanceError;
+        
+        const fixedAdvances = new Map();
+        if (existingAdvances) {
+            existingAdvances.forEach(adv => {
+                fixedAdvances.set(adv.employee_id, adv.amount);
+            });
+        }
+
         const results = {};
         for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
-            const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
-            let finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
-            finalAdvance = Math.floor(finalAdvance / 100) * 100;
-            results[employeeId] = { advance_payment: finalAdvance };
+            // Если аванс уже зафиксирован, возвращаем зафиксированную сумму
+            if (fixedAdvances.has(employeeId)) {
+                results[employeeId] = { 
+                    advance_payment: fixedAdvances.get(employeeId),
+                    is_fixed: true,
+                    calculated_advance: 0 // Покажем также, сколько было бы рассчитано
+                };
+            } else {
+                // Рассчитываем новый аванс
+                const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
+                let finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
+                finalAdvance = Math.floor(finalAdvance / 100) * 100;
+                results[employeeId] = { 
+                    advance_payment: finalAdvance,
+                    is_fixed: false
+                };
+            }
         }
-        res.json({ success: true, results });
+        res.json({ success: true, results, hasFixedAdvances: fixedAdvances.size > 0 });
     } catch (error) {
         console.error('Ошибка расчета аванса:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// --- НОВЫЙ ЭНДПОИНТ: Фиксация выплаты аванса ---
+app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, advanceEndDate, paymentDate } = req.body;
+    
+    if (!year || !month || !advanceEndDate || !paymentDate) {
+        return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    }
+    
+    const dateValidation = validateDate(advanceEndDate);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
+    
+    const paymentDateValidation = validateDate(paymentDate);
+    if (!paymentDateValidation.valid) return res.status(400).json({ success: false, error: 'Некорректная дата выплаты' });
+
+    return withLock(`fix_advance_${year}_${month}`, async () => {
+        try {
+            // Сначала получаем расчет аванса
+            const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+            
+            const { data: calculationsInPeriod, error } = await supabase
+                .from('payroll_calculations')
+                .select('employee_id, total_pay')
+                .gte('work_date', startDate)
+                .lte('work_date', advanceEndDate);
+            if (error) throw error;
+
+            const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
+                acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+                return acc;
+            }, {});
+
+            // Проверяем, нет ли уже зафиксированного аванса
+            const { data: existingAdvances, error: checkError } = await supabase
+                .from('payroll_payments')
+                .select('employee_id')
+                .eq('payment_type', 'advance')
+                .eq('payment_period_month', month)
+                .eq('payment_period_year', year)
+                .eq('is_cancelled', false);
+            
+            if (checkError) throw checkError;
+            
+            if (existingAdvances && existingAdvances.length > 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `Аванс за ${month}/${year} уже зафиксирован. Необходимо сначала отменить предыдущую фиксацию.` 
+                });
+            }
+
+            // Готовим данные для вставки
+            const paymentsToInsert = [];
+            let totalFixedAmount = 0;
+            let employeesCount = 0;
+            
+            for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
+                const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
+                let finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
+                finalAdvance = Math.floor(finalAdvance / 100) * 100;
+                
+                if (finalAdvance > 0) {
+                    paymentsToInsert.push({
+                        employee_id: employeeId,
+                        payment_type: 'advance',
+                        payment_date: paymentDate,
+                        payment_period_month: month,
+                        payment_period_year: year,
+                        amount: finalAdvance,
+                        payment_method: 'card',
+                        card_amount: finalAdvance,
+                        cash_amount: 0,
+                        calculation_date: advanceEndDate,
+                        notes: `Аванс рассчитан по ${advanceEndDate}`,
+                        created_by: req.user.id
+                    });
+                    totalFixedAmount += finalAdvance;
+                    employeesCount++;
+                }
+            }
+
+            // Фиксируем авансы в базе
+            if (paymentsToInsert.length > 0) {
+                const { error: insertError } = await supabase
+                    .from('payroll_payments')
+                    .insert(paymentsToInsert);
+                
+                if (insertError) throw insertError;
+            }
+
+            await logFinancialOperation('fix_advance_payment', {
+                year, month, advanceEndDate, paymentDate,
+                employeesCount, totalFixedAmount
+            }, req.user.id);
+
+            res.json({ 
+                success: true, 
+                message: `Аванс успешно зафиксирован для ${employeesCount} сотрудников на общую сумму ${totalFixedAmount} грн`,
+                employeesCount,
+                totalAmount: totalFixedAmount
+            });
+
+        } catch (error) {
+            console.error('Ошибка фиксации аванса:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    });
+});
+
+// --- НОВЫЙ ЭНДПОИНТ: Отмена зафиксированного аванса ---
+app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, cancellationReason } = req.body;
+    
+    if (!year || !month || !cancellationReason) {
+        return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    }
+
+    try {
+        const { data: advances, error: fetchError } = await supabase
+            .from('payroll_payments')
+            .select('id')
+            .eq('payment_type', 'advance')
+            .eq('payment_period_month', month)
+            .eq('payment_period_year', year)
+            .eq('is_cancelled', false);
+        
+        if (fetchError) throw fetchError;
+        
+        if (!advances || advances.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: `Не найден зафиксированный аванс за ${month}/${year}` 
+            });
+        }
+
+        // Отмечаем все авансы как отмененные
+        const { error: updateError } = await supabase
+            .from('payroll_payments')
+            .update({
+                is_cancelled: true,
+                cancelled_at: new Date().toISOString(),
+                cancelled_by: req.user.id,
+                cancellation_reason: cancellationReason
+            })
+            .eq('payment_type', 'advance')
+            .eq('payment_period_month', month)
+            .eq('payment_period_year', year)
+            .eq('is_cancelled', false);
+        
+        if (updateError) throw updateError;
+
+        await logFinancialOperation('cancel_advance_payment', {
+            year, month, cancellationReason,
+            cancelledCount: advances.length
+        }, req.user.id);
+
+        res.json({ 
+            success: true, 
+            message: `Фиксация аванса за ${month}/${year} успешно отменена`,
+            cancelledCount: advances.length
+        });
+
+    } catch (error) {
+        console.error('Ошибка отмены аванса:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -612,12 +809,34 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 return acc;
             }, {});
             
+            // Получаем зафиксированные авансы из таблицы payroll_payments
+            const { data: fixedAdvances, error: advanceError } = await supabase
+                .from('payroll_payments')
+                .select('employee_id, amount')
+                .eq('payment_type', 'advance')
+                .eq('payment_period_month', month)
+                .eq('payment_period_year', year)
+                .eq('is_cancelled', false);
+            
+            if (advanceError) throw advanceError;
+            
             const advancePayments = {};
-            for (const [employeeId, totalEarned] of Object.entries(totalBasePayMap)) {
-                const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
-                let finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
-                finalAdvance = Math.floor(finalAdvance / 100) * 100;
-                advancePayments[employeeId] = finalAdvance;
+            
+            // Если есть зафиксированные авансы, используем их
+            if (fixedAdvances && fixedAdvances.length > 0) {
+                fixedAdvances.forEach(adv => {
+                    advancePayments[adv.employee_id] = adv.amount;
+                });
+                console.log(`Используются зафиксированные авансы для ${fixedAdvances.length} сотрудников`);
+            } else {
+                // Если авансы не зафиксированы, рассчитываем по старой схеме
+                console.log(`Зафиксированных авансов нет, рассчитываем автоматически`);
+                for (const [employeeId, totalEarned] of Object.entries(totalBasePayMap)) {
+                    const potentialAdvance = totalEarned * ADVANCE_PERCENTAGE;
+                    let finalAdvance = Math.min(potentialAdvance, MAX_ADVANCE_AMOUNT);
+                    finalAdvance = Math.floor(finalAdvance / 100) * 100;
+                    advancePayments[employeeId] = finalAdvance;
+                }
             }
 
             const { data: adjustments, error: adjError } = await supabase.from('monthly_adjustments')

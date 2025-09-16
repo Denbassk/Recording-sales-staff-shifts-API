@@ -304,6 +304,16 @@
             content: "ℹ️";
         }
 
+        .status.warning {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .status.warning::before {
+            content: "⚠️";
+        }
+
         .summary-panel {
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             padding: 15px 20px; /* Уменьшено с 25px */
@@ -724,6 +734,12 @@
                         <div class="control-group">
                             <label>&nbsp;</label>
                             <button class="success" onclick="calculateAdvance15()">Рассчитать аванс</button>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button class="success" onclick="fixAdvancePayment()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                                🔒 Зафиксировать аванс
+                            </button>
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>
