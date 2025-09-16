@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', async function() {
             // Проверяем, существует ли кнопка очистки, чтобы избежать ошибок
             if (clearDataButton) {
                 // Проверяем роль пользователя
-                if (data.success && data.user.role === 'admin') {
+               if (data.success && data.user && (data.user.role === 'admin' || data.user.role === 'accountant')) {
                     // Показываем элементы для админа
                     if (fotTabButton) fotTabButton.style.display = 'block';
                     clearDataButton.parentElement.style.display = 'block';
@@ -1128,6 +1128,25 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
                        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
     
+    // НОВОЕ: Проверяем роль пользователя для показа кнопок корректировки
+    let isAdmin = false;
+    // Получаем роль из токена или другого источника
+    fetch(`${API_BASE}/check-auth`, { credentials: 'include' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.user && data.user.role === 'admin') {
+                isAdmin = true;
+                // Добавляем кнопки корректировки после загрузки, если пользователь - админ
+                document.querySelectorAll('.advance-cell-content').forEach(cell => {
+                    const employeeId = cell.dataset.employeeId;
+                    const employeeName = cell.dataset.employeeName;
+                    const button = ` <button onclick="adjustAdvanceManually('${employeeId}', '${employeeName}')" style="padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px;" title="Корректировать аванс">✏️</button>`;
+                    cell.innerHTML += button;
+                });
+            }
+        })
+        .catch(err => console.error('Ошибка проверки роли:', err));
+    
     let tableHtml = `
         <h3>👥 Детализация по сотрудникам за ${monthNames[month - 1]} ${year}:</h3>
         <p style="margin: 10px 0; color: #666;">Общая сумма начислений (база): <strong>${formatNumber(totalBasePay)} грн</strong></p>
@@ -1169,6 +1188,8 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             let advancePayment = 0;
             let cardRemainder = 0;
             let cashPayout = 0;
+            let isManualAdvance = false;
+            let manualAdvanceReason = '';
             
             if (finalCalc) {
                 // Если есть финальный расчет, берем данные из него
@@ -1176,30 +1197,66 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 cardRemainder = finalCalc.card_remainder || 0;
                 cashPayout = finalCalc.cash_payout || 0;
                 
+                // НОВОЕ: Проверяем, является ли аванс скорректированным вручную
+                isManualAdvance = finalCalc.is_manual_adjustment || false;
+                manualAdvanceReason = finalCalc.adjustment_reason || '';
+                
                 console.log(`Для ${data.name} загружены финальные данные: аванс=${advancePayment}, остаток=${cardRemainder}, наличные=${cashPayout}`);
             }
             
-            // Добавляем класс для выделения если есть финальный расчет
-            const rowClass = finalCalc ? 'has-final-calc' : '';
+            // Формируем содержимое ячейки аванса
+            let advanceCellContent = formatNumber(advancePayment);
             
-            // ИСПРАВЛЕНИЕ: Убираем inline стили, которые конфликтуют с динамическими изменениями
-            tableHtml += `<tr class="${rowClass}" data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${data.primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
-                <td style="padding: 5px;">${data.name}</td>
-                <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
-                <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
-                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
-                <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
-                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
-                <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
-                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
-                <td class="advance-payment" style="padding: 5px;">${formatNumber(advancePayment)}</td>
-                <td class="card-remainder" style="padding: 5px;">${formatNumber(cardRemainder)}</td>
-                <td class="cash-payout" style="padding: 5px;">${formatNumber(cashPayout)}</td>
-                <td class="total-payout" style="padding: 5px;"><strong>${formatNumber(totalToPay)}</strong></td>
-                <td style="padding: 5px; font-size: 10px;">${data.shifts.sort((a, b) => a - b).join(', ')}</td>
-            </tr>`;
-        }
-    }
+// Формируем содержимое ячейки аванса
+let advanceCellContent = '';
+
+// Определяем состояние аванса
+if (isManualAdvance) {
+    // 1. Ручная корректировка (приоритет)
+    const adjustedByText = finalCalc.adjusted_by ? ` (${finalCalc.adjusted_by})` : '';
+    advanceCellContent = `
+        <span style="color: #ff6b6b; font-weight: bold;" 
+              title="Ручная корректировка: ${manualAdvanceReason}${adjustedByText}">
+            ✏️ ${formatNumber(advancePayment)}
+        </span>`;
+} else if (finalCalc && finalCalc.is_fixed) {
+    // 2. Зафиксированный аванс (есть в payroll_payments)
+    advanceCellContent = `
+        <strong style="color: #f5576c;" title="Аванс зафиксирован">
+            🔒 ${formatNumber(advancePayment)}
+        </strong>`;
+} else if (finalCalc) {
+    // 3. Есть финальный расчет, но аванс не помечен как зафиксированный
+    advanceCellContent = `<strong>${formatNumber(advancePayment)}</strong>`;
+} else {
+    // 4. Расчетный аванс (еще не зафиксирован)
+    advanceCellContent = `
+        <span style="color: #666;" title="Расчетный аванс">
+            ${formatNumber(advancePayment)}
+        </span>`;
+}
+
+// Добавляем класс для выделения если есть финальный расчет
+const rowClass = finalCalc ? 'has-final-calc' : '';
+
+// ИСПРАВЛЕНИЕ: Добавляем специальный контейнер для ячейки аванса с data-атрибутами
+tableHtml += `<tr class="${rowClass}" data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${data.primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
+    <td style="padding: 5px;">${data.name}</td>
+    <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
+    <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
+    <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
+    <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+    <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
+    <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+    <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
+    <td class="advance-payment" style="padding: 5px;">
+        <span class="advance-cell-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCellContent}</span>
+    </td>
+    <td class="card-remainder" style="padding: 5px;">${formatNumber(cardRemainder)}</td>
+    <td class="cash-payout" style="padding: 5px;">${formatNumber(cashPayout)}</td>
+    <td class="total-payout" style="padding: 5px;"><strong>${formatNumber(totalToPay)}</strong></td>
+    <td style="padding: 5px; font-size: 10px;">${data.shifts.sort((a, b) => a - b).join(', ')}</td>
+</tr>`;
     
     tableHtml += `</tbody></table></div>`;
     
@@ -1209,12 +1266,23 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         const totalCardRemainder = Array.from(finalCalcMap.values()).reduce((sum, calc) => sum + (calc.card_remainder || 0), 0);
         const totalCash = Array.from(finalCalcMap.values()).reduce((sum, calc) => sum + (calc.cash_payout || 0), 0);
         
+        // Считаем количество ручных корректировок
+        const manualAdjustmentsCount = Array.from(finalCalcMap.values()).filter(calc => calc.is_manual_adjustment).length;
+        
+        let infoMessage = `
+            <strong>ℹ️ Загружены финальные расчеты</strong><br>
+            Аванс: ${formatNumber(totalAdvance)} грн | 
+            Остаток на карту: ${formatNumber(totalCardRemainder)} грн | 
+            Наличные: ${formatNumber(totalCash)} грн
+        `;
+        
+        if (manualAdjustmentsCount > 0) {
+            infoMessage += `<br><span style="color: #ff6b6b;">✏️ Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
+        }
+        
         tableHtml = `
             <div class="status info" style="margin-bottom: 15px;">
-                <strong>ℹ️ Загружены финальные расчеты</strong><br>
-                Аванс: ${formatNumber(totalAdvance)} грн | 
-                Остаток на карту: ${formatNumber(totalCardRemainder)} грн | 
-                Наличные: ${formatNumber(totalCash)} грн
+                ${infoMessage}
             </div>
         ` + tableHtml;
     }
@@ -1246,7 +1314,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 }
                 
                 // Применяем стили для аванса если он больше 0
-                if (finalCalc.advance_payment > 0) {
+                if (finalCalc.advance_payment > 0 && !finalCalc.is_manual_adjustment) {
                     const advanceCell = row.querySelector('.advance-payment');
                     if (advanceCell) {
                         advanceCell.style.fontWeight = 'bold';
@@ -1433,6 +1501,90 @@ async function calculateAdvance15(silent = false) {
     }
 }
 
+// Функция ручной корректировки аванса
+async function adjustAdvanceManually(employeeId, employeeName) {
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    
+    if (!year || !month) {
+        showStatus('reportStatus', 'Сначала выберите период', 'error');
+        return;
+    }
+    
+    // Получаем текущий аванс из таблицы
+    const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
+    if (!row) return;
+    
+    const advanceCell = row.querySelector('.advance-payment');
+    const currentAdvance = parseFloat(advanceCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+    
+    // Запрашиваем новую сумму
+    const newAdvanceStr = prompt(
+        `Корректировка аванса для ${employeeName}\n\n` +
+        `Текущий расчетный аванс: ${currentAdvance} грн\n` +
+        `Введите новую сумму аванса (0 для отмены аванса):\n` +
+        `Максимум: 7900 грн`,
+        currentAdvance
+    );
+    
+    if (newAdvanceStr === null) return;
+    
+    const newAdvance = parseFloat(newAdvanceStr);
+    if (isNaN(newAdvance) || newAdvance < 0) {
+        showStatus('reportStatus', 'Некорректная сумма', 'error');
+        return;
+    }
+    
+    if (newAdvance > 7900) {
+        showStatus('reportStatus', 'Аванс не может превышать 7900 грн', 'error');
+        return;
+    }
+    
+    const reason = prompt(
+        'Укажите причину корректировки:\n' +
+        '(например: "Больничный", "По заявлению сотрудника", "Дисциплинарное взыскание")'
+    );
+    
+    if (!reason) {
+        showStatus('reportStatus', 'Необходимо указать причину', 'error');
+        return;
+    }
+    
+    showStatus('reportStatus', 'Сохраняем корректировку...', 'info');
+    
+    try {
+        const response = await fetch(`${API_BASE}/adjust-advance-manually`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                employee_id: employeeId,
+                month: parseInt(month),
+                year: parseInt(year),
+                adjusted_advance: newAdvance,
+                adjustment_reason: reason
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('reportStatus', result.message, 'success');
+            
+            // Обновляем отображение в таблице
+            advanceCell.innerHTML = `<span style="color: #ff6b6b;" title="${reason}">✏️ ${formatNumber(newAdvance)}</span>`;
+            
+            // Пересчитываем остальные поля
+            setTimeout(() => {
+                calculateAdvance15(true);
+            }, 500);
+        } else {
+            showStatus('reportStatus', result.error, 'error');
+        }
+    } catch (error) {
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
 
 // Новая функция для фиксации аванса
 async function fixAdvancePayment() {
