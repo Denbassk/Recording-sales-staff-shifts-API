@@ -410,7 +410,8 @@ function exportMonthlyReportToExcel() {
         return;
     }
 
-    // ... остальной код без изменений ...
+   const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
+                       "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 
     tableRows.forEach(row => {
         if (row.classList.contains('summary-row')) return;
