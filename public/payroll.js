@@ -32,44 +32,53 @@ window.onscroll = function() {
 document.addEventListener('DOMContentLoaded', async function() {
     
     async function verifyAuthentication() {
-        try {
-            const response = await fetch(`${API_BASE}/check-auth`, {
-                method: 'GET',
-                credentials: 'include'
-            });
+    try {
+        const response = await fetch(`${API_BASE}/check-auth`, {
+            method: 'GET',
+            credentials: 'include'
+        });
 
-            if (!response.ok) {
-                window.location.href = '/index.html';
-                return;
-            }
-            
-            const data = await response.json();
-            
-           // Находим кнопки
-            const fotTabButton = document.getElementById('fot-tab-button');
-            const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
-
-            // Проверяем, существует ли кнопка очистки, чтобы избежать ошибок
-            if (clearDataButton) {
-                // Проверяем роль пользователя
-               if (data.success && data.user && (data.user.role === 'admin' || data.user.role === 'accountant')) {
-                    // Показываем элементы для админа
-                    if (fotTabButton) fotTabButton.style.display = 'block';
-                    clearDataButton.parentElement.style.display = 'block';
-                } else {
-                    // Скрываем элементы от других ролей (например, бухгалтера)
-                    if (fotTabButton) fotTabButton.style.display = 'none'; // Также скроем ФОТ для не-админов
-                    clearDataButton.parentElement.style.display = 'none';
-                }
-            }
-
-            initializePage();
-
-        } catch (error) {
-            console.error('Ошибка проверки аутентификации:', error);
+        if (!response.ok) {
             window.location.href = '/index.html';
+            return;
         }
+        
+        const data = await response.json();
+        
+        // Находим кнопки
+        const fotTabButton = document.getElementById('fot-tab-button');
+        const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
+
+        // Проверяем роль пользователя
+        if (data.success && data.user) {
+            const isAdmin = data.user.role === 'admin';
+            const isAccountant = data.user.role === 'accountant';
+            
+            // ФОТ - только для админа
+            if (fotTabButton) {
+                fotTabButton.style.display = isAdmin ? 'block' : 'none';
+            }
+            
+            // Очистка данных - только для админа
+            if (clearDataButton && clearDataButton.parentElement) {
+                clearDataButton.parentElement.style.display = isAdmin ? 'block' : 'none';
+            }
+        } else {
+            // Скрываем всё если нет авторизации
+            if (fotTabButton) fotTabButton.style.display = 'none';
+            if (clearDataButton && clearDataButton.parentElement) {
+                clearDataButton.parentElement.style.display = 'none';
+            }
+        }
+
+        initializePage();
+
+    } catch (error) {
+        console.error('Ошибка проверки аутентификации:', error);
+        window.location.href = '/index.html';
     }
+}
+
 
     function initializePage() {
         const today = new Date();
@@ -1203,10 +1212,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 
                 console.log(`Для ${data.name} загружены финальные данные: аванс=${advancePayment}, остаток=${cardRemainder}, наличные=${cashPayout}`);
             }
-            
-            // Формируем содержимое ячейки аванса
-            let advanceCellContent = formatNumber(advancePayment);
-            
+                   
 // Формируем содержимое ячейки аванса
 let advanceCellContent = '';
 
