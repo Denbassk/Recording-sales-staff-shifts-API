@@ -410,19 +410,35 @@ function exportMonthlyReportToExcel() {
         return;
     }
 
-    // Собираем данные из таблицы в структурированный формат
+    // Проверяем статус фиксации аванса
+    let advanceFixedInfo = '';
+    const advanceNotice = document.getElementById('advance-fixed-notice');
+    if (advanceNotice) {
+        // Извлекаем информацию о фиксации из панели
+        const noticeText = advanceNotice.textContent;
+        const dateMatch = noticeText.match(/Дата выплаты: ([\d-]+)/);
+        const countMatch = noticeText.match(/Сотрудников: (\d+)/);
+        const sumMatch = noticeText.match(/Общая сумма: ([\d\s,]+)/);
+        
+        if (dateMatch) {
+            advanceFixedInfo = `АВАНС ЗАФИКСИРОВАН! Дата выплаты: ${dateMatch[1]}`;
+            if (countMatch) advanceFixedInfo += `, Сотрудников: ${countMatch[1]}`;
+            if (sumMatch) advanceFixedInfo += `, Сумма: ${sumMatch[1]}`;
+        }
+    }
+
+    // Собираем данные из таблицы
     const exportData = [];
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
                        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
     
-    // Получаем все даты работы из первой строки для заголовков
-    const firstRow = tableRows[0];
-    const shiftsData = firstRow ? JSON.parse(firstRow.dataset.shifts || '[]') : [];
-    const workDates = shiftsData.map(day => `${day}.${String(month).padStart(2, '0')}.${year}`);
-    
     tableRows.forEach(row => {
-        // Пропускаем строки-заголовки магазинов
         if (row.classList.contains('summary-row')) return;
+        
+        // Проверяем, зафиксирован ли аванс для сотрудника
+        const advanceCell = row.querySelector('.advance-payment');
+        const isAdvanceFixed = advanceCell && advanceCell.innerHTML.includes('🔒');
+        const advanceAmount = parseFloat(advanceCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
         
         const rowData = {
             'Сотрудник': row.dataset.employeeName || '',
@@ -435,7 +451,8 @@ function exportMonthlyReportToExcel() {
             'Причина депремирования': row.querySelector('[name="penalty_reason"]')?.value || '',
             'Вычет за недостачу': parseFloat(row.querySelector('[name="shortage"]')?.value) || 0,
             'Всего начислено': parseFloat(row.querySelector('.total-gross')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
-            'Аванс (на карту)': parseFloat(row.querySelector('.advance-payment')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
+            'Аванс (на карту)': advanceAmount,
+            'Статус аванса': isAdvanceFixed ? '🔒 ЗАФИКСИРОВАН' : 'Расчетный',
             'Остаток (на карту)': parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
             'Зарплата (наличными)': parseFloat(row.querySelector('.cash-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
             'Итого к выплате': parseFloat(row.querySelector('.total-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
@@ -448,11 +465,11 @@ function exportMonthlyReportToExcel() {
     // Создаем рабочую книгу
     const wb = XLSX.utils.book_new();
     
-    // Создаем лист с данными
+    // ЛИСТ 1: Основные данные с пометкой о фиксации
     const ws = XLSX.utils.json_to_sheet(exportData);
     
     // Настраиваем ширину колонок
-    const colWidths = [
+    ws['!cols'] = [
         { wch: 25 }, // Сотрудник
         { wch: 20 }, // Магазин
         { wch: 15 }, // Месяц
@@ -464,19 +481,57 @@ function exportMonthlyReportToExcel() {
         { wch: 15 }, // Вычет за недостачу
         { wch: 15 }, // Всего начислено
         { wch: 15 }, // Аванс
+        { wch: 18 }, // Статус аванса (НОВОЕ!)
         { wch: 15 }, // Остаток
         { wch: 15 }, // Наличными
         { wch: 15 }, // Итого к выплате
         { wch: 20 }  // Рабочие дни
     ];
-    ws['!cols'] = colWidths;
     
-    // Добавляем лист в книгу
-    XLSX.utils.book_append_sheet(wb, ws, "Отчет за месяц");
+    // Добавляем информацию о фиксации в начало листа, если есть
+    if (advanceFixedInfo) {
+        // Сдвигаем все данные на 2 строки вниз
+        const newWs = {};
+        
+        // Добавляем заголовок о фиксации
+        newWs['A1'] = { v: '⚠️ ' + advanceFixedInfo, 
+                        s: { font: { bold: true, color: { rgb: "FF0000" } }, 
+                             fill: { fgColor: { rgb: "FFFF00" } } } };
+        
+        // Объединяем ячейки для заголовка
+        newWs['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 15 } }];
+        
+        // Копируем существующие данные со сдвигом
+        const range = XLSX.utils.decode_range(ws['!ref']);
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cell_address = { c: C, r: R };
+                const cell_ref = XLSX.utils.encode_cell(cell_address);
+                const new_cell_address = { c: C, r: R + 2 };
+                const new_cell_ref = XLSX.utils.encode_cell(new_cell_address);
+                if (ws[cell_ref]) {
+                    newWs[new_cell_ref] = ws[cell_ref];
+                }
+            }
+        }
+        
+        // Обновляем диапазон
+        newWs['!ref'] = XLSX.utils.encode_range({
+            s: { c: 0, r: 0 },
+            e: { c: range.e.c, r: range.e.r + 2 }
+        });
+        newWs['!cols'] = ws['!cols'];
+        
+        XLSX.utils.book_append_sheet(wb, newWs, "Отчет за месяц");
+    } else {
+        XLSX.utils.book_append_sheet(wb, ws, "Отчет за месяц");
+    }
     
-    // Создаем второй лист со сводкой по магазинам
+    // ЛИСТ 2: Сводка по магазинам
     const summaryData = [];
     const storeGroups = {};
+    let totalFixedAdvance = 0;
+    let totalCalculatedAdvance = 0;
     
     exportData.forEach(row => {
         const store = row['Магазин'];
@@ -489,6 +544,7 @@ function exportMonthlyReportToExcel() {
                 totalShortage: 0,
                 totalGross: 0,
                 totalAdvance: 0,
+                fixedAdvanceCount: 0,
                 totalRemainder: 0,
                 totalCash: 0,
                 totalPayout: 0
@@ -502,6 +558,12 @@ function exportMonthlyReportToExcel() {
         storeGroups[store].totalShortage += row['Вычет за недостачу'];
         storeGroups[store].totalGross += row['Всего начислено'];
         storeGroups[store].totalAdvance += row['Аванс (на карту)'];
+        if (row['Статус аванса'].includes('ЗАФИКСИРОВАН')) {
+            storeGroups[store].fixedAdvanceCount++;
+            totalFixedAdvance += row['Аванс (на карту)'];
+        } else {
+            totalCalculatedAdvance += row['Аванс (на карту)'];
+        }
         storeGroups[store].totalRemainder += row['Остаток (на карту)'];
         storeGroups[store].totalCash += row['Зарплата (наличными)'];
         storeGroups[store].totalPayout += row['Итого к выплате'];
@@ -511,6 +573,7 @@ function exportMonthlyReportToExcel() {
         summaryData.push({
             'Магазин': store,
             'Кол-во сотрудников': data.employees,
+            'Из них с зафикс. авансом': data.fixedAdvanceCount,
             'Начислено (база)': data.totalBase,
             'Премии': data.totalBonus,
             'Штрафы': data.totalPenalty,
@@ -523,20 +586,53 @@ function exportMonthlyReportToExcel() {
         });
     });
     
+    // Добавляем итоговую строку
+    summaryData.push({
+        'Магазин': 'ИТОГО:',
+        'Кол-во сотрудников': exportData.length,
+        'Из них с зафикс. авансом': exportData.filter(r => r['Статус аванса'].includes('ЗАФИКСИРОВАН')).length,
+        'Начислено (база)': exportData.reduce((sum, r) => sum + r['Всего начислено (база)'], 0),
+        'Премии': exportData.reduce((sum, r) => sum + r['Премирование'], 0),
+        'Штрафы': exportData.reduce((sum, r) => sum + r['Депремирование'], 0),
+        'Недостачи': exportData.reduce((sum, r) => sum + r['Вычет за недостачу'], 0),
+        'Всего начислено': exportData.reduce((sum, r) => sum + r['Всего начислено'], 0),
+        'Выплачено авансом': exportData.reduce((sum, r) => sum + r['Аванс (на карту)'], 0),
+        'Выплачено остаток': exportData.reduce((sum, r) => sum + r['Остаток (на карту)'], 0),
+        'Выплачено наличными': exportData.reduce((sum, r) => sum + r['Зарплата (наличными)'], 0),
+        'Итого выплачено': exportData.reduce((sum, r) => sum + r['Итого к выплате'], 0)
+    });
+    
     if (summaryData.length > 0) {
         const ws2 = XLSX.utils.json_to_sheet(summaryData);
         ws2['!cols'] = [
-            { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 12 },
+            { wch: 20 }, { wch: 12 }, { wch: 18 }, { wch: 15 }, { wch: 12 },
             { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
             { wch: 15 }, { wch: 18 }, { wch: 15 }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, "Сводка по магазинам");
     }
     
+    // ЛИСТ 3: Информация о фиксации (если есть)
+    if (advanceFixedInfo) {
+        const fixedInfoData = [
+            { 'Параметр': 'Статус аванса', 'Значение': '🔒 ЗАФИКСИРОВАН' },
+            { 'Параметр': 'Дата фиксации', 'Значение': new Date().toLocaleDateString('ru-RU') },
+            { 'Параметр': 'Месяц расчета', 'Значение': `${monthNames[month - 1]} ${year}` },
+            { 'Параметр': 'Сотрудников с зафикс. авансом', 'Значение': exportData.filter(r => r['Статус аванса'].includes('ЗАФИКСИРОВАН')).length },
+            { 'Параметр': 'Сумма зафикс. авансов', 'Значение': totalFixedAdvance.toFixed(2) + ' грн' },
+            { 'Параметр': 'Сумма расчетных авансов', 'Значение': totalCalculatedAdvance.toFixed(2) + ' грн' }
+        ];
+        
+        const ws3 = XLSX.utils.json_to_sheet(fixedInfoData);
+        ws3['!cols'] = [{ wch: 30 }, { wch: 30 }];
+        XLSX.utils.book_append_sheet(wb, ws3, "Информация о фиксации");
+    }
+    
     // Сохраняем файл
-    const fileName = `Отчет_за_${monthNames[month - 1]}_${year}.xlsx`;
+    const fileName = `Отчет_за_${monthNames[month - 1]}_${year}${advanceFixedInfo ? '_с_фиксированным_авансом' : ''}.xlsx`;
     XLSX.writeFile(wb, fileName);
 }
+
 
 function exportFotReportToExcel() {
     const monthEl = document.getElementById('fotReportMonth');
