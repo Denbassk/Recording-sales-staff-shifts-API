@@ -1179,6 +1179,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             </thead>
             <tbody>`;
     
+    // ИСПРАВЛЕНО: Убрана дублирующаяся проверка
     if (sortedEmployees.length === 0) {
         tableHtml += '<tr><td colspan="13" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
     } else {
@@ -1213,58 +1214,60 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 console.log(`Для ${data.name} загружены финальные данные: аванс=${advancePayment}, остаток=${cardRemainder}, наличные=${cashPayout}`);
             }
                    
-// Формируем содержимое ячейки аванса
-let advanceCellContent = '';
+            // Формируем содержимое ячейки аванса
+            let advanceCellContent = '';
 
-// Определяем состояние аванса
-if (isManualAdvance) {
-    // 1. Ручная корректировка (приоритет)
-    const adjustedByText = finalCalc.adjusted_by ? ` (${finalCalc.adjusted_by})` : '';
-    advanceCellContent = `
-        <span style="color: #ff6b6b; font-weight: bold;" 
-              title="Ручная корректировка: ${manualAdvanceReason}${adjustedByText}">
-            ✏️ ${formatNumber(advancePayment)}
-        </span>`;
-} else if (finalCalc && finalCalc.is_fixed) {
-    // 2. Зафиксированный аванс (есть в payroll_payments)
-    advanceCellContent = `
-        <strong style="color: #f5576c;" title="Аванс зафиксирован">
-            🔒 ${formatNumber(advancePayment)}
-        </strong>`;
-} else if (finalCalc) {
-    // 3. Есть финальный расчет, но аванс не помечен как зафиксированный
-    advanceCellContent = `<strong>${formatNumber(advancePayment)}</strong>`;
-} else {
-    // 4. Расчетный аванс (еще не зафиксирован)
-    advanceCellContent = `
-        <span style="color: #666;" title="Расчетный аванс">
-            ${formatNumber(advancePayment)}
-        </span>`;
-}
+            // Определяем состояние аванса
+            if (isManualAdvance) {
+                // 1. Ручная корректировка (приоритет)
+                const adjustedByText = finalCalc.adjusted_by ? ` (${finalCalc.adjusted_by})` : '';
+                advanceCellContent = `
+                    <span style="color: #ff6b6b; font-weight: bold;" 
+                          title="Ручная корректировка: ${manualAdvanceReason}${adjustedByText}">
+                        ✏️ ${formatNumber(advancePayment)}
+                    </span>`;
+            } else if (finalCalc && finalCalc.is_fixed) {
+                // 2. Зафиксированный аванс (есть в payroll_payments)
+                advanceCellContent = `
+                    <strong style="color: #f5576c;" title="Аванс зафиксирован">
+                        🔒 ${formatNumber(advancePayment)}
+                    </strong>`;
+            } else if (finalCalc) {
+                // 3. Есть финальный расчет, но аванс не помечен как зафиксированный
+                advanceCellContent = `<strong>${formatNumber(advancePayment)}</strong>`;
+            } else {
+                // 4. Расчетный аванс (еще не зафиксирован)
+                advanceCellContent = `
+                    <span style="color: #666;" title="Расчетный аванс">
+                        ${formatNumber(advancePayment)}
+                    </span>`;
+            }
 
-// Добавляем класс для выделения если есть финальный расчет
-const rowClass = finalCalc ? 'has-final-calc' : '';
+            // Добавляем класс для выделения если есть финальный расчет
+            const rowClass = finalCalc ? 'has-final-calc' : '';
 
-// ИСПРАВЛЕНИЕ: Добавляем специальный контейнер для ячейки аванса с data-атрибутами
-tableHtml += `<tr class="${rowClass}" data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${data.primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
-    <td style="padding: 5px;">${data.name}</td>
-    <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
-    <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
-    <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
-    <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
-    <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
-    <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
-    <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
-    <td class="advance-payment" style="padding: 5px;">
-        <span class="advance-cell-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCellContent}</span>
-    </td>
-    <td class="card-remainder" style="padding: 5px;">${formatNumber(cardRemainder)}</td>
-    <td class="cash-payout" style="padding: 5px;">${formatNumber(cashPayout)}</td>
-    <td class="total-payout" style="padding: 5px;"><strong>${formatNumber(totalToPay)}</strong></td>
-    <td style="padding: 5px; font-size: 10px;">${data.shifts.sort((a, b) => a - b).join(', ')}</td>
-</tr>`;
+            // Добавляем строку в таблицу
+            tableHtml += `<tr class="${rowClass}" data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${data.primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
+                <td style="padding: 5px;">${data.name}</td>
+                <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
+                <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
+                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
+                <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
+                <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
+                <td class="advance-payment" style="padding: 5px;">
+                    <span class="advance-cell-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCellContent}</span>
+                </td>
+                <td class="card-remainder" style="padding: 5px;">${formatNumber(cardRemainder)}</td>
+                <td class="cash-payout" style="padding: 5px;">${formatNumber(cashPayout)}</td>
+                <td class="total-payout" style="padding: 5px;"><strong>${formatNumber(totalToPay)}</strong></td>
+                <td style="padding: 5px; font-size: 10px;">${data.shifts.sort((a, b) => a - b).join(', ')}</td>
+            </tr>`;
+        }  // Закрытие цикла for
+    }  // Закрытие else
     
-    tableHtml += `</tbody></table></div>`;
+    tableHtml += `</tbody></table></div>`;  // Закрытие таблицы
     
     // Добавляем информационную панель если есть финальные расчеты
     if (finalCalcMap.size > 0) {
@@ -1342,9 +1345,7 @@ tableHtml += `<tr class="${rowClass}" data-employee-id="${id}" data-employee-nam
     } else if (finalCalcMap.size > 0) {
         console.log('Финальные расчеты загружены, пропускаем автоматический расчет аванса');
     }
-}
-
-
+}  // ДОБАВЛЕНА ЗАКРЫВАЮЩАЯ СКОБКА ФУНКЦИИ
 
 function handleAdjustmentInput(e) {
     clearTimeout(adjustmentDebounceTimer);
