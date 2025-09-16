@@ -557,12 +557,48 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
             .select('*').eq('year', year).eq('month', month);
         if (adjError) throw adjError;
 
-        res.json({ success: true, dailyData: enrichedDailyData, adjustments });
+        // НОВОЕ: Получаем финальные расчеты из таблицы final_payroll_calculations
+        let finalCalculations = [];
+        
+        // Проверяем, существует ли таблица final_payroll_calculations
+        const { data: tableExists } = await supabase
+            .from('final_payroll_calculations')
+            .select('id')
+            .limit(1);
+        
+        if (tableExists !== null) {
+            // Таблица существует, получаем данные
+            const { data: finalCalcs, error: finalError } = await supabase
+                .from('final_payroll_calculations')
+                .select('*')
+                .eq('year', year)
+                .eq('month', month);
+            
+            if (finalError) {
+                console.error('Ошибка получения финальных расчетов:', finalError);
+                // Не прерываем выполнение, просто логируем ошибку
+            } else {
+                finalCalculations = finalCalcs || [];
+                console.log(`Получено финальных расчетов: ${finalCalculations.length}`);
+            }
+        } else {
+            console.log('Таблица final_payroll_calculations не найдена, пропускаем загрузку финальных расчетов');
+        }
+
+        // Возвращаем все данные включая финальные расчеты
+        res.json({ 
+            success: true, 
+            dailyData: enrichedDailyData, 
+            adjustments,
+            finalCalculations // Добавляем финальные расчеты в ответ
+        });
+        
     } catch (error) {
         console.error('Ошибка получения данных за месяц:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, advanceEndDate } = req.body;
@@ -736,6 +772,7 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
 });
 
 // --- НОВЫЙ ЭНДПОИНТ: Отмена зафиксированного аванса ---
+// Обновленная функция отмены фиксации аванса в server.cjs (с обнулением)
 app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, cancellationReason } = req.body;
     
@@ -744,9 +781,10 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
     }
 
     try {
+        // 1. Получаем список зафиксированных авансов
         const { data: advances, error: fetchError } = await supabase
             .from('payroll_payments')
-            .select('id')
+            .select('id, employee_id')
             .eq('payment_type', 'advance')
             .eq('payment_period_month', month)
             .eq('payment_period_year', year)
@@ -761,7 +799,7 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
             });
         }
 
-        // Отмечаем все авансы как отмененные
+        // 2. Отмечаем все авансы как отмененные в payroll_payments
         const { error: updateError } = await supabase
             .from('payroll_payments')
             .update({
@@ -777,15 +815,55 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
         
         if (updateError) throw updateError;
 
+        // 3. ОБНУЛЯЕМ финальные расчеты (вместо удаления)
+        const employeeIds = advances.map(a => a.employee_id);
+        let finalCalcsReset = 0;
+        
+        // Проверяем существование таблицы
+        const { data: tableExists } = await supabase
+            .from('final_payroll_calculations')
+            .select('id')
+            .limit(1);
+        
+        if (tableExists !== null) {
+            // Обнуляем поля в финальных расчетах
+            const { data: resetData, error: resetError } = await supabase
+                .from('final_payroll_calculations')
+                .update({
+                    advance_payment: 0,
+                    card_remainder: 0,
+                    cash_payout: 0,
+                    total_card_payment: 0,
+                    // Оставляем total_gross, total_deductions и total_after_deductions
+                    // чтобы сохранить информацию о базовых начислениях
+                    updated_at: new Date().toISOString()
+                })
+                .eq('month', month)
+                .eq('year', year)
+                .in('employee_id', employeeIds)
+                .select('id');
+            
+            if (resetError) {
+                console.error('Ошибка обнуления финальных расчетов:', resetError);
+            } else {
+                finalCalcsReset = resetData ? resetData.length : 0;
+                console.log(`Обнулено ${finalCalcsReset} финальных расчетов`);
+            }
+        }
+
         await logFinancialOperation('cancel_advance_payment', {
-            year, month, cancellationReason,
-            cancelledCount: advances.length
+            year, 
+            month, 
+            cancellationReason,
+            cancelledCount: advances.length,
+            finalCalcsReset: finalCalcsReset
         }, req.user.id);
 
         res.json({ 
             success: true, 
-            message: `Фиксация аванса за ${month}/${year} успешно отменена`,
-            cancelledCount: advances.length
+            message: `Фиксация аванса за ${month}/${year} успешно отменена. Обнулено расчетов: ${finalCalcsReset}`,
+            cancelledCount: advances.length,
+            finalCalcsReset: finalCalcsReset
         });
 
     } catch (error) {
@@ -793,6 +871,7 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, reportEndDate } = req.body;
@@ -857,6 +936,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
 
             const finalResults = {};
+            const dataToSave = []; // Массив для сохранения в БД
             
             for (const employeeId in totalBasePayMap) {
                 const basePay = totalBasePayMap[employeeId];
@@ -900,16 +980,84 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     advance_payment: advancePayment,
                     card_remainder: cardRemainder,
                     cash_payout: cashPayout,
-                    total_card_payment: advancePayment + cardRemainder, // Общая сумма на карту
-                    penalties_total: totalDeductions // Для совместимости
+                    total_card_payment: advancePayment + cardRemainder,
+                    penalties_total: totalDeductions
                 };
+
+                // НОВОЕ: Добавляем данные для сохранения в БД
+                dataToSave.push({
+                    employee_id: employeeId,
+                    month: parseInt(month),
+                    year: parseInt(year),
+                    total_gross: totalGross,
+                    total_deductions: totalDeductions,
+                    total_after_deductions: totalAfterDeductions,
+                    advance_payment: advancePayment,
+                    card_remainder: cardRemainder,
+                    cash_payout: cashPayout,
+                    total_card_payment: advancePayment + cardRemainder,
+                    calculation_date: reportEndDate
+                });
+            }
+
+            // НОВОЕ: Сохраняем финальные расчеты в базу данных
+            if (dataToSave.length > 0) {
+                // Сначала проверяем, существует ли таблица
+                const { error: tableCheckError } = await supabase
+                    .from('final_payroll_calculations')
+                    .select('id')
+                    .limit(1);
+                
+                if (tableCheckError && tableCheckError.code === '42P01') {
+                    // Таблица не существует, создаем её
+                    console.log('Таблица final_payroll_calculations не существует, создаем...');
+                    
+                    const { error: createTableError } = await supabase.rpc('create_final_payroll_table', {
+                        sql_query: `
+                            CREATE TABLE IF NOT EXISTS final_payroll_calculations (
+                                id SERIAL PRIMARY KEY,
+                                employee_id VARCHAR(50) NOT NULL,
+                                month INTEGER NOT NULL,
+                                year INTEGER NOT NULL,
+                                total_gross DECIMAL(10,2) DEFAULT 0,
+                                total_deductions DECIMAL(10,2) DEFAULT 0,
+                                total_after_deductions DECIMAL(10,2) DEFAULT 0,
+                                advance_payment DECIMAL(10,2) DEFAULT 0,
+                                card_remainder DECIMAL(10,2) DEFAULT 0,
+                                cash_payout DECIMAL(10,2) DEFAULT 0,
+                                total_card_payment DECIMAL(10,2) DEFAULT 0,
+                                calculation_date DATE,
+                                created_at TIMESTAMP DEFAULT NOW(),
+                                updated_at TIMESTAMP DEFAULT NOW(),
+                                UNIQUE(employee_id, month, year)
+                            );
+                        `
+                    });
+                    
+                    if (createTableError) {
+                        console.error('Не удалось создать таблицу, сохранение пропущено:', createTableError);
+                    }
+                }
+                
+                // Теперь сохраняем данные
+                const { error: saveError } = await supabase
+                    .from('final_payroll_calculations')
+                    .upsert(dataToSave, { onConflict: 'employee_id,month,year' });
+                
+                if (saveError) {
+                    console.error('Ошибка сохранения финальных расчетов:', saveError);
+                    // Не прерываем выполнение, просто логируем
+                } else {
+                    console.log(`Успешно сохранено ${dataToSave.length} финальных расчетов`);
+                }
             }
             
             await logFinancialOperation('calculate_final_payroll', { 
                 year, 
                 month, 
                 reportEndDate,
-                employeesCount: Object.keys(finalResults).length
+                employeesCount: Object.keys(finalResults).length,
+                saved: dataToSave.length
             }, req.user.id);
             
             res.json({ success: true, results: finalResults });
@@ -920,6 +1068,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
         }
     });
 });
+
 
 
 // ====== ХЕЛПЕР: собираем ФОТ с группировкой по магазинам (ИСПРАВЛЕННАЯ ВЕРСИЯ) ======

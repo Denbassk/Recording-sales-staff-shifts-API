@@ -979,26 +979,37 @@ async function generateMonthlyReport() {
         );
         
         if (result.success) {
-            console.log(`Получено ${result.dailyData.length} записей и ${result.adjustments.length} корректировок`);
+            console.log(`Получено ${result.dailyData.length} записей, ${result.adjustments.length} корректировок и ${(result.finalCalculations || []).length} финальных расчетов`);
             hideStatus('reportStatus');
             reportContentEl.style.display = 'block';
-            displayMonthlyReport(result.dailyData, result.adjustments, month, year);
+            
+            // ВАЖНО: Передаем finalCalculations в функцию displayMonthlyReport
+            displayMonthlyReport(
+                result.dailyData, 
+                result.adjustments, 
+                month, 
+                year,
+                result.finalCalculations || [] // Добавляем финальные расчеты
+            );
         }
     } catch (error) {
         console.error('Ошибка генерации отчета:', error);
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
 
 
-function displayMonthlyReport(dailyData, adjustments, month, year) {
+
+function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = []) {
     const reportContentEl = document.getElementById('monthlyReportContent');
     if (!reportContentEl) return;
 
-    // ИСПРАВЛЕНИЕ: правильно суммируем данные за весь период
+    // Суммируем данные за весь период
     const employeeData = {};
     
     // Логируем для отладки
     console.log(`Обработка ${dailyData.length} записей за месяц`);
+    console.log(`Получено финальных расчетов: ${finalCalculations.length}`);
     
     dailyData.forEach(calc => {
         if (!employeeData[calc.employee_id]) {
@@ -1008,7 +1019,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
                 shifts: [], 
                 stores: {},
                 primaryStore: calc.store_address || 'Не определен',
-                workDates: [] // Добавляем массив дат для отладки
+                workDates: []
             };
         }
         // Суммируем все начисления за период
@@ -1029,13 +1040,24 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
         console.log(`${data.name}: ${data.totalPay} грн за ${data.shifts.length} дней`);
     });
     
+    // Определяем основной магазин для каждого сотрудника
     for (const [id, data] of Object.entries(employeeData)) {
         if (Object.keys(data.stores).length > 0) {
             data.primaryStore = Object.keys(data.stores).reduce((a, b) => data.stores[a] > data.stores[b] ? a : b);
         }
     }
     
+    // Создаем мапы для корректировок и финальных расчетов
     const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
+    
+    // НОВОЕ: Создаем мапу финальных расчетов
+    const finalCalcMap = new Map();
+    if (finalCalculations && finalCalculations.length > 0) {
+        finalCalculations.forEach(calc => {
+            finalCalcMap.set(calc.employee_id, calc);
+        });
+        console.log(`Создана мапа финальных расчетов для ${finalCalcMap.size} сотрудников`);
+    }
     
     const sortedEmployees = Object.entries(employeeData).sort((a, b) => {
         const storeCompare = a[1].primaryStore.localeCompare(b[1].primaryStore);
@@ -1072,34 +1094,106 @@ function displayMonthlyReport(dailyData, adjustments, month, year) {
             <tbody>`;
     
     if (sortedEmployees.length === 0) {
-        tableHtml += '<tr><td colspan="12" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
+        tableHtml += '<tr><td colspan="13" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
     } else {
         for (const [id, data] of sortedEmployees) {
             const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
-            const totalToPay = data.totalPay + (adj.manual_bonus || 0) - (adj.penalty || 0) - (adj.shortage || 0);
-            tableHtml += `<tr data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${data.primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
-                            <td style="padding: 5px;">${data.name}</td>
-                            <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
-                            <td class="total-gross" style="padding: 5px;">${formatNumber(data.totalPay + (adj.manual_bonus || 0))}</td>
-                            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
-                            <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
-                            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
-                            <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
-                            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
-                            <td class="advance-payment" style="padding: 5px;">0,00</td>
-                            <td class="card-remainder" style="padding: 5px;">0,00</td>
-                            <td class="cash-payout" style="padding: 5px;"><strong>0,00</strong></td>
-                            <td class="total-payout" style="padding: 5px;"><strong>${formatNumber(totalToPay)}</strong></td>
-                        </tr>`;
+            
+            // НОВОЕ: Получаем финальный расчет если он есть
+            const finalCalc = finalCalcMap.get(id);
+            
+            // Расчет итоговой суммы
+            const totalGross = data.totalPay + (adj.manual_bonus || 0);
+            const totalDeductions = (adj.penalty || 0) + (adj.shortage || 0);
+            const totalToPay = totalGross - totalDeductions;
+            
+            // НОВОЕ: Используем сохраненные данные из финального расчета, если они есть
+            let advancePayment = 0;
+            let cardRemainder = 0;
+            let cashPayout = 0;
+            
+            if (finalCalc) {
+                // Если есть финальный расчет, берем данные из него
+                advancePayment = finalCalc.advance_payment || 0;
+                cardRemainder = finalCalc.card_remainder || 0;
+                cashPayout = finalCalc.cash_payout || 0;
+                
+                console.log(`Для ${data.name} загружены финальные данные: аванс=${advancePayment}, остаток=${cardRemainder}, наличные=${cashPayout}`);
+            }
+            
+            // Добавляем класс для выделения если есть финальный расчет
+            const rowClass = finalCalc ? 'has-final-calc' : '';
+            
+            tableHtml += `<tr class="${rowClass}" data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${data.primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
+                <td style="padding: 5px;">${data.name}</td>
+                <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
+                <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
+                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
+                <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
+                <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+                <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
+                <td class="advance-payment" style="padding: 5px; ${advancePayment > 0 ? 'font-weight: bold;' : ''}">${formatNumber(advancePayment)}</td>
+                <td class="card-remainder" style="padding: 5px; ${cardRemainder > 0 ? 'color: #28a745; font-weight: bold;' : ''}">${formatNumber(cardRemainder)}</td>
+                <td class="cash-payout" style="padding: 5px;"><strong style="${cashPayout > 0 ? 'color: #007bff;' : ''}">${formatNumber(cashPayout)}</strong></td>
+                <td class="total-payout" style="padding: 5px;"><strong>${formatNumber(totalToPay)}</strong></td>
+                <td style="padding: 5px; font-size: 10px;">${data.shifts.sort((a, b) => a - b).join(', ')}</td>
+            </tr>`;
         }
     }
+    
     tableHtml += `</tbody></table></div>`;
+    
+    // Добавляем информационную панель если есть финальные расчеты
+    if (finalCalcMap.size > 0) {
+        const totalAdvance = Array.from(finalCalcMap.values()).reduce((sum, calc) => sum + (calc.advance_payment || 0), 0);
+        const totalCardRemainder = Array.from(finalCalcMap.values()).reduce((sum, calc) => sum + (calc.card_remainder || 0), 0);
+        const totalCash = Array.from(finalCalcMap.values()).reduce((sum, calc) => sum + (calc.cash_payout || 0), 0);
+        
+        tableHtml = `
+            <div class="status info" style="margin-bottom: 15px;">
+                <strong>ℹ️ Загружены финальные расчеты</strong><br>
+                Аванс: ${formatNumber(totalAdvance)} грн | 
+                Остаток на карту: ${formatNumber(totalCardRemainder)} грн | 
+                Наличные: ${formatNumber(totalCash)} грн
+            </div>
+        ` + tableHtml;
+    }
+    
     reportContentEl.innerHTML = tableHtml;
-    document.querySelectorAll('.adjustment-input').forEach(input => input.addEventListener('input', handleAdjustmentInput));
-    if (sortedEmployees.length > 0) {
+    
+    // Привязываем обработчики событий
+    document.querySelectorAll('.adjustment-input').forEach(input => {
+        input.addEventListener('input', handleAdjustmentInput);
+    });
+    
+    // Если есть сотрудники и нет финальных расчетов, пробуем рассчитать аванс
+    if (sortedEmployees.length > 0 && finalCalcMap.size === 0) {
+        console.log('Финальных расчетов нет, выполняем расчет аванса...');
         calculateAdvance15(true);
+    } else if (finalCalcMap.size > 0) {
+        console.log('Финальные расчеты загружены, пропускаем автоматический расчет аванса');
+        
+        // Проверяем и отображаем информацию о зафиксированных авансах
+        const hasFixedAdvances = Array.from(finalCalcMap.values()).some(calc => calc.advance_payment > 0);
+        if (hasFixedAdvances) {
+            // Обновляем визуальное отображение зафиксированных авансов
+            document.querySelectorAll('#monthlyReportTable tbody tr').forEach(row => {
+                const employeeId = row.dataset.employeeId;
+                const finalCalc = finalCalcMap.get(employeeId);
+                if (finalCalc && finalCalc.advance_payment > 0) {
+                    const advanceCell = row.querySelector('.advance-payment');
+                    if (advanceCell) {
+                        // Проверяем, зафиксирован ли аванс (можно добавить дополнительное поле в БД)
+                        // Пока просто показываем, что аванс есть
+                        advanceCell.innerHTML = `<strong>${formatNumber(finalCalc.advance_payment)}</strong>`;
+                    }
+                }
+            });
+        }
     }
 }
+
 
 
 function handleAdjustmentInput(e) {
