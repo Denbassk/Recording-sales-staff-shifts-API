@@ -410,9 +410,28 @@ function exportMonthlyReportToExcel() {
         return;
     }
 
-   const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
+    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
                        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 
+    const exportData = [];
+
+    // Проверяем статус фиксации аванса
+    let advanceFixedInfo = '';
+    const advanceNotice = document.getElementById('advance-fixed-notice');
+    if (advanceNotice) {
+        const noticeText = advanceNotice.textContent;
+        const dateMatch = noticeText.match(/Дата выплаты: ([\d-]+)/);
+        const countMatch = noticeText.match(/Сотрудников: (\d+)/);
+        const sumMatch = noticeText.match(/Общая сумма: ([\d\s,]+)/);
+        
+        if (dateMatch) {
+            advanceFixedInfo = `АВАНС ЗАФИКСИРОВАН! Дата выплаты: ${dateMatch[1]}`;
+            if (countMatch) advanceFixedInfo += `, Сотрудников: ${countMatch[1]}`;
+            if (sumMatch) advanceFixedInfo += `, Сумма: ${sumMatch[1]}`;
+        }
+    }
+
+    // Собираем данные из таблицы
     tableRows.forEach(row => {
         if (row.classList.contains('summary-row')) return;
         
@@ -431,21 +450,25 @@ function exportMonthlyReportToExcel() {
         const isAdvanceFixed = advanceCell && advanceCell.innerHTML.includes('🔒');
         const advanceAmount = parseFloat(advanceCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
         
-        // ИСПРАВЛЕНИЕ: Обновленные селекторы для остатка на карту и наличных
+        // Остаток на карту
         const cardRemainder = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
         
-        // Для наличных теперь может быть как просто текст, так и внутри strong
+        // Наличные - проверяем есть ли внутри strong
         const cashPayoutCell = row.querySelector('.cash-payout');
         let cashAmount = 0;
         if (cashPayoutCell) {
             const strongElement = cashPayoutCell.querySelector('strong');
-            const textToUse = strongElement ? strongElement.textContent : cashPayoutCell.textContent;
-            cashAmount = parseFloat(textToUse.replace(/\s/g, '').replace(',', '.')) || 0;
+            if (strongElement) {
+                cashAmount = parseFloat(strongElement.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+            } else {
+                cashAmount = parseFloat(cashPayoutCell.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+            }
         }
         
         // Общая сумма на карту
         const totalCardPayment = advanceAmount + cardRemainder;
         
+        // Создаем объект с данными для экспорта
         const rowData = {
             'Сотрудник': row.dataset.employeeName || '',
             'Магазин': row.dataset.storeAddress || '',
@@ -465,12 +488,18 @@ function exportMonthlyReportToExcel() {
             'ИТОГО на карту': totalCardPayment,
             'Зарплата (наличными)': cashAmount,
             'ИТОГО к выплате': totalAfterDeductions,
-            'Проверка расчета': (totalCardPayment + cashAmount === totalAfterDeductions) ? '✓' : '❌ ОШИБКА',
+            'Проверка расчета': Math.abs((totalCardPayment + cashAmount) - totalAfterDeductions) < 0.01 ? '✓' : '❌ ОШИБКА',
             'Рабочие дни': JSON.parse(row.dataset.shifts || '[]').join(', ')
         };
         
         exportData.push(rowData);
     });
+
+    // Проверяем, что есть данные для экспорта
+    if (exportData.length === 0) {
+        showStatus('reportStatus', 'Нет данных для экспорта', 'error');
+        return;
+    }
 
     // Создаем рабочую книгу
     const wb = XLSX.utils.book_new();
@@ -502,26 +531,6 @@ function exportMonthlyReportToExcel() {
         { wch: 20 }  // Рабочие дни
     ];
     
-    // Добавляем условное форматирование для выделения важных колонок
-    const range = XLSX.utils.decode_range(ws['!ref']);
-    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-        // Выделяем колонку "Остаток на карту" если > 0
-        const cardRemainderCell = XLSX.utils.encode_cell({r: R, c: 14});
-        if (ws[cardRemainderCell] && ws[cardRemainderCell].v > 0) {
-            if (!ws[cardRemainderCell].s) ws[cardRemainderCell].s = {};
-            ws[cardRemainderCell].s.font = { bold: true, color: { rgb: "008000" } };
-            ws[cardRemainderCell].s.fill = { fgColor: { rgb: "E8F5E9" } };
-        }
-        
-        // Выделяем колонку "ИТОГО на карту" если = 8600
-        const totalCardCell = XLSX.utils.encode_cell({r: R, c: 15});
-        if (ws[totalCardCell] && ws[totalCardCell].v >= 8600) {
-            if (!ws[totalCardCell].s) ws[totalCardCell].s = {};
-            ws[totalCardCell].s.font = { bold: true, color: { rgb: "FF6600" } };
-            ws[totalCardCell].s.fill = { fgColor: { rgb: "FFF3E0" } };
-        }
-    }
-    
     XLSX.utils.book_append_sheet(wb, ws, "Детальный отчет");
     
     // ЛИСТ 2: Сводка по выплатам
@@ -550,7 +559,7 @@ function exportMonthlyReportToExcel() {
         { 'Показатель': 'АВАНСОВЫЕ ВЫПЛАТЫ', 'Значение': '' },
         { 'Показатель': 'Статус авансов', 'Значение': advanceFixedInfo ? '🔒 ЗАФИКСИРОВАНЫ' : 'Расчетные' },
         { 'Показатель': 'Общая сумма авансов', 'Значение': totalAdvance.toFixed(2) + ' грн' },
-        { 'Показатель': 'Средний аванс', 'Значение': (totalAdvance / exportData.length).toFixed(2) + ' грн' },
+        { 'Показатель': 'Средний аванс', 'Значение': exportData.length > 0 ? (totalAdvance / exportData.length).toFixed(2) + ' грн' : '0.00 грн' },
         { 'Показатель': '═══════════════════════', 'Значение': '═══════════════════════' },
         { 'Показатель': 'ОСТАТОК НА КАРТУ', 'Значение': '' },
         { 'Показатель': 'Сотрудников с остатком на карту', 'Значение': employeesWithCardRemainder },
@@ -592,6 +601,7 @@ function exportMonthlyReportToExcel() {
     
     showStatus('reportStatus', `✅ Экспорт выполнен: ${fileName}`, 'success');
 }
+
 
 
 function exportFotReportToExcel() {
