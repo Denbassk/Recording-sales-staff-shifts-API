@@ -410,27 +410,8 @@ function exportMonthlyReportToExcel() {
         return;
     }
 
-    // Проверяем статус фиксации аванса
-    let advanceFixedInfo = '';
-    const advanceNotice = document.getElementById('advance-fixed-notice');
-    if (advanceNotice) {
-        const noticeText = advanceNotice.textContent;
-        const dateMatch = noticeText.match(/Дата выплаты: ([\d-]+)/);
-        const countMatch = noticeText.match(/Сотрудников: (\d+)/);
-        const sumMatch = noticeText.match(/Общая сумма: ([\d\s,]+)/);
-        
-        if (dateMatch) {
-            advanceFixedInfo = `АВАНС ЗАФИКСИРОВАН! Дата выплаты: ${dateMatch[1]}`;
-            if (countMatch) advanceFixedInfo += `, Сотрудников: ${countMatch[1]}`;
-            if (sumMatch) advanceFixedInfo += `, Сумма: ${sumMatch[1]}`;
-        }
-    }
+    // ... остальной код без изменений ...
 
-    // Собираем данные из таблицы с ПРАВИЛЬНЫМИ РАСЧЕТАМИ
-    const exportData = [];
-    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
-                       "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
-    
     tableRows.forEach(row => {
         if (row.classList.contains('summary-row')) return;
         
@@ -441,17 +422,25 @@ function exportMonthlyReportToExcel() {
         const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
         
         // Расчеты
-        const totalGross = basePay + manualBonus; // Всего начислено
-        const totalAfterDeductions = totalGross - penalty - shortage; // После вычетов
+        const totalGross = basePay + manualBonus;
+        const totalAfterDeductions = totalGross - penalty - shortage;
         
         // Проверяем фиксацию аванса
         const advanceCell = row.querySelector('.advance-payment');
         const isAdvanceFixed = advanceCell && advanceCell.innerHTML.includes('🔒');
         const advanceAmount = parseFloat(advanceCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
         
-        // Остаток на карту и наличные
+        // ИСПРАВЛЕНИЕ: Обновленные селекторы для остатка на карту и наличных
         const cardRemainder = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-        const cashAmount = parseFloat(row.querySelector('.cash-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        
+        // Для наличных теперь может быть как просто текст, так и внутри strong
+        const cashPayoutCell = row.querySelector('.cash-payout');
+        let cashAmount = 0;
+        if (cashPayoutCell) {
+            const strongElement = cashPayoutCell.querySelector('strong');
+            const textToUse = strongElement ? strongElement.textContent : cashPayoutCell.textContent;
+            cashAmount = parseFloat(textToUse.replace(/\s/g, '').replace(',', '.')) || 0;
+        }
         
         // Общая сумма на карту
         const totalCardPayment = advanceAmount + cardRemainder;
@@ -1124,6 +1113,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             // Добавляем класс для выделения если есть финальный расчет
             const rowClass = finalCalc ? 'has-final-calc' : '';
             
+            // ИСПРАВЛЕНИЕ: Убираем inline стили, которые конфликтуют с динамическими изменениями
             tableHtml += `<tr class="${rowClass}" data-employee-id="${id}" data-employee-name="${data.name}" data-store-address="${data.primaryStore}" data-month="${month}" data-year="${year}" data-base-pay="${data.totalPay}" data-shifts='${JSON.stringify(data.shifts)}'>
                 <td style="padding: 5px;">${data.name}</td>
                 <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
@@ -1133,9 +1123,9 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
                 <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
                 <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
-                <td class="advance-payment" style="padding: 5px; ${advancePayment > 0 ? 'font-weight: bold;' : ''}">${formatNumber(advancePayment)}</td>
-                <td class="card-remainder" style="padding: 5px; ${cardRemainder > 0 ? 'color: #28a745; font-weight: bold;' : ''}">${formatNumber(cardRemainder)}</td>
-                <td class="cash-payout" style="padding: 5px;"><strong style="${cashPayout > 0 ? 'color: #007bff;' : ''}">${formatNumber(cashPayout)}</strong></td>
+                <td class="advance-payment" style="padding: 5px;">${formatNumber(advancePayment)}</td>
+                <td class="card-remainder" style="padding: 5px;">${formatNumber(cardRemainder)}</td>
+                <td class="cash-payout" style="padding: 5px;">${formatNumber(cashPayout)}</td>
                 <td class="total-payout" style="padding: 5px;"><strong>${formatNumber(totalToPay)}</strong></td>
                 <td style="padding: 5px; font-size: 10px;">${data.shifts.sort((a, b) => a - b).join(', ')}</td>
             </tr>`;
@@ -1162,6 +1152,41 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
     
     reportContentEl.innerHTML = tableHtml;
     
+    // После создания таблицы применяем стили если есть финальные расчеты
+    if (finalCalcMap.size > 0) {
+        document.querySelectorAll('#monthlyReportTable tbody tr').forEach(row => {
+            const employeeId = row.dataset.employeeId;
+            const finalCalc = finalCalcMap.get(employeeId);
+            
+            if (finalCalc) {
+                // Применяем стили для остатка на карту
+                if (finalCalc.card_remainder > 0) {
+                    const cardRemainderCell = row.querySelector('.card-remainder');
+                    if (cardRemainderCell) {
+                        cardRemainderCell.style.color = '#28a745';
+                        cardRemainderCell.style.fontWeight = 'bold';
+                    }
+                }
+                
+                // Применяем стили для наличных
+                if (finalCalc.cash_payout > 0) {
+                    const cashPayoutCell = row.querySelector('.cash-payout');
+                    if (cashPayoutCell) {
+                        cashPayoutCell.innerHTML = `<strong style="color: #007bff;">${formatNumber(finalCalc.cash_payout)}</strong>`;
+                    }
+                }
+                
+                // Применяем стили для аванса если он больше 0
+                if (finalCalc.advance_payment > 0) {
+                    const advanceCell = row.querySelector('.advance-payment');
+                    if (advanceCell) {
+                        advanceCell.style.fontWeight = 'bold';
+                    }
+                }
+            }
+        });
+    }
+    
     // Привязываем обработчики событий
     document.querySelectorAll('.adjustment-input').forEach(input => {
         input.addEventListener('input', handleAdjustmentInput);
@@ -1173,24 +1198,6 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         calculateAdvance15(true);
     } else if (finalCalcMap.size > 0) {
         console.log('Финальные расчеты загружены, пропускаем автоматический расчет аванса');
-        
-        // Проверяем и отображаем информацию о зафиксированных авансах
-        const hasFixedAdvances = Array.from(finalCalcMap.values()).some(calc => calc.advance_payment > 0);
-        if (hasFixedAdvances) {
-            // Обновляем визуальное отображение зафиксированных авансов
-            document.querySelectorAll('#monthlyReportTable tbody tr').forEach(row => {
-                const employeeId = row.dataset.employeeId;
-                const finalCalc = finalCalcMap.get(employeeId);
-                if (finalCalc && finalCalc.advance_payment > 0) {
-                    const advanceCell = row.querySelector('.advance-payment');
-                    if (advanceCell) {
-                        // Проверяем, зафиксирован ли аванс (можно добавить дополнительное поле в БД)
-                        // Пока просто показываем, что аванс есть
-                        advanceCell.innerHTML = `<strong>${formatNumber(finalCalc.advance_payment)}</strong>`;
-                    }
-                }
-            });
-        }
     }
 }
 
