@@ -6,7 +6,7 @@ let fotReportDataCache = [];
 
 // --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
 const FIXED_CARD_PAYMENT = 8600;
-const ADVANCE_PERCENTAGE = 0.9;
+const ADVANCE_PERCENTAGE = 7900;
 const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
 const ADVANCE_PERIOD_DAYS = 15;
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
@@ -443,7 +443,8 @@ function exportMonthlyReportToExcel() {
         
         // Расчеты
         const totalGross = basePay + manualBonus;
-        const totalAfterDeductions = totalGross - penalty - shortage;
+        const totalDeductions = penalty + shortage;
+        const totalAfterDeductions = totalGross - totalDeductions;
         
         // Проверяем фиксацию аванса
         const advanceCell = row.querySelector('.advance-payment');
@@ -453,7 +454,7 @@ function exportMonthlyReportToExcel() {
         // Остаток на карту
         const cardRemainder = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
         
-        // Наличные - проверяем есть ли внутри strong
+        // Наличные
         const cashPayoutCell = row.querySelector('.cash-payout');
         let cashAmount = 0;
         if (cashPayoutCell) {
@@ -468,6 +469,22 @@ function exportMonthlyReportToExcel() {
         // Общая сумма на карту
         const totalCardPayment = advanceAmount + cardRemainder;
         
+        // ДОБАВЛЯЕМ ПРОВЕРКУ ЛОГИКИ
+        const maxCardPayment = 8600;
+        const maxAdvance = 7900;
+        
+        // Проверки корректности
+        let validationErrors = [];
+        if (advanceAmount > maxAdvance) {
+            validationErrors.push(`Аванс ${advanceAmount} > ${maxAdvance}`);
+        }
+        if (totalCardPayment > maxCardPayment) {
+            validationErrors.push(`Карта ${totalCardPayment} > ${maxCardPayment}`);
+        }
+        if (Math.abs((totalCardPayment + cashAmount) - totalAfterDeductions) > 0.01) {
+            validationErrors.push('Сумма не сходится');
+        }
+        
         // Создаем объект с данными для экспорта
         const rowData = {
             'Сотрудник': row.dataset.employeeName || '',
@@ -480,15 +497,16 @@ function exportMonthlyReportToExcel() {
             'Депремирование': penalty,
             'Причина депремирования': row.querySelector('[name="penalty_reason"]')?.value || '',
             'Вычет за недостачу': shortage,
-            'Всего вычетов': penalty + shortage,
+            'Всего вычетов': totalDeductions,
             'К выплате после вычетов': totalAfterDeductions,
             'Аванс (на карту)': advanceAmount,
             'Статус аванса': isAdvanceFixed ? '🔒 ЗАФИКСИРОВАН' : 'Расчетный',
             'Остаток (на карту)': cardRemainder,
             'ИТОГО на карту': totalCardPayment,
+            'Лимит карты': totalCardPayment >= maxCardPayment ? `✓ Достигнут (${maxCardPayment})` : `${totalCardPayment}/${maxCardPayment}`,
             'Зарплата (наличными)': cashAmount,
             'ИТОГО к выплате': totalAfterDeductions,
-            'Проверка расчета': Math.abs((totalCardPayment + cashAmount) - totalAfterDeductions) < 0.01 ? '✓' : '❌ ОШИБКА',
+            'Проверка расчета': validationErrors.length === 0 ? '✓' : `❌ ${validationErrors.join(', ')}`,
             'Рабочие дни': JSON.parse(row.dataset.shifts || '[]').join(', ')
         };
         
@@ -525,22 +543,25 @@ function exportMonthlyReportToExcel() {
         { wch: 18 }, // Статус аванса
         { wch: 14 }, // Остаток на карту
         { wch: 14 }, // ИТОГО на карту
+        { wch: 18 }, // Лимит карты
         { wch: 15 }, // Наличными
         { wch: 15 }, // ИТОГО к выплате
-        { wch: 15 }, // Проверка
+        { wch: 20 }, // Проверка
         { wch: 20 }  // Рабочие дни
     ];
     
     XLSX.utils.book_append_sheet(wb, ws, "Детальный отчет");
     
-    // ЛИСТ 2: Сводка по выплатам
+    // ЛИСТ 2: Сводка по выплатам (ОБНОВЛЕНО)
     const paymentSummary = [];
     let totalAdvance = 0;
     let totalCardRemainder = 0;
     let totalCash = 0;
     let totalCardPayments = 0;
     let employeesWithMaxCard = 0;
+    let employeesWithMaxAdvance = 0;
     let employeesWithCardRemainder = 0;
+    let employeesWithCash = 0;
     
     exportData.forEach(row => {
         totalAdvance += row['Аванс (на карту)'];
@@ -549,7 +570,9 @@ function exportMonthlyReportToExcel() {
         totalCardPayments += row['ИТОГО на карту'];
         
         if (row['ИТОГО на карту'] >= 8600) employeesWithMaxCard++;
+        if (row['Аванс (на карту)'] >= 7900) employeesWithMaxAdvance++;
         if (row['Остаток (на карту)'] > 0) employeesWithCardRemainder++;
+        if (row['Зарплата (наличными)'] > 0) employeesWithCash++;
     });
     
     paymentSummary.push(
@@ -560,6 +583,7 @@ function exportMonthlyReportToExcel() {
         { 'Показатель': 'Статус авансов', 'Значение': advanceFixedInfo ? '🔒 ЗАФИКСИРОВАНЫ' : 'Расчетные' },
         { 'Показатель': 'Общая сумма авансов', 'Значение': totalAdvance.toFixed(2) + ' грн' },
         { 'Показатель': 'Средний аванс', 'Значение': exportData.length > 0 ? (totalAdvance / exportData.length).toFixed(2) + ' грн' : '0.00 грн' },
+        { 'Показатель': 'Сотрудников с максимальным авансом (7900)', 'Значение': employeesWithMaxAdvance },
         { 'Показатель': '═══════════════════════', 'Значение': '═══════════════════════' },
         { 'Показатель': 'ОСТАТОК НА КАРТУ', 'Значение': '' },
         { 'Показатель': 'Сотрудников с остатком на карту', 'Значение': employeesWithCardRemainder },
@@ -569,31 +593,64 @@ function exportMonthlyReportToExcel() {
         { 'Показатель': 'Всего на карты (аванс + остаток)', 'Значение': totalCardPayments.toFixed(2) + ' грн' },
         { 'Показатель': 'Сотрудников с максимальной картой (8600)', 'Значение': employeesWithMaxCard },
         { 'Показатель': 'Всего наличными', 'Значение': totalCash.toFixed(2) + ' грн' },
-        { 'Показатель': 'ИТОГО ВСЕ ВЫПЛАТЫ', 'Значение': (totalCardPayments + totalCash).toFixed(2) + ' грн' }
+        { 'Показатель': 'Сотрудников получают наличными', 'Значение': employeesWithCash },
+        { 'Показатель': 'ИТОГО ВСЕ ВЫПЛАТЫ', 'Значение': (totalCardPayments + totalCash).toFixed(2) + ' грн' },
+        { 'Показатель': '═══════════════════════', 'Значение': '═══════════════════════' },
+        { 'Показатель': 'ЛИМИТЫ', 'Значение': '' },
+        { 'Показатель': 'Максимум на карту за месяц', 'Значение': '8600 грн' },
+        { 'Показатель': 'Максимум аванса', 'Значение': '7900 грн' }
     );
     
     const ws2 = XLSX.utils.json_to_sheet(paymentSummary);
-    ws2['!cols'] = [{ wch: 40 }, { wch: 25 }];
+    ws2['!cols'] = [{ wch: 45 }, { wch: 25 }];
     XLSX.utils.book_append_sheet(wb, ws2, "Сводка по выплатам");
     
-    // ЛИСТ 3: Проверочный лист (для бухгалтерии)
+    // ЛИСТ 3: Проверочный лист (ОБНОВЛЕНО)
     const verificationData = exportData.map(row => ({
         'Сотрудник': row['Сотрудник'],
         'Начислено': row['Всего начислено'],
         'Вычеты': row['Всего вычетов'],
         'К выплате': row['К выплате после вычетов'],
-        'На карту': row['ИТОГО на карту'],
+        'Аванс': row['Аванс (на карту)'],
+        'Остаток на карту': row['Остаток (на карту)'],
+        'На карту всего': row['ИТОГО на карту'],
         'Наличными': row['Зарплата (наличными)'],
-        'Сумма сходится': row['Проверка расчета'],
-        'Карта = лимит?': row['ИТОГО на карту'] >= 8600 ? 'ДА (8600)' : `НЕТ (${row['ИТОГО на карту']})`
+        'Проверка суммы': row['Проверка расчета'],
+        'Лимит карты': row['ИТОГО на карту'] <= 8600 ? `✓ (${row['ИТОГО на карту']}/8600)` : `❌ ПРЕВЫШЕН (${row['ИТОГО на карту']})`
     }));
     
     const ws3 = XLSX.utils.json_to_sheet(verificationData);
     ws3['!cols'] = [
         { wch: 25 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
-        { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }
+        { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 12 },
+        { wch: 15 }, { wch: 20 }
     ];
     XLSX.utils.book_append_sheet(wb, ws3, "Проверка расчетов");
+    
+    // ЛИСТ 4: Детализация по дням (если нужно)
+    const dailyBreakdown = [];
+    const shiftsData = {};
+    
+    exportData.forEach(row => {
+        const days = row['Рабочие дни'].split(', ');
+        days.forEach(day => {
+            if (!shiftsData[day]) shiftsData[day] = 0;
+            shiftsData[day]++;
+        });
+    });
+    
+    Object.keys(shiftsData).sort((a, b) => parseInt(a) - parseInt(b)).forEach(day => {
+        dailyBreakdown.push({
+            'День месяца': day,
+            'Количество сотрудников': shiftsData[day]
+        });
+    });
+    
+    if (dailyBreakdown.length > 0) {
+        const ws4 = XLSX.utils.json_to_sheet(dailyBreakdown);
+        ws4['!cols'] = [{ wch: 15 }, { wch: 20 }];
+        XLSX.utils.book_append_sheet(wb, ws4, "Рабочие дни");
+    }
     
     // Сохраняем файл
     const fileName = `Отчет_${monthNames[month - 1]}_${year}_полный${advanceFixedInfo ? '_аванс_зафиксирован' : ''}.xlsx`;
@@ -601,6 +658,7 @@ function exportMonthlyReportToExcel() {
     
     showStatus('reportStatus', `✅ Экспорт выполнен: ${fileName}`, 'success');
 }
+
 
 
 
