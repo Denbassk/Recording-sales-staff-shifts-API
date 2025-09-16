@@ -414,7 +414,6 @@ function exportMonthlyReportToExcel() {
     let advanceFixedInfo = '';
     const advanceNotice = document.getElementById('advance-fixed-notice');
     if (advanceNotice) {
-        // Извлекаем информацию о фиксации из панели
         const noticeText = advanceNotice.textContent;
         const dateMatch = noticeText.match(/Дата выплаты: ([\d-]+)/);
         const countMatch = noticeText.match(/Сотрудников: (\d+)/);
@@ -427,7 +426,7 @@ function exportMonthlyReportToExcel() {
         }
     }
 
-    // Собираем данные из таблицы
+    // Собираем данные из таблицы с ПРАВИЛЬНЫМИ РАСЧЕТАМИ
     const exportData = [];
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
                        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
@@ -435,27 +434,48 @@ function exportMonthlyReportToExcel() {
     tableRows.forEach(row => {
         if (row.classList.contains('summary-row')) return;
         
-        // Проверяем, зафиксирован ли аванс для сотрудника
+        // Получаем все значения
+        const basePay = parseFloat(row.dataset.basePay) || 0;
+        const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
+        const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+        const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+        
+        // Расчеты
+        const totalGross = basePay + manualBonus; // Всего начислено
+        const totalAfterDeductions = totalGross - penalty - shortage; // После вычетов
+        
+        // Проверяем фиксацию аванса
         const advanceCell = row.querySelector('.advance-payment');
         const isAdvanceFixed = advanceCell && advanceCell.innerHTML.includes('🔒');
         const advanceAmount = parseFloat(advanceCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        
+        // Остаток на карту и наличные
+        const cardRemainder = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        const cashAmount = parseFloat(row.querySelector('.cash-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        
+        // Общая сумма на карту
+        const totalCardPayment = advanceAmount + cardRemainder;
         
         const rowData = {
             'Сотрудник': row.dataset.employeeName || '',
             'Магазин': row.dataset.storeAddress || '',
             'Месяц': `${monthNames[month - 1]} ${year}`,
-            'Всего начислено (база)': parseFloat(row.dataset.basePay) || 0,
-            'Премирование': parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0,
+            'База начислений': basePay,
+            'Премирование': manualBonus,
             'Причина премии': row.querySelector('[name="bonus_reason"]')?.value || '',
-            'Депремирование': parseFloat(row.querySelector('[name="penalty"]')?.value) || 0,
+            'Всего начислено': totalGross,
+            'Депремирование': penalty,
             'Причина депремирования': row.querySelector('[name="penalty_reason"]')?.value || '',
-            'Вычет за недостачу': parseFloat(row.querySelector('[name="shortage"]')?.value) || 0,
-            'Всего начислено': parseFloat(row.querySelector('.total-gross')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
+            'Вычет за недостачу': shortage,
+            'Всего вычетов': penalty + shortage,
+            'К выплате после вычетов': totalAfterDeductions,
             'Аванс (на карту)': advanceAmount,
             'Статус аванса': isAdvanceFixed ? '🔒 ЗАФИКСИРОВАН' : 'Расчетный',
-            'Остаток (на карту)': parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
-            'Зарплата (наличными)': parseFloat(row.querySelector('.cash-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
-            'Итого к выплате': parseFloat(row.querySelector('.total-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
+            'Остаток (на карту)': cardRemainder,
+            'ИТОГО на карту': totalCardPayment,
+            'Зарплата (наличными)': cashAmount,
+            'ИТОГО к выплате': totalAfterDeductions,
+            'Проверка расчета': (totalCardPayment + cashAmount === totalAfterDeductions) ? '✓' : '❌ ОШИБКА',
             'Рабочие дни': JSON.parse(row.dataset.shifts || '[]').join(', ')
         };
         
@@ -465,7 +485,7 @@ function exportMonthlyReportToExcel() {
     // Создаем рабочую книгу
     const wb = XLSX.utils.book_new();
     
-    // ЛИСТ 1: Основные данные с пометкой о фиксации
+    // ЛИСТ 1: Детальный отчет
     const ws = XLSX.utils.json_to_sheet(exportData);
     
     // Настраиваем ширину колонок
@@ -473,164 +493,114 @@ function exportMonthlyReportToExcel() {
         { wch: 25 }, // Сотрудник
         { wch: 20 }, // Магазин
         { wch: 15 }, // Месяц
-        { wch: 15 }, // Всего начислено (база)
+        { wch: 12 }, // База
         { wch: 12 }, // Премирование
         { wch: 20 }, // Причина премии
-        { wch: 15 }, // Депремирование
+        { wch: 14 }, // Всего начислено
+        { wch: 14 }, // Депремирование
         { wch: 20 }, // Причина депремирования
-        { wch: 15 }, // Вычет за недостачу
-        { wch: 15 }, // Всего начислено
-        { wch: 15 }, // Аванс
-        { wch: 18 }, // Статус аванса (НОВОЕ!)
-        { wch: 15 }, // Остаток
+        { wch: 14 }, // Вычет за недостачу
+        { wch: 12 }, // Всего вычетов
+        { wch: 18 }, // К выплате после вычетов
+        { wch: 14 }, // Аванс
+        { wch: 18 }, // Статус аванса
+        { wch: 14 }, // Остаток на карту
+        { wch: 14 }, // ИТОГО на карту
         { wch: 15 }, // Наличными
-        { wch: 15 }, // Итого к выплате
+        { wch: 15 }, // ИТОГО к выплате
+        { wch: 15 }, // Проверка
         { wch: 20 }  // Рабочие дни
     ];
     
-    // Добавляем информацию о фиксации в начало листа, если есть
-    if (advanceFixedInfo) {
-        // Сдвигаем все данные на 2 строки вниз
-        const newWs = {};
-        
-        // Добавляем заголовок о фиксации
-        newWs['A1'] = { v: '⚠️ ' + advanceFixedInfo, 
-                        s: { font: { bold: true, color: { rgb: "FF0000" } }, 
-                             fill: { fgColor: { rgb: "FFFF00" } } } };
-        
-        // Объединяем ячейки для заголовка
-        newWs['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 15 } }];
-        
-        // Копируем существующие данные со сдвигом
-        const range = XLSX.utils.decode_range(ws['!ref']);
-        for (let R = range.s.r; R <= range.e.r; ++R) {
-            for (let C = range.s.c; C <= range.e.c; ++C) {
-                const cell_address = { c: C, r: R };
-                const cell_ref = XLSX.utils.encode_cell(cell_address);
-                const new_cell_address = { c: C, r: R + 2 };
-                const new_cell_ref = XLSX.utils.encode_cell(new_cell_address);
-                if (ws[cell_ref]) {
-                    newWs[new_cell_ref] = ws[cell_ref];
-                }
-            }
+    // Добавляем условное форматирование для выделения важных колонок
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+        // Выделяем колонку "Остаток на карту" если > 0
+        const cardRemainderCell = XLSX.utils.encode_cell({r: R, c: 14});
+        if (ws[cardRemainderCell] && ws[cardRemainderCell].v > 0) {
+            if (!ws[cardRemainderCell].s) ws[cardRemainderCell].s = {};
+            ws[cardRemainderCell].s.font = { bold: true, color: { rgb: "008000" } };
+            ws[cardRemainderCell].s.fill = { fgColor: { rgb: "E8F5E9" } };
         }
         
-        // Обновляем диапазон
-        newWs['!ref'] = XLSX.utils.encode_range({
-            s: { c: 0, r: 0 },
-            e: { c: range.e.c, r: range.e.r + 2 }
-        });
-        newWs['!cols'] = ws['!cols'];
-        
-        XLSX.utils.book_append_sheet(wb, newWs, "Отчет за месяц");
-    } else {
-        XLSX.utils.book_append_sheet(wb, ws, "Отчет за месяц");
+        // Выделяем колонку "ИТОГО на карту" если = 8600
+        const totalCardCell = XLSX.utils.encode_cell({r: R, c: 15});
+        if (ws[totalCardCell] && ws[totalCardCell].v >= 8600) {
+            if (!ws[totalCardCell].s) ws[totalCardCell].s = {};
+            ws[totalCardCell].s.font = { bold: true, color: { rgb: "FF6600" } };
+            ws[totalCardCell].s.fill = { fgColor: { rgb: "FFF3E0" } };
+        }
     }
     
-    // ЛИСТ 2: Сводка по магазинам
-    const summaryData = [];
-    const storeGroups = {};
-    let totalFixedAdvance = 0;
-    let totalCalculatedAdvance = 0;
+    XLSX.utils.book_append_sheet(wb, ws, "Детальный отчет");
+    
+    // ЛИСТ 2: Сводка по выплатам
+    const paymentSummary = [];
+    let totalAdvance = 0;
+    let totalCardRemainder = 0;
+    let totalCash = 0;
+    let totalCardPayments = 0;
+    let employeesWithMaxCard = 0;
+    let employeesWithCardRemainder = 0;
     
     exportData.forEach(row => {
-        const store = row['Магазин'];
-        if (!storeGroups[store]) {
-            storeGroups[store] = {
-                employees: 0,
-                totalBase: 0,
-                totalBonus: 0,
-                totalPenalty: 0,
-                totalShortage: 0,
-                totalGross: 0,
-                totalAdvance: 0,
-                fixedAdvanceCount: 0,
-                totalRemainder: 0,
-                totalCash: 0,
-                totalPayout: 0
-            };
-        }
+        totalAdvance += row['Аванс (на карту)'];
+        totalCardRemainder += row['Остаток (на карту)'];
+        totalCash += row['Зарплата (наличными)'];
+        totalCardPayments += row['ИТОГО на карту'];
         
-        storeGroups[store].employees++;
-        storeGroups[store].totalBase += row['Всего начислено (база)'];
-        storeGroups[store].totalBonus += row['Премирование'];
-        storeGroups[store].totalPenalty += row['Депремирование'];
-        storeGroups[store].totalShortage += row['Вычет за недостачу'];
-        storeGroups[store].totalGross += row['Всего начислено'];
-        storeGroups[store].totalAdvance += row['Аванс (на карту)'];
-        if (row['Статус аванса'].includes('ЗАФИКСИРОВАН')) {
-            storeGroups[store].fixedAdvanceCount++;
-            totalFixedAdvance += row['Аванс (на карту)'];
-        } else {
-            totalCalculatedAdvance += row['Аванс (на карту)'];
-        }
-        storeGroups[store].totalRemainder += row['Остаток (на карту)'];
-        storeGroups[store].totalCash += row['Зарплата (наличными)'];
-        storeGroups[store].totalPayout += row['Итого к выплате'];
+        if (row['ИТОГО на карту'] >= 8600) employeesWithMaxCard++;
+        if (row['Остаток (на карту)'] > 0) employeesWithCardRemainder++;
     });
     
-    Object.entries(storeGroups).forEach(([store, data]) => {
-        summaryData.push({
-            'Магазин': store,
-            'Кол-во сотрудников': data.employees,
-            'Из них с зафикс. авансом': data.fixedAdvanceCount,
-            'Начислено (база)': data.totalBase,
-            'Премии': data.totalBonus,
-            'Штрафы': data.totalPenalty,
-            'Недостачи': data.totalShortage,
-            'Всего начислено': data.totalGross,
-            'Выплачено авансом': data.totalAdvance,
-            'Выплачено остаток': data.totalRemainder,
-            'Выплачено наличными': data.totalCash,
-            'Итого выплачено': data.totalPayout
-        });
-    });
+    paymentSummary.push(
+        { 'Показатель': 'Период', 'Значение': `${monthNames[month - 1]} ${year}` },
+        { 'Показатель': 'Всего сотрудников', 'Значение': exportData.length },
+        { 'Показатель': '═══════════════════════', 'Значение': '═══════════════════════' },
+        { 'Показатель': 'АВАНСОВЫЕ ВЫПЛАТЫ', 'Значение': '' },
+        { 'Показатель': 'Статус авансов', 'Значение': advanceFixedInfo ? '🔒 ЗАФИКСИРОВАНЫ' : 'Расчетные' },
+        { 'Показатель': 'Общая сумма авансов', 'Значение': totalAdvance.toFixed(2) + ' грн' },
+        { 'Показатель': 'Средний аванс', 'Значение': (totalAdvance / exportData.length).toFixed(2) + ' грн' },
+        { 'Показатель': '═══════════════════════', 'Значение': '═══════════════════════' },
+        { 'Показатель': 'ОСТАТОК НА КАРТУ', 'Значение': '' },
+        { 'Показатель': 'Сотрудников с остатком на карту', 'Значение': employeesWithCardRemainder },
+        { 'Показатель': 'Общая сумма остатков на карту', 'Значение': totalCardRemainder.toFixed(2) + ' грн' },
+        { 'Показатель': '═══════════════════════', 'Значение': '═══════════════════════' },
+        { 'Показатель': 'ИТОГОВЫЕ ВЫПЛАТЫ', 'Значение': '' },
+        { 'Показатель': 'Всего на карты (аванс + остаток)', 'Значение': totalCardPayments.toFixed(2) + ' грн' },
+        { 'Показатель': 'Сотрудников с максимальной картой (8600)', 'Значение': employeesWithMaxCard },
+        { 'Показатель': 'Всего наличными', 'Значение': totalCash.toFixed(2) + ' грн' },
+        { 'Показатель': 'ИТОГО ВСЕ ВЫПЛАТЫ', 'Значение': (totalCardPayments + totalCash).toFixed(2) + ' грн' }
+    );
     
-    // Добавляем итоговую строку
-    summaryData.push({
-        'Магазин': 'ИТОГО:',
-        'Кол-во сотрудников': exportData.length,
-        'Из них с зафикс. авансом': exportData.filter(r => r['Статус аванса'].includes('ЗАФИКСИРОВАН')).length,
-        'Начислено (база)': exportData.reduce((sum, r) => sum + r['Всего начислено (база)'], 0),
-        'Премии': exportData.reduce((sum, r) => sum + r['Премирование'], 0),
-        'Штрафы': exportData.reduce((sum, r) => sum + r['Депремирование'], 0),
-        'Недостачи': exportData.reduce((sum, r) => sum + r['Вычет за недостачу'], 0),
-        'Всего начислено': exportData.reduce((sum, r) => sum + r['Всего начислено'], 0),
-        'Выплачено авансом': exportData.reduce((sum, r) => sum + r['Аванс (на карту)'], 0),
-        'Выплачено остаток': exportData.reduce((sum, r) => sum + r['Остаток (на карту)'], 0),
-        'Выплачено наличными': exportData.reduce((sum, r) => sum + r['Зарплата (наличными)'], 0),
-        'Итого выплачено': exportData.reduce((sum, r) => sum + r['Итого к выплате'], 0)
-    });
+    const ws2 = XLSX.utils.json_to_sheet(paymentSummary);
+    ws2['!cols'] = [{ wch: 40 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Сводка по выплатам");
     
-    if (summaryData.length > 0) {
-        const ws2 = XLSX.utils.json_to_sheet(summaryData);
-        ws2['!cols'] = [
-            { wch: 20 }, { wch: 12 }, { wch: 18 }, { wch: 15 }, { wch: 12 },
-            { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
-            { wch: 15 }, { wch: 18 }, { wch: 15 }
-        ];
-        XLSX.utils.book_append_sheet(wb, ws2, "Сводка по магазинам");
-    }
+    // ЛИСТ 3: Проверочный лист (для бухгалтерии)
+    const verificationData = exportData.map(row => ({
+        'Сотрудник': row['Сотрудник'],
+        'Начислено': row['Всего начислено'],
+        'Вычеты': row['Всего вычетов'],
+        'К выплате': row['К выплате после вычетов'],
+        'На карту': row['ИТОГО на карту'],
+        'Наличными': row['Зарплата (наличными)'],
+        'Сумма сходится': row['Проверка расчета'],
+        'Карта = лимит?': row['ИТОГО на карту'] >= 8600 ? 'ДА (8600)' : `НЕТ (${row['ИТОГО на карту']})`
+    }));
     
-    // ЛИСТ 3: Информация о фиксации (если есть)
-    if (advanceFixedInfo) {
-        const fixedInfoData = [
-            { 'Параметр': 'Статус аванса', 'Значение': '🔒 ЗАФИКСИРОВАН' },
-            { 'Параметр': 'Дата фиксации', 'Значение': new Date().toLocaleDateString('ru-RU') },
-            { 'Параметр': 'Месяц расчета', 'Значение': `${monthNames[month - 1]} ${year}` },
-            { 'Параметр': 'Сотрудников с зафикс. авансом', 'Значение': exportData.filter(r => r['Статус аванса'].includes('ЗАФИКСИРОВАН')).length },
-            { 'Параметр': 'Сумма зафикс. авансов', 'Значение': totalFixedAdvance.toFixed(2) + ' грн' },
-            { 'Параметр': 'Сумма расчетных авансов', 'Значение': totalCalculatedAdvance.toFixed(2) + ' грн' }
-        ];
-        
-        const ws3 = XLSX.utils.json_to_sheet(fixedInfoData);
-        ws3['!cols'] = [{ wch: 30 }, { wch: 30 }];
-        XLSX.utils.book_append_sheet(wb, ws3, "Информация о фиксации");
-    }
+    const ws3 = XLSX.utils.json_to_sheet(verificationData);
+    ws3['!cols'] = [
+        { wch: 25 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+        { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 15 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws3, "Проверка расчетов");
     
     // Сохраняем файл
-    const fileName = `Отчет_за_${monthNames[month - 1]}_${year}${advanceFixedInfo ? '_с_фиксированным_авансом' : ''}.xlsx`;
+    const fileName = `Отчет_${monthNames[month - 1]}_${year}_полный${advanceFixedInfo ? '_аванс_зафиксирован' : ''}.xlsx`;
     XLSX.writeFile(wb, fileName);
+    
+    showStatus('reportStatus', `✅ Экспорт выполнен: ${fileName}`, 'success');
 }
 
 
@@ -1446,10 +1416,12 @@ async function calculateFinalPayroll() {
     if (!year || !month || !reportEndDate) return;
 
     try {
+        // Сохраняем все корректировки перед расчетом
         const savePromises = [];
         tableRows.forEach(row => savePromises.push(saveAdjustments(row)));
         await Promise.all(savePromises);
 
+        // Отправляем запрос на сервер для финального расчета
         const data = await fetchData(
             `${API_BASE}/calculate-final-payroll`,
             {
@@ -1465,21 +1437,112 @@ async function calculateFinalPayroll() {
             tableRows.forEach(row => {
                 const employeeId = row.dataset.employeeId;
                 const result = data.results[employeeId];
+                
                 if (result) {
-                    row.querySelector('.total-gross').textContent = formatNumber(result.total_gross);
-                    row.querySelector('.advance-payment').textContent = formatNumber(result.advance_payment);
-                    row.querySelector('.card-remainder').textContent = formatNumber(result.card_remainder);
-                    row.querySelector('.cash-payout strong').textContent = formatNumber(result.cash_payout);
+                    // Обновляем отображение всех полей
+                    const totalGrossCell = row.querySelector('.total-gross');
+                    if (totalGrossCell) {
+                        totalGrossCell.textContent = formatNumber(result.total_gross);
+                    }
+                    
+                    const advanceCell = row.querySelector('.advance-payment');
+                    if (advanceCell) {
+                        advanceCell.textContent = formatNumber(result.advance_payment);
+                        // Сохраняем индикацию фиксации если была
+                        if (advanceCell.innerHTML.includes('🔒')) {
+                            advanceCell.innerHTML = `<strong style="color: #f5576c;">🔒 ${formatNumber(result.advance_payment)}</strong>`;
+                        }
+                    }
+                    
+                    const cardRemainderCell = row.querySelector('.card-remainder');
+                    if (cardRemainderCell) {
+                        cardRemainderCell.textContent = formatNumber(result.card_remainder);
+                        // Визуальная индикация если остаток на карту > 0
+                        if (result.card_remainder > 0) {
+                            cardRemainderCell.style.fontWeight = 'bold';
+                            cardRemainderCell.style.color = '#28a745'; // Зеленый цвет
+                            cardRemainderCell.title = `Остаток к выплате на карту: ${formatNumber(result.card_remainder)} грн`;
+                        } else {
+                            cardRemainderCell.style.fontWeight = 'normal';
+                            cardRemainderCell.style.color = '';
+                            cardRemainderCell.title = '';
+                        }
+                    }
+                    
+                    const cashPayoutCell = row.querySelector('.cash-payout strong');
+                    if (cashPayoutCell) {
+                        cashPayoutCell.textContent = formatNumber(result.cash_payout);
+                        // Подсветка если есть наличные к выплате
+                        if (result.cash_payout > 0) {
+                            cashPayoutCell.style.color = '#007bff'; // Синий цвет
+                        }
+                    }
 
-                    const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-                    const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
-                    const totalToPay = result.total_gross - penalty - shortage;
-                    row.querySelector('.total-payout strong').textContent = formatNumber(totalToPay);
+                    // Правильный расчет итоговой суммы к выплате
+                    const totalPayoutCell = row.querySelector('.total-payout strong');
+                    if (totalPayoutCell) {
+                        // Используем total_after_deductions если есть, иначе считаем сами
+                        let totalToPay = 0;
+                        if (result.total_after_deductions !== undefined) {
+                            totalToPay = result.total_after_deductions;
+                        } else {
+                            // Fallback расчет на случай если сервер не вернул это поле
+                            const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+                            const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+                            totalToPay = result.total_gross - penalty - shortage;
+                        }
+                        totalPayoutCell.textContent = formatNumber(totalToPay);
+                        
+                        // Проверка корректности расчета
+                        const calculatedTotal = result.advance_payment + result.card_remainder + result.cash_payout;
+                        const difference = Math.abs(calculatedTotal - totalToPay);
+                        
+                        if (difference > 0.01) { // Допускаем погрешность в 1 копейку
+                            console.warn(`Расхождение в расчете для ${employeeId}: итого ${totalToPay}, сумма частей ${calculatedTotal}`);
+                            totalPayoutCell.style.color = '#ff6b6b'; // Красный если есть расхождение
+                            totalPayoutCell.title = `Внимание: возможна ошибка в расчете! Проверьте суммы.`;
+                        } else {
+                            totalPayoutCell.style.color = '';
+                            totalPayoutCell.title = '';
+                        }
+                    }
+                    
+                    // Добавляем data-атрибуты для экспорта
+                    row.dataset.finalAdvance = result.advance_payment || 0;
+                    row.dataset.finalCardRemainder = result.card_remainder || 0;
+                    row.dataset.finalCash = result.cash_payout || 0;
+                    row.dataset.finalTotal = result.total_after_deductions || 0;
                 }
             });
-            showStatus('reportStatus', 'Окончательный расчет выполнен.', 'success');
+            
+            // Показываем сводную информацию
+            const totalEmployees = tableRows.length;
+            let totalAdvance = 0;
+            let totalCardRemainder = 0;
+            let totalCash = 0;
+            let employeesWithCardRemainder = 0;
+            
+            tableRows.forEach(row => {
+                const advance = parseFloat(row.dataset.finalAdvance) || 0;
+                const cardRemainder = parseFloat(row.dataset.finalCardRemainder) || 0;
+                const cash = parseFloat(row.dataset.finalCash) || 0;
+                
+                totalAdvance += advance;
+                totalCardRemainder += cardRemainder;
+                totalCash += cash;
+                
+                if (cardRemainder > 0) employeesWithCardRemainder++;
+            });
+            
+            const summaryMessage = `✅ Расчет выполнен для ${totalEmployees} сотрудников.\n` +
+                `💳 Остаток на карту у ${employeesWithCardRemainder} человек на сумму ${formatNumber(totalCardRemainder)} грн\n` +
+                `💵 Наличными: ${formatNumber(totalCash)} грн`;
+            
+            showStatus('reportStatus', summaryMessage, 'success');
         }
     } catch (error) {
+        console.error('Ошибка при окончательном расчете:', error);
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
 
