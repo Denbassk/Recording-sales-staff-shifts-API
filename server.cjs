@@ -916,75 +916,66 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
 });
 
 app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, res) => {
-    const { employee_id, month, year, adjusted_advance, adjustment_reason, payment_method } = req.body;
+    const { employee_id, month, year, advance_card, advance_cash, adjusted_advance, adjustment_reason, payment_method } = req.body;
     
     if (!employee_id || !month || !year || adjusted_advance === undefined || !adjustment_reason) {
         return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
     }
     
-    const advanceValidation = validateAmount(adjusted_advance, MAX_ADVANCE_AMOUNT, 'Аванс');
-    if (!advanceValidation.valid) return res.status(400).json({ success: false, error: advanceValidation.error });
+    // Валидация сумм
+    const cardAmount = parseFloat(advance_card) || 0;
+    const cashAmount = parseFloat(advance_cash) || 0;
+    const totalAmount = parseFloat(adjusted_advance) || (cardAmount + cashAmount);
     
-    const validPaymentMethods = ['card', 'cash'];
-    const finalPaymentMethod = validPaymentMethods.includes(payment_method) ? payment_method : 'card';
+    if (totalAmount > MAX_ADVANCE_AMOUNT) {
+        return res.status(400).json({ success: false, error: `Аванс не может превышать ${MAX_ADVANCE_AMOUNT} грн` });
+    }
     
     try {
-        // Сначала проверяем существование таблицы и создаем если нужно
-        const { error: tableCheckError } = await supabase
-            .from('final_payroll_calculations')
-            .select('id')
-            .limit(1);
-        
-        if (tableCheckError && tableCheckError.code === '42P01') {
-            // Таблица не существует, пропускаем
-            console.log('Таблица final_payroll_calculations не существует');
-        }
-        
-        // Подготавливаем данные для сохранения (без adjusted_by если поля нет)
+        // Сохраняем с разделением на карту и наличные
         const dataToSave = {
             employee_id: employee_id,
             month: parseInt(month),
             year: parseInt(year),
-            advance_payment: advanceValidation.value,
+            advance_payment: totalAmount,
+            advance_card: cardAmount,
+            advance_cash: cashAmount,
+            advance_payment_method: payment_method || (cashAmount > 0 && cardAmount > 0 ? 'mixed' : (cashAmount > 0 ? 'cash' : 'card')),
             is_manual_adjustment: true,
             adjustment_reason: adjustment_reason,
-            advance_payment_method: finalPaymentMethod,
+            adjusted_by: req.user.id,
             updated_at: new Date().toISOString()
         };
         
-        // Пробуем сохранить с adjusted_by
-        try {
-            dataToSave.adjusted_by = req.user.id;
-            const { error: upsertError } = await supabase
-                .from('final_payroll_calculations')
-                .upsert(dataToSave, { onConflict: 'employee_id,month,year' });
-            
-            if (upsertError) throw upsertError;
-        } catch (err) {
-            // Если ошибка с adjusted_by, сохраняем без него
-            console.log('Сохраняем без adjusted_by:', err.message);
-            delete dataToSave.adjusted_by;
-            
-            const { error: upsertError2 } = await supabase
-                .from('final_payroll_calculations')
-                .upsert(dataToSave, { onConflict: 'employee_id,month,year' });
-            
-            if (upsertError2) throw upsertError2;
-        }
+        const { error: upsertError } = await supabase
+            .from('final_payroll_calculations')
+            .upsert(dataToSave, { onConflict: 'employee_id,month,year' });
+        
+        if (upsertError) throw upsertError;
         
         await logFinancialOperation('manual_advance_adjustment', {
             employee_id,
             month,
             year,
-            adjusted_advance: advanceValidation.value,
+            advance_card: cardAmount,
+            advance_cash: cashAmount,
+            total_advance: totalAmount,
             adjustment_reason,
-            payment_method: finalPaymentMethod
+            payment_method: dataToSave.advance_payment_method
         }, req.user.id);
         
-        const methodText = finalPaymentMethod === 'cash' ? 'наличными' : 'на карту';
+        let methodText = '';
+        if (cardAmount > 0 && cashAmount > 0) {
+            methodText = `на карту: ${cardAmount} грн, наличными: ${cashAmount} грн`;
+        } else if (cashAmount > 0) {
+            methodText = `наличными: ${cashAmount} грн`;
+        } else {
+            methodText = `на карту: ${cardAmount} грн`;
+        }
+        
         res.json({ 
             success: true, 
-            message: `Аванс скорректирован на ${advanceValidation.value} грн (${methodText})` 
+            message: `Аванс скорректирован: ${methodText}` 
         });
         
     } catch (error) {
@@ -992,6 +983,7 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 app.get('/advance-adjustments-history', checkAuth, canManagePayroll, async (req, res) => {
     const { month, year } = req.query;

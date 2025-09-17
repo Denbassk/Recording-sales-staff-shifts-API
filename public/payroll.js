@@ -1652,143 +1652,183 @@ async function calculateAdvance15(silent = false) {
 
     // Функция ручной корректировки аванса
     async function adjustAdvanceManually(employeeId, employeeName) {
-        const year = document.getElementById('reportYear')?.value;
-        const month = document.getElementById('reportMonth')?.value;
-
-        if (!year || !month) {
-            showStatus('reportStatus', 'Сначала выберите период', 'error');
-            return;
-        }
-
-        const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
-        if (!row) return;
-
-        const advanceCellCard = row.querySelector('.advance-payment-card');
-        const advanceCellCash = row.querySelector('.advance-payment-cash');
-        const currentAdvanceCard = parseFloat(advanceCellCard?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-        const currentAdvanceCash = parseFloat(advanceCellCash?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-        const currentAdvance = currentAdvanceCard + currentAdvanceCash;
-
-        const newAdvanceStr = prompt(
-            `Корректировка аванса для ${employeeName}\n\n` +
-            `Текущий аванс: ${currentAdvance} грн\n` +
-            `(На карту: ${currentAdvanceCard} грн, Наличными: ${currentAdvanceCash} грн)\n` +
-            `Введите новую сумму аванса (0 для отмены аванса):\n` +
-            `Максимум: 7900 грн`,
-            currentAdvance
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    
+    if (!year || !month) {
+        showStatus('reportStatus', 'Сначала выберите период', 'error');
+        return;
+    }
+    
+    const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
+    if (!row) return;
+    
+    const advanceCellCard = row.querySelector('.advance-payment-card');
+    const advanceCellCash = row.querySelector('.advance-payment-cash');
+    const currentAdvanceCard = parseFloat(advanceCellCard?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+    const currentAdvanceCash = parseFloat(advanceCellCash?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+    const currentAdvanceTotal = currentAdvanceCard + currentAdvanceCash;
+    
+    // Новый диалог для разделения аванса
+    const totalAdvanceStr = prompt(
+        `Корректировка аванса для ${employeeName}\n\n` +
+        `Текущий аванс:\n` +
+        `• На карту: ${currentAdvanceCard} грн\n` +
+        `• Наличными: ${currentAdvanceCash} грн\n` +
+        `• Всего: ${currentAdvanceTotal} грн\n\n` +
+        `Введите ОБЩУЮ сумму аванса (максимум 7900 грн):`,
+        currentAdvanceTotal
+    );
+    
+    if (totalAdvanceStr === null) return;
+    
+    const totalAdvance = parseFloat(totalAdvanceStr);
+    if (isNaN(totalAdvance) || totalAdvance < 0) {
+        showStatus('reportStatus', 'Некорректная сумма', 'error');
+        return;
+    }
+    
+    if (totalAdvance > 7900) {
+        showStatus('reportStatus', 'Аванс не может превышать 7900 грн', 'error');
+        return;
+    }
+    
+    let advanceCard = 0;
+    let advanceCash = 0;
+    
+    if (totalAdvance > 0) {
+        // Спрашиваем способ выплаты
+        const paymentChoice = prompt(
+            `Как выплатить аванс ${totalAdvance} грн?\n\n` +
+            `1 - Всё на карту\n` +
+            `2 - Всё наличными\n` +
+            `3 - Разделить между картой и наличными\n\n` +
+            `Введите 1, 2 или 3:`,
+            '1'
         );
-
-        if (newAdvanceStr === null) return;
-
-        const newAdvance = parseFloat(newAdvanceStr);
-        if (isNaN(newAdvance) || newAdvance < 0) {
-            showStatus('reportStatus', 'Некорректная сумма', 'error');
-            return;
-        }
-
-        if (newAdvance > 7900) {
-            showStatus('reportStatus', 'Аванс не может превышать 7900 грн', 'error');
-            return;
-        }
-
-        // Улучшенный выбор способа выплаты
-        let paymentMethod = 'card';
-        if (newAdvance > 0) {
-            const choice = prompt(
-                `Выберите способ выплаты аванса:\n` +
-                `1 - На карту (безнал) 💳\n` +
-                `2 - Наличными 💵\n\n` +
-                `Введите 1 или 2:`,
-                '1'
+        
+        if (paymentChoice === null) return;
+        
+        if (paymentChoice === '1') {
+            advanceCard = totalAdvance;
+            advanceCash = 0;
+        } else if (paymentChoice === '2') {
+            advanceCard = 0;
+            advanceCash = totalAdvance;
+        } else if (paymentChoice === '3') {
+            // Разделение суммы
+            const cardAmountStr = prompt(
+                `Разделение аванса ${totalAdvance} грн\n\n` +
+                `Введите сумму НА КАРТУ (остальное будет наличными):`,
+                Math.min(totalAdvance, 7900)
             );
-
-            if (choice === null) return; // Пользователь отменил
-
-            if (choice === '2') {
-                paymentMethod = 'cash';
-            } else if (choice !== '1') {
-                showStatus('reportStatus', 'Некорректный выбор способа оплаты', 'error');
+            
+            if (cardAmountStr === null) return;
+            
+            advanceCard = parseFloat(cardAmountStr);
+            if (isNaN(advanceCard) || advanceCard < 0 || advanceCard > totalAdvance) {
+                showStatus('reportStatus', 'Некорректная сумма для карты', 'error');
                 return;
             }
-        }
-
-        const reason = prompt(
-            'Укажите причину корректировки:\n' +
-            `(например: "Больничный", "По заявлению сотрудника", "Выплата ${paymentMethod === 'cash' ? 'наличными' : 'на карту'} по просьбе")`
-        );
-
-        if (!reason) {
-            showStatus('reportStatus', 'Необходимо указать причину', 'error');
+            
+            advanceCash = totalAdvance - advanceCard;
+            
+            // Подтверждение разделения
+            const confirmSplit = confirm(
+                `Подтвердите разделение аванса:\n\n` +
+                `• На карту: ${advanceCard} грн\n` +
+                `• Наличными: ${advanceCash} грн\n` +
+                `• Всего: ${totalAdvance} грн\n\n` +
+                `Продолжить?`
+            );
+            
+            if (!confirmSplit) return;
+        } else {
+            showStatus('reportStatus', 'Некорректный выбор', 'error');
             return;
         }
-
-        showStatus('reportStatus', 'Сохраняем корректировку...', 'info');
-
-        try {
-            const response = await fetch(`${API_BASE}/adjust-advance-manually`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    employee_id: employeeId,
-                    month: parseInt(month),
-                    year: parseInt(year),
-                    adjusted_advance: newAdvance,
-                    adjustment_reason: reason,
-                    payment_method: paymentMethod
-                })
-            });
-
-            const result = await response.json();
-
-            if (result.success) {
-                showStatus('reportStatus', result.message, 'success');
-
-                // Обновляем отображение в таблице с учетом способа выплаты
-                const icon = paymentMethod === 'cash' ? '💵' : '💳';
-                const methodText = paymentMethod === 'cash' ? 'Наличные' : 'Карта';
-
-                // Обновляем правильную ячейку в зависимости от способа оплаты
-                if (paymentMethod === 'cash') {
-                    // Обнуляем карту, устанавливаем наличные
-                    advanceCellCard.innerHTML = `
-                    <span class="advance-card-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
-                        0
-                    </span>`;
-                    advanceCellCash.innerHTML = `
-                    <span class="advance-cash-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
-                        <span style="color: #28a745; font-weight: bold;" 
-                              title="Ручная корректировка: ${reason} (${methodText})">
-                            ${icon} ✏️ ${formatNumber(newAdvance)}
-                        </span>
-                    </span>`;
-                } else {
-                    // Обнуляем наличные, устанавливаем карту
-                    advanceCellCard.innerHTML = `
+    }
+    
+    const reason = prompt(
+        'Укажите причину корректировки:\n' +
+        `(например: "По заявлению сотрудника", "Частичная выплата")`
+    );
+    
+    if (!reason) {
+        showStatus('reportStatus', 'Необходимо указать причину', 'error');
+        return;
+    }
+    
+    showStatus('reportStatus', 'Сохраняем корректировку...', 'info');
+    
+    try {
+        const response = await fetch(`${API_BASE}/adjust-advance-manually`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                employee_id: employeeId,
+                month: parseInt(month),
+                year: parseInt(year),
+                advance_card: advanceCard,
+                advance_cash: advanceCash,
+                adjusted_advance: totalAdvance,
+                adjustment_reason: reason,
+                payment_method: advanceCash > 0 && advanceCard > 0 ? 'mixed' : (advanceCash > 0 ? 'cash' : 'card')
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('reportStatus', result.message, 'success');
+            
+            // Обновляем отображение в таблице
+            // Колонка "Аванс (на карту)"
+            if (advanceCard > 0) {
+                advanceCellCard.innerHTML = `
                     <span class="advance-card-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
                         <span style="color: #ff6b6b; font-weight: bold;" 
-                              title="Ручная корректировка: ${reason} (${methodText})">
-                            ${icon} ✏️ ${formatNumber(newAdvance)}
+                              title="Ручная корректировка: ${reason}">
+                            💳 ✏️ ${formatNumber(advanceCard)}
                         </span>
                     </span>`;
-                    advanceCellCash.innerHTML = `
+            } else {
+                advanceCellCard.innerHTML = `
+                    <span class="advance-card-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
+                        0
+                    </span>`;
+            }
+            
+            // Колонка "Аванс (наличные)"
+            if (advanceCash > 0) {
+                advanceCellCash.innerHTML = `
+                    <span class="advance-cash-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
+                        <span style="color: #28a745; font-weight: bold;" 
+                              title="Ручная корректировка: ${reason}">
+                            💵 ✏️ ${formatNumber(advanceCash)}
+                        </span>
+                    </span>`;
+            } else {
+                advanceCellCash.innerHTML = `
                     <span class="advance-cash-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
                         0
                     </span>`;
-                }
-
-                // Пересчитываем остальные поля через небольшую задержку
-                setTimeout(() => {
-                    recalculateRow(row);
-                }, 100);
-
-            } else {
-                showStatus('reportStatus', result.error || 'Ошибка при сохранении', 'error');
             }
-        } catch (error) {
-            showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+            
+            // Пересчитываем остальные поля
+            setTimeout(() => {
+                recalculateRow(row);
+            }, 100);
+            
+        } else {
+            showStatus('reportStatus', result.error || 'Ошибка при сохранении', 'error');
         }
+    } catch (error) {
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
+}
+
 
 
     async function showAdjustmentsHistory() {
