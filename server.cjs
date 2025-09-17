@@ -871,6 +871,52 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
     }
 });
 
+app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, adjusted_advance, adjustment_reason } = req.body;
+    
+    if (!employee_id || !month || !year || adjusted_advance === undefined || !adjustment_reason) {
+        return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    }
+    
+    const advanceValidation = validateAmount(adjusted_advance, MAX_ADVANCE_AMOUNT, 'Аванс');
+    if (!advanceValidation.valid) return res.status(400).json({ success: false, error: advanceValidation.error });
+    
+    try {
+        // Сохраняем корректировку в таблицу final_payroll_calculations
+        const { error: upsertError } = await supabase
+            .from('final_payroll_calculations')
+            .upsert({
+                employee_id: employee_id,
+                month: parseInt(month),
+                year: parseInt(year),
+                advance_payment: advanceValidation.value,
+                is_manual_adjustment: true,
+                adjustment_reason: adjustment_reason,
+                adjusted_by: req.user.id,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'employee_id,month,year' });
+        
+        if (upsertError) throw upsertError;
+        
+        await logFinancialOperation('manual_advance_adjustment', {
+            employee_id,
+            month,
+            year,
+            adjusted_advance: advanceValidation.value,
+            adjustment_reason
+        }, req.user.id);
+        
+        res.json({ 
+            success: true, 
+            message: `Аванс скорректирован на ${advanceValidation.value} грн` 
+        });
+        
+    } catch (error) {
+        console.error('Ошибка корректировки аванса:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, reportEndDate } = req.body;

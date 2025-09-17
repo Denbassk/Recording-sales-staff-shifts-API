@@ -1138,13 +1138,13 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
     
     // НОВОЕ: Проверяем роль пользователя для показа кнопок корректировки
-    let isAdmin = false;
+    let canAdjustAdvance = false;
     // Получаем роль из токена или другого источника
-    fetch(`${API_BASE}/check-auth`, { credentials: 'include' })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success && data.user && data.user.role === 'admin') {
-                isAdmin = true;
+     fetch(`${API_BASE}/check-auth`, { credentials: 'include' })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success && data.user && (data.user.role === 'admin' || data.user.role === 'accountant')) {
+            canAdjustAdvance = true;
                 // Добавляем кнопки корректировки после загрузки, если пользователь - админ
                 document.querySelectorAll('.advance-cell-content').forEach(cell => {
                     const employeeId = cell.dataset.employeeId;
