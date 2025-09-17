@@ -600,68 +600,7 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
 });
 
 
-app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
-    const { year, month, advanceEndDate } = req.body;
-    
-    if (!year || !month || !advanceEndDate) return res.status(400).json({ success: false, error: 'Не указана дата для расчета аванса' });
-    const dateValidation = validateDate(advanceEndDate);
-    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
-    
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-
-    try {
-        const { data: calculationsInPeriod, error } = await supabase.from('payroll_calculations')
-            .select('employee_id, total_pay').gte('work_date', startDate).lte('work_date', advanceEndDate);
-        if (error) throw error;
-
-        const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
-            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
-            return acc;
-        }, {});
-
-        // Проверяем, есть ли уже зафиксированный аванс за этот месяц
-        const { data: existingAdvances, error: advanceError } = await supabase
-            .from('payroll_payments')
-            .select('employee_id, amount')
-            .eq('payment_type', 'advance')
-            .eq('payment_period_month', month)
-            .eq('payment_period_year', year)
-            .eq('is_cancelled', false);
-        
-        if (advanceError) throw advanceError;
-        
-        const fixedAdvances = new Map();
-        if (existingAdvances) {
-            existingAdvances.forEach(adv => {
-                fixedAdvances.set(adv.employee_id, adv.amount);
-            });
-        }
-
-        const results = {};
-        for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
-            // Если аванс уже зафиксирован, возвращаем зафиксированную сумму
-            if (fixedAdvances.has(employeeId)) {
-                results[employeeId] = { 
-                    advance_payment: fixedAdvances.get(employeeId),
-                    is_fixed: true,
-                    calculated_advance: 0 // Покажем также, сколько было бы рассчитано
-                };
-            } else {
-                // ИСПРАВЛЕНО: Рассчитываем аванс БЕЗ процентов
-                let finalAdvance = Math.min(totalEarned, MAX_ADVANCE_AMOUNT);
-                finalAdvance = Math.floor(finalAdvance / 100) * 100;
-                results[employeeId] = { 
-                    advance_payment: finalAdvance,
-                    is_fixed: false
-                };
-            }
-        }
-        res.json({ success: true, results, hasFixedAdvances: fixedAdvances.size > 0 });
-    } catch (error) {
-        console.error('Ошибка расчета аванса:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
+undefined
 
 // --- НОВЫЙ ЭНДПОИНТ: Фиксация выплаты аванса ---
 app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
@@ -881,27 +820,52 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
     const advanceValidation = validateAmount(adjusted_advance, MAX_ADVANCE_AMOUNT, 'Аванс');
     if (!advanceValidation.valid) return res.status(400).json({ success: false, error: advanceValidation.error });
     
-    // Валидация способа оплаты
     const validPaymentMethods = ['card', 'cash'];
     const finalPaymentMethod = validPaymentMethods.includes(payment_method) ? payment_method : 'card';
     
     try {
-        // Сохраняем корректировку в таблицу final_payroll_calculations
-        const { error: upsertError } = await supabase
+        // Сначала проверяем существование таблицы и создаем если нужно
+        const { error: tableCheckError } = await supabase
             .from('final_payroll_calculations')
-            .upsert({
-                employee_id: employee_id,
-                month: parseInt(month),
-                year: parseInt(year),
-                advance_payment: advanceValidation.value,
-                is_manual_adjustment: true,
-                adjustment_reason: adjustment_reason,
-                advance_payment_method: finalPaymentMethod, // НОВОЕ: сохраняем способ выплаты
-                adjusted_by: req.user.id,
-                updated_at: new Date().toISOString()
-            }, { onConflict: 'employee_id,month,year' });
+            .select('id')
+            .limit(1);
         
-        if (upsertError) throw upsertError;
+        if (tableCheckError && tableCheckError.code === '42P01') {
+            // Таблица не существует, пропускаем
+            console.log('Таблица final_payroll_calculations не существует');
+        }
+        
+        // Подготавливаем данные для сохранения (без adjusted_by если поля нет)
+        const dataToSave = {
+            employee_id: employee_id,
+            month: parseInt(month),
+            year: parseInt(year),
+            advance_payment: advanceValidation.value,
+            is_manual_adjustment: true,
+            adjustment_reason: adjustment_reason,
+            advance_payment_method: finalPaymentMethod,
+            updated_at: new Date().toISOString()
+        };
+        
+        // Пробуем сохранить с adjusted_by
+        try {
+            dataToSave.adjusted_by = req.user.id;
+            const { error: upsertError } = await supabase
+                .from('final_payroll_calculations')
+                .upsert(dataToSave, { onConflict: 'employee_id,month,year' });
+            
+            if (upsertError) throw upsertError;
+        } catch (err) {
+            // Если ошибка с adjusted_by, сохраняем без него
+            console.log('Сохраняем без adjusted_by:', err.message);
+            delete dataToSave.adjusted_by;
+            
+            const { error: upsertError2 } = await supabase
+                .from('final_payroll_calculations')
+                .upsert(dataToSave, { onConflict: 'employee_id,month,year' });
+            
+            if (upsertError2) throw upsertError2;
+        }
         
         await logFinancialOperation('manual_advance_adjustment', {
             employee_id,

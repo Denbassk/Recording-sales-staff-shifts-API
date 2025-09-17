@@ -1456,6 +1456,7 @@ async function calculateAdvance15(silent = false) {
         
         if (data.success) {
             let hasFixedAdvances = false;
+            let hasManualAdjustments = false;
             
             // Сначала проверяем роль пользователя один раз
             const authResponse = await fetch(`${API_BASE}/check-auth`, { credentials: 'include' });
@@ -1471,12 +1472,20 @@ async function calculateAdvance15(silent = false) {
                 
                 if (advanceCell && result) {
                     let advanceContent = '';
+                    let icon = '';
                     
-                    // Формируем содержимое в зависимости от статуса
-                    if (result.is_fixed) {
-                        advanceContent = `<strong style="color: #f5576c;" title="Аванс зафиксирован">🔒 ${formatNumber(result.advance_payment)}</strong>`;
+                    // Определяем содержимое в зависимости от типа
+                    if (result.is_manual) {
+                        // Ручная корректировка
+                        hasManualAdjustments = true;
+                        icon = result.payment_method === 'cash' ? '💵' : '💳';
+                        advanceContent = `<span style="color: #ff6b6b; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}">${icon} ✏️ ${formatNumber(result.advance_payment)}</span>`;
+                    } else if (result.is_fixed) {
+                        // Зафиксированный аванс
                         hasFixedAdvances = true;
+                        advanceContent = `<strong style="color: #f5576c;" title="Аванс зафиксирован">🔒 ${formatNumber(result.advance_payment)}</strong>`;
                     } else {
+                        // Расчетный аванс
                         advanceContent = formatNumber(result.advance_payment);
                     }
                     
@@ -1503,7 +1512,11 @@ async function calculateAdvance15(silent = false) {
             });
 
             // Показываем соответствующее сообщение
-            if (hasFixedAdvances || data.hasFixedAdvances) {
+            if (hasManualAdjustments) {
+                if (!silent) {
+                    showStatus('reportStatus', '✅ Аванс рассчитан. Есть ручные корректировки авансов.', 'success');
+                }
+            } else if (hasFixedAdvances || data.hasFixedAdvances) {
                 if (!silent) {
                     showStatus('reportStatus', '✅ Аванс рассчитан. Используются зафиксированные выплаты.', 'success');
                 }
@@ -1514,20 +1527,42 @@ async function calculateAdvance15(silent = false) {
                     // Считаем общую сумму зафиксированных авансов
                     let totalFixedAmount = 0;
                     let fixedCount = 0;
+                    let manualCount = 0;
+                    let manualCashCount = 0;
+                    
                     tableRows.forEach(row => {
                         const advanceCell = row.querySelector('.advance-payment');
-                        if (advanceCell && advanceCell.innerHTML.includes('🔒')) {
+                        if (advanceCell) {
+                            const cellHTML = advanceCell.innerHTML;
                             const amount = parseFloat(advanceCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-                            totalFixedAmount += amount;
-                            fixedCount++;
+                            
+                            if (cellHTML.includes('🔒')) {
+                                totalFixedAmount += amount;
+                                fixedCount++;
+                            }
+                            if (cellHTML.includes('✏️') && cellHTML.includes('💵')) {
+                                manualCashCount++;
+                            }
+                            if (cellHTML.includes('✏️') && !cellHTML.includes('🔒')) {
+                                manualCount++;
+                            }
                         }
                     });
                     
+                    let noticeMessage = `<strong>🔒 Аванс зафиксирован!</strong><br>
+                        Сотрудников: ${fixedCount}<br>
+                        Общая сумма: ${formatNumber(totalFixedAmount)} грн`;
+                    
+                    if (manualCount > 0) {
+                        noticeMessage += `<br>✏️ Ручных корректировок: ${manualCount}`;
+                        if (manualCashCount > 0) {
+                            noticeMessage += ` (из них наличными: ${manualCashCount})`;
+                        }
+                    }
+                    
                     const noticeHtml = `
                         <div id="advance-fixed-notice" class="status success" style="margin: 15px 0;">
-                            <strong>🔒 Аванс зафиксирован!</strong><br>
-                            Сотрудников: ${fixedCount}<br>
-                            Общая сумма: ${formatNumber(totalFixedAmount)} грн
+                            ${noticeMessage}
                             <button onclick="cancelAdvancePayment()" class="danger" style="margin-left: 20px; padding: 5px 10px; font-size: 12px;">Отменить фиксацию</button>
                         </div>
                     `;
@@ -1544,6 +1579,7 @@ async function calculateAdvance15(silent = false) {
         }
     }
 }
+
 
 
 // Функция ручной корректировки аванса
