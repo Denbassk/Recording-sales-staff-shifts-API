@@ -1212,6 +1212,13 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                         🔒 ${formatNumber(advancePayment)}
                     </strong>`;
             } else if (finalCalc) {
+            } else if (finalCalc && finalCalc.is_fixed) {
+                // 2. Зафиксированный аванс (есть в payroll_payments)
+                advanceCellContent = `
+                    <strong style="color: #f5576c;" title="Аванс зафиксирован">
+                        🔒 ${formatNumber(advancePayment)}
+                    </strong>`;
+            } else if (finalCalc) {
                 // 3. Есть финальный расчет, но аванс не помечен как зафиксированный
                 advanceCellContent = `<strong>${formatNumber(advancePayment)}</strong>`;
             } else {
@@ -1221,7 +1228,22 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                         ${formatNumber(advancePayment)}
                     </span>`;
             }
-
+                // 2. Зафиксированный аванс (есть в payroll_payments)
+                advanceCellContent = `
+                    <strong style="color: #f5576c;" title="Аванс зафиксирован">
+                        🔒 ${formatNumber(advancePayment)}
+                    </strong>`;
+            // Определяем состояние аванса
+            if (isManualAdvance) {
+                // 1. Ручная корректировка (приоритет)
+                const adjustedByText = finalCalc.adjusted_by ? ` (${finalCalc.adjusted_by})` : '';
+                const paymentIcon = finalCalc.advance_payment_method === 'cash' ? '💵' : '💳';
+                const paymentMethodText = finalCalc.advance_payment_method === 'cash' ? 'Наличные' : 'Карта';
+                advanceCellContent = `
+                    <span style="color: #ff6b6b; font-weight: bold;" 
+                          title="Ручная корректировка: ${manualAdvanceReason}${adjustedByText} (${paymentMethodText})">
+                        ${paymentIcon} ✏️ ${formatNumber(advancePayment)}
+                    </span>`;
             } else if (finalCalc && finalCalc.is_fixed) {
                 // 2. Зафиксированный аванс (есть в payroll_payments)
                 advanceCellContent = `
@@ -1341,7 +1363,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
     } else if (finalCalcMap.size > 0) {
         console.log('Финальные расчеты загружены, пропускаем автоматический расчет аванса');
     }
-}  // ДОБАВЛЕНА ЗАКРЫВАЮЩАЯ СКОБКА ФУНКЦИИ
+}  // ЗАКРЫВАЮЩАЯ СКОБКА ФУНКЦИИ displayMonthlyReport
 
 function handleAdjustmentInput(e) {
     clearTimeout(adjustmentDebounceTimer);
