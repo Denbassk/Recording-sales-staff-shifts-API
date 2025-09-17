@@ -595,40 +595,54 @@
         }
 
         /* Закрепление первого столбца с фамилиями */
-        #monthlyReportTable {
-            position: relative;
-        }
-        
-        #monthlyReportTable tbody td:first-child {
-            position: sticky;
-            left: 0;
-            z-index: 5;
-            background: white;
-            border-right: 2px solid #dee2e6;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-        }
-        
-        #monthlyReportTable thead th:first-child {
-            position: sticky;
-            left: 0;
-            z-index: 15;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-        }
-        
-        /* Сохраняем фон при наведении */
-        #monthlyReportTable tbody tr:hover td:first-child {
-            background: rgba(102, 126, 234, 0.05);
-        }
-        
-        /* Для строк с финальными расчетами */
-        #monthlyReportTable tbody tr.has-final-calc td:first-child {
-            background-color: rgba(40, 167, 69, 0.05);
-        }
-        
-        #monthlyReportTable tbody tr.has-final-calc:hover td:first-child {
-            background-color: rgba(40, 167, 69, 0.1);
-        }
+#monthlyReportTable {
+    position: relative;
+}
+
+#monthlyReportTable tbody td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    background: white !important; /* Важно - непрозрачный белый фон */
+    border-right: 2px solid #dee2e6;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+}
+
+#monthlyReportTable thead th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 15;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; /* Важно - непрозрачный градиент */
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+}
+
+/* Сохраняем фон при наведении */
+#monthlyReportTable tbody tr:hover td:first-child {
+    background: rgba(102, 126, 234, 0.05) !important;
+}
+
+/* Для строк с финальными расчетами */
+#monthlyReportTable tbody tr.has-final-calc td:first-child {
+    background-color: rgba(40, 167, 69, 0.05) !important;
+}
+
+#monthlyReportTable tbody tr.has-final-calc:hover td:first-child {
+    background-color: rgba(40, 167, 69, 0.1) !important;
+}
+
+/* Добавляем белый фон для всех ячеек чтобы избежать прозрачности */
+#monthlyReportTable tbody td {
+    background: white;
+}
+
+#monthlyReportTable tbody tr:hover td {
+    background: rgba(102, 126, 234, 0.05);
+}
+
+#monthlyReportTable tbody tr.has-final-calc td {
+    background-color: rgba(40, 167, 69, 0.05);
+}
+
     </style>
     <style media="print">
         @page {
