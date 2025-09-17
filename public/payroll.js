@@ -1348,79 +1348,54 @@ let adjustmentDebounceTimer;
 
         tableHtml += `</tbody></table></div>`;  // Закрытие таблицы
 
-        // Добавляем информационную панель если есть финальные расчеты
-        if (finalCalcMap.size > 0) {
-            let totalAdvanceCard = 0;
-            let totalAdvanceCash = 0;
-            let totalCardRemainder = 0;
-            let totalCash = 0;
-
-            // Считаем суммы раздельно для карты и наличных
-            Array.from(finalCalcMap.values()).forEach(calc => {
-                if (calc.advance_payment_method === 'cash') {
-                    totalAdvanceCash += (calc.advance_payment || 0);
-                } else {
-                    totalAdvanceCard += (calc.advance_payment || 0);
-                }
-                totalCardRemainder += (calc.card_remainder || 0);
-                totalCash += (calc.cash_payout || 0);
-            });
-
-            const totalAdvance = totalAdvanceCard + totalAdvanceCash;
-
-            // Считаем количество ручных корректировок
-            const manualAdjustmentsCount = Array.from(finalCalcMap.values()).filter(calc => calc.is_manual_adjustment).length;
-            const cashAdvanceCount = Array.from(finalCalcMap.values()).filter(calc => calc.advance_payment_method === 'cash').length;
-
-            let infoMessage = `
-            <strong>ℹ️ Загружены финальные расчеты</strong><br>
-            Аванс на карту: ${formatNumber(totalAdvanceCard)} грн | 
-            Аванс наличными: ${formatNumber(totalAdvanceCash)} грн<br>
-            Остаток на карту: ${formatNumber(totalCardRemainder)} грн | 
-            Зарплата наличными: ${formatNumber(totalCash)} грн
-        `;
-
-            if (manualAdjustmentsCount > 0) {
-                infoMessage += `<br><span style="color: #ff6b6b;">✏️ Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
-            }
-            if (cashAdvanceCount > 0) {
-                infoMessage += `<br><span style="color: #28a745;">💵 Авансов наличными: ${cashAdvanceCount}</span>`;
-            }
-
-            tableHtml = `
+if (finalCalcMap.size > 0) {
+    let totalAdvanceCard = 0;
+    let totalAdvanceCash = 0;
+    let totalCardRemainder = 0;
+    let totalCash = 0;
+    
+    // Считаем суммы раздельно для карты и наличных
+    Array.from(finalCalcMap.values()).forEach(calc => {
+        if (calc.advance_payment_method === 'cash') {
+            totalAdvanceCash += (calc.advance_payment || 0);
+        } else {
+            totalAdvanceCard += (calc.advance_payment || 0);
+        }
+        totalCardRemainder += (calc.card_remainder || 0);
+        totalCash += (calc.cash_payout || 0);
+    });
+    
+    // Считаем количество ручных корректировок
+    const manualAdjustmentsCount = Array.from(finalCalcMap.values()).filter(calc => calc.is_manual_adjustment).length;
+    const cashAdvanceCount = Array.from(finalCalcMap.values()).filter(calc => calc.advance_payment_method === 'cash').length;
+    
+    let infoMessage = `
+        <strong>ℹ️ Загружены финальные расчеты</strong><br>
+        Аванс на карту: ${formatNumber(totalAdvanceCard)} грн | 
+        Аванс наличными: ${formatNumber(totalAdvanceCash)} грн<br>
+        Остаток на карту: ${formatNumber(totalCardRemainder)} грн | 
+        Зарплата наличными: ${formatNumber(totalCash)} грн
+    `;
+    
+    if (manualAdjustmentsCount > 0) {
+        infoMessage += `<br><span style="color: #ff6b6b;">✏️ Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
+    }
+    if (cashAdvanceCount > 0) {
+        infoMessage += `<br><span style="color: #28a745;">💵 Авансов наличными: ${cashAdvanceCount}</span>`;
+    }
+    
+    // ВАЖНО: Проверяем, нет ли уже такой панели
+    const existingInfoPanel = document.querySelector('#monthlyReportContent .status.info');
+    if (existingInfoPanel) {
+        existingInfoPanel.innerHTML = infoMessage;
+    } else {
+        tableHtml = `
             <div class="status info" style="margin-bottom: 15px;">
                 ${infoMessage}
             </div>
         ` + tableHtml;
-        }
-        ;  // Закрытие таблицы
-
-        // Добавляем информационную панель если есть финальные расчеты
-        if (finalCalcMap.size > 0) {
-            const totalAdvance = Array.from(finalCalcMap.values()).reduce((sum, calc) => sum + (calc.advance_payment || 0), 0);
-            const totalCardRemainder = Array.from(finalCalcMap.values()).reduce((sum, calc) => sum + (calc.card_remainder || 0), 0);
-            const totalCash = Array.from(finalCalcMap.values()).reduce((sum, calc) => sum + (calc.cash_payout || 0), 0);
-
-            // Считаем количество ручных корректировок
-            const manualAdjustmentsCount = Array.from(finalCalcMap.values()).filter(calc => calc.is_manual_adjustment).length;
-
-            let infoMessage = `
-            <strong>ℹ️ Загружены финальные расчеты</strong><br>
-            Аванс: ${formatNumber(totalAdvance)} грн | 
-            Остаток на карту: ${formatNumber(totalCardRemainder)} грн | 
-            Наличные: ${formatNumber(totalCash)} грн
-        `;
-
-            if (manualAdjustmentsCount > 0) {
-                infoMessage += `<br><span style="color: #ff6b6b;">✏️ Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
-            }
-
-            tableHtml = `
-            <div class="status info" style="margin-bottom: 15px;">
-                ${infoMessage}
-            </div>
-        ` + tableHtml;
-        }
+    }
+}
 
         reportContentEl.innerHTML = tableHtml;
 
@@ -1537,158 +1512,143 @@ let adjustmentDebounceTimer;
     }
 
 
-    async function calculateAdvance15(silent = false) {
-        const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-        if (tableRows.length === 0) {
-            if (!silent) showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
-            return;
-        }
-        if (!silent) showStatus('reportStatus', 'Рассчитываем аванс...', 'info');
+async function calculateAdvance15(silent = false) {
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    if (tableRows.length === 0) {
+        if (!silent) showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
+        return;
+    }
+    if (!silent) showStatus('reportStatus', 'Рассчитываем аванс...', 'info');
 
-        const year = document.getElementById('reportYear')?.value;
-        const month = document.getElementById('reportMonth')?.value;
-        const advanceEndDate = document.getElementById('reportEndDate')?.value;
-        if (!year || !month || !advanceEndDate) return;
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    const advanceEndDate = document.getElementById('reportEndDate')?.value;
+    if (!year || !month || !advanceEndDate) return;
 
-        try {
-            const data = await fetchData(
-                `${API_BASE}/calculate-advance`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ year, month, advanceEndDate })
-                },
-                'reportStatus'
-            );
-
-            if (data.success) {
-                let hasFixedAdvances = false;
-                let hasManualAdjustments = false;
-
-                // Сначала проверяем роль пользователя один раз
-                const authResponse = await fetch(`${API_BASE}/check-auth`, { credentials: 'include' });
-                const authData = await authResponse.json();
-                const canAdjust = authData.success && authData.user &&
-                    (authData.user.role === 'admin' || authData.user.role === 'accountant');
-
-                tableRows.forEach(row => {
-                    const employeeId = row.dataset.employeeId;
-                    const employeeName = row.dataset.employeeName;
-                    const result = data.results[employeeId];
-                    const advanceCell = row.querySelector('.advance-payment');
-
-                    if (advanceCell && result) {
-                        let advanceContent = '';
-                        let icon = '';
-
-                        // Определяем содержимое в зависимости от типа
+    try {
+        const data = await fetchData(
+            `${API_BASE}/calculate-advance`, 
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ year, month, advanceEndDate })
+            },
+            'reportStatus'
+        );
+        
+        if (data.success) {
+            let hasFixedAdvances = false;
+            let hasManualAdjustments = false;
+            
+            // Обновляем таблицу с результатами
+            tableRows.forEach(row => {
+                const employeeId = row.dataset.employeeId;
+                const employeeName = row.dataset.employeeName;
+                const result = data.results[employeeId];
+                
+                // Находим правильные ячейки для карты и наличных
+                const advanceCellCard = row.querySelector('.advance-payment-card');
+                const advanceCellCash = row.querySelector('.advance-payment-cash');
+                
+                if (result) {
+                    let cardContent = '0';
+                    let cashContent = '0';
+                    
+                    // Определяем куда записать аванс - на карту или наличные
+                    if (result.payment_method === 'cash') {
+                        cashContent = formatNumber(result.advance_payment);
                         if (result.is_manual) {
-                            // Ручная корректировка
                             hasManualAdjustments = true;
-                            icon = result.payment_method === 'cash' ? '💵' : '💳';
-                            advanceContent = `<span style="color: #ff6b6b; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}">${icon} ✏️ ${formatNumber(result.advance_payment)}</span>`;
+                            cashContent = `<span style="color: #28a745; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}">💵 ✏️ ${formatNumber(result.advance_payment)}</span>`;
                         } else if (result.is_fixed) {
-                            // Зафиксированный аванс
                             hasFixedAdvances = true;
-                            advanceContent = `<strong style="color: #f5576c;" title="Аванс зафиксирован">🔒 ${formatNumber(result.advance_payment)}</strong>`;
+                            cashContent = `<strong style="color: #28a745;" title="Аванс зафиксирован">🔒 💵 ${formatNumber(result.advance_payment)}</strong>`;
                         } else {
-                            // Расчетный аванс
-                            advanceContent = formatNumber(result.advance_payment);
+                            cashContent = `<span style="color: #28a745;">💵 ${formatNumber(result.advance_payment)}</span>`;
                         }
+                    } else {
+                        // По умолчанию на карту
+                        cardContent = formatNumber(result.advance_payment);
+                        if (result.is_manual) {
+                            hasManualAdjustments = true;
+                            cardContent = `<span style="color: #ff6b6b; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}">💳 ✏️ ${formatNumber(result.advance_payment)}</span>`;
+                        } else if (result.is_fixed) {
+                            hasFixedAdvances = true;
+                            cardContent = `<strong style="color: #f5576c;" title="Аванс зафиксирован">🔒 💳 ${formatNumber(result.advance_payment)}</strong>`;
+                        } else {
+                            cardContent = `<span>💳 ${formatNumber(result.advance_payment)}</span>`;
+                        }
+                    }
+                    
+                    // Обновляем содержимое ячеек
+                    if (advanceCellCard) {
+                        const cardSpan = advanceCellCard.querySelector('.advance-card-content');
+                        if (cardSpan) {
+                            cardSpan.innerHTML = cardContent;
+                        } else {
+                            advanceCellCard.innerHTML = `<span class="advance-card-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">${cardContent}</span>`;
+                        }
+                    }
+                    
+                    if (advanceCellCash) {
+                        const cashSpan = advanceCellCash.querySelector('.advance-cash-content');
+                        if (cashSpan) {
+                            cashSpan.innerHTML = cashContent;
+                        } else {
+                            advanceCellCash.innerHTML = `<span class="advance-cash-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">${cashContent}</span>`;
+                        }
+                    }
+                } else {
+                    // Если нет результата, устанавливаем 0
+                    if (advanceCellCard) {
+                        advanceCellCard.innerHTML = `<span class="advance-card-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">0</span>`;
+                    }
+                    if (advanceCellCash) {
+                        advanceCellCash.innerHTML = `<span class="advance-cash-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">0</span>`;
+                    }
+                }
+            });
 
-                        // Добавляем кнопку корректировки если есть права
-                        const adjustButton = canAdjust ?
-                            ` <button onclick="adjustAdvanceManually('${employeeId}', '${employeeName}')" style="padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px;" title="Корректировать аванс">✏️</button>` : '';
-
-                        // Обновляем содержимое ячейки с сохранением структуры
-                        advanceCell.innerHTML = `
-                        <span class="advance-cell-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
-                            ${advanceContent}${adjustButton}
-                        </span>`;
-
-                    } else if (advanceCell) {
-                        // Если нет результата, очищаем ячейку но добавляем кнопку если есть права
-                        const adjustButton = canAdjust ?
-                            ` <button onclick="adjustAdvanceManually('${employeeId}', '${employeeName}')" style="padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px;" title="Корректировать аванс">✏️</button>` : '';
-
-                        advanceCell.innerHTML = `
-                        <span class="advance-cell-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
-                            ${formatNumber(0)}${adjustButton}
-                        </span>`;
+            // Добавляем кнопки корректировки для админов
+            const authResponse = await fetch(`${API_BASE}/check-auth`, { credentials: 'include' });
+            const authData = await authResponse.json();
+            const canAdjust = authData.success && authData.user && 
+                             (authData.user.role === 'admin' || authData.user.role === 'accountant');
+            
+            if (canAdjust) {
+                document.querySelectorAll('.advance-card-content, .advance-cash-content').forEach(cell => {
+                    if (!cell.querySelector('button')) {
+                        const employeeId = cell.dataset.employeeId;
+                        const employeeName = cell.dataset.employeeName;
+                        const button = document.createElement('button');
+                        button.innerHTML = '✏️';
+                        button.style.cssText = 'padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; margin-left: 5px;';
+                        button.title = 'Корректировать аванс';
+                        button.onclick = () => adjustAdvanceManually(employeeId, employeeName);
+                        cell.appendChild(button);
                     }
                 });
+            }
 
-                // Показываем соответствующее сообщение
+            // Показываем соответствующее сообщение
+            if (!silent) {
                 if (hasManualAdjustments) {
-                    if (!silent) {
-                        showStatus('reportStatus', '✅ Аванс рассчитан. Есть ручные корректировки авансов.', 'success');
-                    }
+                    showStatus('reportStatus', '✅ Аванс рассчитан. Есть ручные корректировки авансов.', 'success');
                 } else if (hasFixedAdvances || data.hasFixedAdvances) {
-                    if (!silent) {
-                        showStatus('reportStatus', '✅ Аванс рассчитан. Используются зафиксированные выплаты.', 'success');
-                    }
-
-                    // Если есть зафиксированные авансы и нет панели - добавляем её
-                    const reportContent = document.getElementById('monthlyReportContent');
-                    if (reportContent && !document.getElementById('advance-fixed-notice') && hasFixedAdvances) {
-                        // Считаем общую сумму зафиксированных авансов
-                        let totalFixedAmount = 0;
-                        let fixedCount = 0;
-                        let manualCount = 0;
-                        let manualCashCount = 0;
-
-                        tableRows.forEach(row => {
-                            const advanceCell = row.querySelector('.advance-payment');
-                            if (advanceCell) {
-                                const cellHTML = advanceCell.innerHTML;
-                                const amount = parseFloat(advanceCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-
-                                if (cellHTML.includes('🔒')) {
-                                    totalFixedAmount += amount;
-                                    fixedCount++;
-                                }
-                                if (cellHTML.includes('✏️') && cellHTML.includes('💵')) {
-                                    manualCashCount++;
-                                }
-                                if (cellHTML.includes('✏️') && !cellHTML.includes('🔒')) {
-                                    manualCount++;
-                                }
-                            }
-                        });
-
-                        let noticeMessage = `<strong>🔒 Аванс зафиксирован!</strong><br>
-                        Сотрудников: ${fixedCount}<br>
-                        Общая сумма: ${formatNumber(totalFixedAmount)} грн`;
-
-                        if (manualCount > 0) {
-                            noticeMessage += `<br>✏️ Ручных корректировок: ${manualCount}`;
-                            if (manualCashCount > 0) {
-                                noticeMessage += ` (из них наличными: ${manualCashCount})`;
-                            }
-                        }
-
-                        const noticeHtml = `
-                        <div id="advance-fixed-notice" class="status success" style="margin: 15px 0;">
-                            ${noticeMessage}
-                            <button onclick="cancelAdvancePayment()" class="danger" style="margin-left: 20px; padding: 5px 10px; font-size: 12px;">Отменить фиксацию</button>
-                        </div>
-                    `;
-                        reportContent.insertAdjacentHTML('afterbegin', noticeHtml);
-                    }
-                } else if (!silent) {
+                    showStatus('reportStatus', '✅ Аванс рассчитан. Используются зафиксированные выплаты.', 'success');
+                } else {
                     showStatus('reportStatus', '✅ Аванс успешно рассчитан. ⚠️ Не забудьте зафиксировать выплату!', 'warning');
                 }
             }
-        } catch (error) {
-            console.error('Ошибка расчета аванса:', error);
-            if (!silent) {
-                showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
-            }
+        }
+    } catch (error) {
+        console.error('Ошибка расчета аванса:', error);
+        if (!silent) {
+            showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
         }
     }
-
-
+}
 
     // Функция ручной корректировки аванса
     async function adjustAdvanceManually(employeeId, employeeName) {
