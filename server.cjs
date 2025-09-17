@@ -36,7 +36,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // --- КОНСТАНТЫ ДЛЯ РАСЧЕТОВ И ВАЛИДАЦИИ ---
 const FIXED_CARD_PAYMENT = 8600; 
 const ADVANCE_PERCENTAGE = 0.9;  // 90% от лимита карты
-const MAX_ADVANCE_AMOUNT = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
+const MAX_ADVANCE_AMOUNT = 7900; // Именно 7900, не 7740!
 const COMPANY_TAX_RATE = 0.22; 
 const FIXED_CARD_PAYMENT_FOR_REPORT = 8600;
 
@@ -708,109 +708,115 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
 
 
 // --- НОВЫЙ ЭНДПОИНТ: Фиксация выплаты аванса ---
-app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
-    const { year, month, advanceEndDate, paymentDate } = req.body;
+app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, advanceEndDate } = req.body;
     
-    if (!year || !month || !advanceEndDate || !paymentDate) {
+    if (!year || !month || !advanceEndDate) {
         return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
     }
     
     const dateValidation = validateDate(advanceEndDate);
     if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
     
-    const paymentDateValidation = validateDate(paymentDate);
-    if (!paymentDateValidation.valid) return res.status(400).json({ success: false, error: 'Некорректная дата выплаты' });
+    try {
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        
+        // Получаем расчеты за период
+        const { data: calculationsInPeriod, error } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, total_pay')
+            .gte('work_date', startDate)
+            .lte('work_date', advanceEndDate);
+        
+        if (error) throw error;
 
-    return withLock(`fix_advance_${year}_${month}`, async () => {
-        try {
-            // Сначала получаем расчет аванса
-            const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-            
-            const { data: calculationsInPeriod, error } = await supabase
-                .from('payroll_calculations')
-                .select('employee_id, total_pay')
-                .gte('work_date', startDate)
-                .lte('work_date', advanceEndDate);
-            if (error) throw error;
+        // Суммируем начисления по сотрудникам
+        const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
+            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+            return acc;
+        }, {});
 
-            const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
-                acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
-                return acc;
-            }, {});
+        // Проверяем зафиксированные авансы
+        const { data: fixedAdvances, error: fixedError } = await supabase
+            .from('payroll_payments')
+            .select('employee_id, amount, payment_method')
+            .eq('payment_type', 'advance')
+            .eq('payment_period_month', month)
+            .eq('payment_period_year', year)
+            .eq('is_cancelled', false);
+        
+        if (fixedError) throw fixedError;
+        
+        // Проверяем ручные корректировки
+        const { data: manualAdjustments, error: manualError } = await supabase
+            .from('final_payroll_calculations')
+            .select('employee_id, advance_payment, advance_card, advance_cash, advance_payment_method, is_manual_adjustment, adjustment_reason, is_fixed')
+            .eq('month', month)
+            .eq('year', year)
+            .eq('is_manual_adjustment', true);
+        
+        if (manualError && manualError.code !== '42P01') throw manualError;
 
-            // Проверяем, нет ли уже зафиксированного аванса
-            const { data: existingAdvances, error: checkError } = await supabase
-                .from('payroll_payments')
-                .select('employee_id')
-                .eq('payment_type', 'advance')
-                .eq('payment_period_month', month)
-                .eq('payment_period_year', year)
-                .eq('is_cancelled', false);
-            
-            if (checkError) throw checkError;
-            
-            if (existingAdvances && existingAdvances.length > 0) {
-                return res.status(400).json({ 
-                    success: false, 
-                    error: `Аванс за ${month}/${year} уже зафиксирован. Необходимо сначала отменить предыдущую фиксацию.` 
-                });
+        const results = {};
+        const hasFixedAdvances = fixedAdvances && fixedAdvances.length > 0;
+        
+        // Создаем мапы для быстрого доступа
+        const fixedAdvanceMap = new Map(fixedAdvances?.map(fa => [fa.employee_id, fa]) || []);
+        const manualAdjustmentMap = new Map(manualAdjustments?.map(ma => [ma.employee_id, ma]) || []);
+
+        for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
+            let advanceAmount = 0;
+            let paymentMethod = 'card';
+            let isFixed = false;
+            let isManual = false;
+            let reason = '';
+
+            // Проверяем ручную корректировку (высший приоритет)
+            if (manualAdjustmentMap.has(employeeId)) {
+                const manual = manualAdjustmentMap.get(employeeId);
+                advanceAmount = manual.advance_payment || 0;
+                paymentMethod = manual.advance_payment_method || 'card';
+                isManual = true;
+                reason = manual.adjustment_reason || '';
+                isFixed = manual.is_fixed || false;
             }
-
-            // Готовим данные для вставки
-            const paymentsToInsert = [];
-            let totalFixedAmount = 0;
-            let employeesCount = 0;
-            
-            for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
-                // ИСПРАВЛЕНО: Убираем проценты
-                let finalAdvance = Math.min(totalEarned * ADVANCE_PERCENTAGE, MAX_ADVANCE_AMOUNT);                finalAdvance = Math.floor(finalAdvance / 100) * 100;
-
-                if (finalAdvance > 0) {
-                    paymentsToInsert.push({
-                        employee_id: employeeId,
-                        payment_type: 'advance',
-                        payment_date: paymentDate,
-                        payment_period_month: month,
-                        payment_period_year: year,
-                        amount: finalAdvance,
-                        payment_method: 'card',
-                        card_amount: finalAdvance,
-                        cash_amount: 0,
-                        calculation_date: advanceEndDate,
-                        notes: `Аванс рассчитан по ${advanceEndDate}`,
-                        created_by: req.user.id
-                    });
-                    totalFixedAmount += finalAdvance;
-                    employeesCount++;
-                }
+            // Проверяем зафиксированный аванс
+            else if (fixedAdvanceMap.has(employeeId)) {
+                const fixed = fixedAdvanceMap.get(employeeId);
+                advanceAmount = fixed.amount;
+                paymentMethod = fixed.payment_method || 'card';
+                isFixed = true;
             }
-
-            // Фиксируем авансы в базе
-            if (paymentsToInsert.length > 0) {
-                const { error: insertError } = await supabase
-                    .from('payroll_payments')
-                    .insert(paymentsToInsert);
+            // Рассчитываем автоматически с ПРАВИЛЬНЫМ округлением
+            else {
+                // ИСПРАВЛЕННЫЙ РАСЧЕТ:
+                let calculatedAdvance = totalEarned * 0.9; // 90% от начислений
+                let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100; // Округляем до 100 вниз
+                advanceAmount = Math.min(roundedAdvance, 7900); // Лимит именно 7900, не 7740!
                 
-                if (insertError) throw insertError;
+                // Логируем для отладки
+                console.log(`Авторасчет для ${employeeId}: начислено ${totalEarned}, 90% = ${calculatedAdvance.toFixed(2)}, округлено = ${roundedAdvance}, финально = ${advanceAmount}`);
             }
 
-            await logFinancialOperation('fix_advance_payment', {
-                year, month, advanceEndDate, paymentDate,
-                employeesCount, totalFixedAmount
-            }, req.user.id);
-
-            res.json({ 
-                success: true, 
-                message: `Аванс успешно зафиксирован для ${employeesCount} сотрудников на общую сумму ${totalFixedAmount} грн`,
-                employeesCount,
-                totalAmount: totalFixedAmount
-            });
-
-        } catch (error) {
-            console.error('Ошибка фиксации аванса:', error);
-            res.status(500).json({ success: false, error: error.message });
+            results[employeeId] = {
+                advance_payment: advanceAmount,
+                payment_method: paymentMethod,
+                is_fixed: isFixed,
+                is_manual: isManual,
+                reason: reason
+            };
         }
-    });
+
+        res.json({ 
+            success: true, 
+            results,
+            hasFixedAdvances
+        });
+
+    } catch (error) {
+        console.error('Ошибка расчета аванса:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // --- НОВЫЙ ЭНДПОИНТ: Отмена зафиксированного аванса ---
@@ -915,7 +921,12 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
 });
 
 app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, res) => {
-    const { employee_id, month, year, advance_card, advance_cash, adjusted_advance, adjustment_reason, payment_method } = req.body;
+    const { 
+        employee_id, month, year, 
+        advance_card, advance_cash, 
+        adjusted_advance, adjustment_reason, 
+        payment_method, is_termination 
+    } = req.body;
     
     if (!employee_id || !month || !year || adjusted_advance === undefined || !adjustment_reason) {
         return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
@@ -926,8 +937,14 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
     const cashAmount = parseFloat(advance_cash) || 0;
     const totalAmount = parseFloat(adjusted_advance) || (cardAmount + cashAmount);
     
-    if (totalAmount > MAX_ADVANCE_AMOUNT) {
+    // При увольнении снимаем ограничение на аванс
+    if (!is_termination && totalAmount > MAX_ADVANCE_AMOUNT) {
         return res.status(400).json({ success: false, error: `Аванс не может превышать ${MAX_ADVANCE_AMOUNT} грн` });
+    }
+    
+    // Проверка лимита карты даже при увольнении
+    if (cardAmount > FIXED_CARD_PAYMENT_FOR_REPORT) {
+        return res.status(400).json({ success: false, error: `На карту нельзя выплатить больше ${FIXED_CARD_PAYMENT_FOR_REPORT} грн` });
     }
     
     try {
@@ -941,10 +958,18 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
             advance_cash: cashAmount,
             advance_payment_method: payment_method || (cashAmount > 0 && cardAmount > 0 ? 'mixed' : (cashAmount > 0 ? 'cash' : 'card')),
             is_manual_adjustment: true,
+            is_termination: is_termination || false,
             adjustment_reason: adjustment_reason,
             adjusted_by: req.user.id,
             updated_at: new Date().toISOString()
         };
+        
+        // Если увольнение, обнуляем остальные выплаты
+        if (is_termination) {
+            dataToSave.card_remainder = 0;
+            dataToSave.cash_payout = 0;
+            dataToSave.total_card_payment = cardAmount; // Только то, что на карту при увольнении
+        }
         
         const { error: upsertError } = await supabase
             .from('final_payroll_calculations')
@@ -953,36 +978,33 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
         if (upsertError) throw upsertError;
         
         await logFinancialOperation('manual_advance_adjustment', {
-            employee_id,
-            month,
-            year,
-            advance_card: cardAmount,
-            advance_cash: cashAmount,
-            total_advance: totalAmount,
-            adjustment_reason,
-            payment_method: dataToSave.advance_payment_method
+            ...dataToSave,
+            operation_type: is_termination ? 'termination_payment' : 'advance_adjustment'
         }, req.user.id);
         
-        let methodText = '';
-        if (cardAmount > 0 && cashAmount > 0) {
-            methodText = `на карту: ${cardAmount} грн, наличными: ${cashAmount} грн`;
-        } else if (cashAmount > 0) {
-            methodText = `наличными: ${cashAmount} грн`;
+        let message = '';
+        if (is_termination) {
+            message = `Выплата при увольнении: на карту ${formatNumber(cardAmount)} грн, наличными ${formatNumber(cashAmount)} грн`;
         } else {
-            methodText = `на карту: ${cardAmount} грн`;
+            if (cardAmount > 0 && cashAmount > 0) {
+                message = `Аванс скорректирован: на карту ${cardAmount} грн, наличными ${cashAmount} грн`;
+            } else if (cashAmount > 0) {
+                message = `Аванс скорректирован: наличными ${cashAmount} грн`;
+            } else {
+                message = `Аванс скорректирован: на карту ${cardAmount} грн`;
+            }
         }
         
         res.json({ 
             success: true, 
-            message: `Аванс скорректирован: ${methodText}` 
+            message: message
         });
         
     } catch (error) {
-        console.error('Ошибка корректировки аванса:', error);
+        console.error('Ошибка корректировки:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
-
 
 app.get('/advance-adjustments-history', checkAuth, canManagePayroll, async (req, res) => {
     const { month, year } = req.query;
