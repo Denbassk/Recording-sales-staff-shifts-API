@@ -1457,29 +1457,48 @@ async function calculateAdvance15(silent = false) {
         if (data.success) {
             let hasFixedAdvances = false;
             
+            // Сначала проверяем роль пользователя один раз
+            const authResponse = await fetch(`${API_BASE}/check-auth`, { credentials: 'include' });
+            const authData = await authResponse.json();
+            const canAdjust = authData.success && authData.user && 
+                             (authData.user.role === 'admin' || authData.user.role === 'accountant');
+            
             tableRows.forEach(row => {
                 const employeeId = row.dataset.employeeId;
+                const employeeName = row.dataset.employeeName;
                 const result = data.results[employeeId];
                 const advanceCell = row.querySelector('.advance-payment');
                 
                 if (advanceCell && result) {
-                    // Сначала устанавливаем значение
-                    advanceCell.textContent = formatNumber(result.advance_payment);
+                    let advanceContent = '';
                     
-                    // Затем добавляем визуальную индикацию, если аванс зафиксирован
+                    // Формируем содержимое в зависимости от статуса
                     if (result.is_fixed) {
-                        advanceCell.innerHTML = `<strong style="color: #f5576c;">🔒 ${formatNumber(result.advance_payment)}</strong>`;
+                        advanceContent = `<strong style="color: #f5576c;" title="Аванс зафиксирован">🔒 ${formatNumber(result.advance_payment)}</strong>`;
                         hasFixedAdvances = true;
                     } else {
-                        // Убираем стили если аванс не зафиксирован
-                        advanceCell.style = '';
-                        advanceCell.innerHTML = formatNumber(result.advance_payment);
+                        advanceContent = formatNumber(result.advance_payment);
                     }
+                    
+                    // Добавляем кнопку корректировки если есть права
+                    const adjustButton = canAdjust ? 
+                        ` <button onclick="adjustAdvanceManually('${employeeId}', '${employeeName}')" style="padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px;" title="Корректировать аванс">✏️</button>` : '';
+                    
+                    // Обновляем содержимое ячейки с сохранением структуры
+                    advanceCell.innerHTML = `
+                        <span class="advance-cell-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
+                            ${advanceContent}${adjustButton}
+                        </span>`;
+                    
                 } else if (advanceCell) {
-                    // Если нет результата, очищаем ячейку
-                    advanceCell.textContent = formatNumber(0);
-                    advanceCell.innerHTML = formatNumber(0);
-                    advanceCell.style = '';
+                    // Если нет результата, очищаем ячейку но добавляем кнопку если есть права
+                    const adjustButton = canAdjust ? 
+                        ` <button onclick="adjustAdvanceManually('${employeeId}', '${employeeName}')" style="padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px;" title="Корректировать аванс">✏️</button>` : '';
+                    
+                    advanceCell.innerHTML = `
+                        <span class="advance-cell-content" data-employee-id="${employeeId}" data-employee-name="${employeeName}">
+                            ${formatNumber(0)}${adjustButton}
+                        </span>`;
                 }
             });
 
@@ -1525,6 +1544,7 @@ async function calculateAdvance15(silent = false) {
         }
     }
 }
+
 
 // Функция ручной корректировки аванса
 async function adjustAdvanceManually(employeeId, employeeName) {
