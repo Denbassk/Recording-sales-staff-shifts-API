@@ -599,8 +599,113 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
     }
 });
 
+// Добавьте этот эндпоинт после app.post('/get-monthly-data', ...) в server.js
 
-undefined
+app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, advanceEndDate } = req.body;
+    
+    if (!year || !month || !advanceEndDate) {
+        return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    }
+    
+    const dateValidation = validateDate(advanceEndDate);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
+
+    try {
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        
+        // Получаем расчеты за период
+        const { data: calculationsInPeriod, error } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, total_pay')
+            .gte('work_date', startDate)
+            .lte('work_date', advanceEndDate);
+        
+        if (error) throw error;
+
+        // Суммируем начисления по сотрудникам
+        const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
+            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+            return acc;
+        }, {});
+
+        // Проверяем зафиксированные авансы
+        const { data: fixedAdvances, error: fixedError } = await supabase
+            .from('payroll_payments')
+            .select('employee_id, amount, payment_method')
+            .eq('payment_type', 'advance')
+            .eq('payment_period_month', month)
+            .eq('payment_period_year', year)
+            .eq('is_cancelled', false);
+        
+        if (fixedError) throw fixedError;
+
+        // Проверяем ручные корректировки
+        const { data: manualAdjustments, error: manualError } = await supabase
+            .from('final_payroll_calculations')
+            .select('employee_id, advance_payment, advance_payment_method, is_manual_adjustment, adjustment_reason')
+            .eq('month', month)
+            .eq('year', year)
+            .eq('is_manual_adjustment', true);
+        
+        if (manualError && manualError.code !== '42P01') throw manualError;
+
+        const results = {};
+        const hasFixedAdvances = fixedAdvances && fixedAdvances.length > 0;
+        
+        // Создаем мапы для быстрого доступа
+        const fixedAdvanceMap = new Map(fixedAdvances?.map(fa => [fa.employee_id, fa]) || []);
+        const manualAdjustmentMap = new Map(manualAdjustments?.map(ma => [ma.employee_id, ma]) || []);
+
+        for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
+            let advanceAmount = 0;
+            let paymentMethod = 'card';
+            let isFixed = false;
+            let isManual = false;
+            let reason = '';
+
+            // Проверяем ручную корректировку (высший приоритет)
+            if (manualAdjustmentMap.has(employeeId)) {
+                const manual = manualAdjustmentMap.get(employeeId);
+                advanceAmount = manual.advance_payment;
+                paymentMethod = manual.advance_payment_method || 'card';
+                isManual = true;
+                reason = manual.adjustment_reason;
+            }
+            // Проверяем зафиксированный аванс
+            else if (fixedAdvanceMap.has(employeeId)) {
+                const fixed = fixedAdvanceMap.get(employeeId);
+                advanceAmount = fixed.amount;
+                paymentMethod = fixed.payment_method || 'card';
+                isFixed = true;
+            }
+            // Рассчитываем автоматически
+            else {
+                advanceAmount = Math.min(totalEarned, MAX_ADVANCE_AMOUNT);
+                advanceAmount = Math.floor(advanceAmount / 100) * 100;
+            }
+
+            results[employeeId] = {
+                advance_payment: advanceAmount,
+                payment_method: paymentMethod,
+                is_fixed: isFixed,
+                is_manual: isManual,
+                reason: reason
+            };
+        }
+
+        res.json({ 
+            success: true, 
+            results,
+            hasFixedAdvances
+        });
+
+    } catch (error) {
+        console.error('Ошибка расчета аванса:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // --- НОВЫЙ ЭНДПОИНТ: Фиксация выплаты аванса ---
 app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
