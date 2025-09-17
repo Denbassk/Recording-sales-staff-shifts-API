@@ -594,7 +594,7 @@
             color: #007bff;
         }
 
-/* Закрепление первого столбца с фамилиями - ИСПРАВЛЕННАЯ ВЕРСИЯ */
+/* Закрепление первого столбца с фамилиями - ФИНАЛЬНАЯ ВЕРСИЯ */
 #monthlyReportTable {
     position: relative;
 }
@@ -609,41 +609,49 @@
     position: sticky;
     left: 0;
     z-index: 5;
-    background-color: white !important; /* Используем background-color вместо background */
-    background-image: none !important; /* Убираем любые фоновые изображения */
-    opacity: 1 !important; /* Полная непрозрачность */
+    background-color: white !important;
+    background-image: none !important;
+    opacity: 1 !important;
     border-right: 2px solid #dee2e6;
     box-shadow: 2px 0 5px rgba(0,0,0,0.1);
 }
 
-/* Закрепленный заголовок первого столбца */
-#monthlyReportTable thead th:first-child {
+/* ИСПРАВЛЕНИЕ ДЛЯ ДВУХУРОВНЕВОГО ЗАГОЛОВКА */
+/* Первая строка заголовка - ячейка "Сотрудник" с rowspan=2 */
+#monthlyReportTable thead tr:first-child th:first-child {
     position: sticky;
     left: 0;
-    z-index: 15;
+    z-index: 20 !important; /* Самый высокий z-index */
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-    background-attachment: fixed !important; /* Фиксируем градиент */
     opacity: 1 !important;
     box-shadow: 2px 0 5px rgba(0,0,0,0.1);
 }
 
+/* Вторая строка заголовка - пустая ячейка под "Сотрудник" (если есть) */
+#monthlyReportTable thead tr:nth-child(2) th:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 20 !important; /* Такой же высокий z-index */
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    opacity: 1 !important;
+}
+
 /* При наведении - тоже непрозрачный фон */
 #monthlyReportTable tbody tr:hover td:first-child {
-    background-color: #f0f2f5 !important; /* Светло-серый непрозрачный */
+    background-color: #f0f2f5 !important;
     opacity: 1 !important;
 }
 
 /* Для строк с финальными расчетами - непрозрачный зеленоватый */
 #monthlyReportTable tbody tr.has-final-calc td:first-child {
-    background-color: #e8f5e9 !important; /* Светло-зеленый непрозрачный */
+    background-color: #e8f5e9 !important;
     opacity: 1 !important;
 }
 
 #monthlyReportTable tbody tr.has-final-calc:hover td:first-child {
-    background-color: #c8e6c9 !important; /* Зеленый при наведении непрозрачный */
+    background-color: #c8e6c9 !important;
     opacity: 1 !important;
 }
-
 
     </style>
     <style media="print">
