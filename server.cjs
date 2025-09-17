@@ -872,7 +872,7 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
 });
 
 app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, res) => {
-    const { employee_id, month, year, adjusted_advance, adjustment_reason } = req.body;
+    const { employee_id, month, year, adjusted_advance, adjustment_reason, payment_method } = req.body;
     
     if (!employee_id || !month || !year || adjusted_advance === undefined || !adjustment_reason) {
         return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
@@ -880,6 +880,10 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
     
     const advanceValidation = validateAmount(adjusted_advance, MAX_ADVANCE_AMOUNT, 'Аванс');
     if (!advanceValidation.valid) return res.status(400).json({ success: false, error: advanceValidation.error });
+    
+    // Валидация способа оплаты
+    const validPaymentMethods = ['card', 'cash'];
+    const finalPaymentMethod = validPaymentMethods.includes(payment_method) ? payment_method : 'card';
     
     try {
         // Сохраняем корректировку в таблицу final_payroll_calculations
@@ -892,6 +896,7 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
                 advance_payment: advanceValidation.value,
                 is_manual_adjustment: true,
                 adjustment_reason: adjustment_reason,
+                advance_payment_method: finalPaymentMethod, // НОВОЕ: сохраняем способ выплаты
                 adjusted_by: req.user.id,
                 updated_at: new Date().toISOString()
             }, { onConflict: 'employee_id,month,year' });
@@ -903,12 +908,14 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
             month,
             year,
             adjusted_advance: advanceValidation.value,
-            adjustment_reason
+            adjustment_reason,
+            payment_method: finalPaymentMethod
         }, req.user.id);
         
+        const methodText = finalPaymentMethod === 'cash' ? 'наличными' : 'на карту';
         res.json({ 
             success: true, 
-            message: `Аванс скорректирован на ${advanceValidation.value} грн` 
+            message: `Аванс скорректирован на ${advanceValidation.value} грн (${methodText})` 
         });
         
     } catch (error) {
@@ -917,6 +924,59 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
     }
 });
 
+app.get('/advance-adjustments-history', checkAuth, canManagePayroll, async (req, res) => {
+    const { month, year } = req.query;
+    
+    try {
+        // Получаем все ручные корректировки за период
+        const { data: adjustments, error } = await supabase
+            .from('final_payroll_calculations')
+            .select(`
+                employee_id,
+                advance_payment,
+                advance_payment_method,
+                adjustment_reason,
+                adjusted_by,
+                updated_at,
+                employees (fullname)
+            `)
+            .eq('month', month)
+            .eq('year', year)
+            .eq('is_manual_adjustment', true)
+            .order('updated_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        // Получаем информацию о пользователях, которые делали корректировки
+        const adjustedByIds = [...new Set(adjustments.map(a => a.adjusted_by).filter(Boolean))];
+        const { data: users } = await supabase
+            .from('employees')
+            .select('id, fullname')
+            .in('id', adjustedByIds);
+        
+        const usersMap = new Map(users?.map(u => [u.id, u.fullname]) || []);
+        
+        // Форматируем данные для отправки
+        const formattedAdjustments = adjustments.map(adj => ({
+            employee_name: adj.employees?.fullname || 'Неизвестный',
+            advance_amount: adj.advance_payment,
+            payment_method: adj.advance_payment_method || 'card',
+            reason: adj.adjustment_reason,
+            adjusted_by: usersMap.get(adj.adjusted_by) || adj.adjusted_by,
+            adjusted_at: adj.updated_at
+        }));
+        
+        res.json({ 
+            success: true, 
+            adjustments: formattedAdjustments,
+            total: formattedAdjustments.length
+        });
+        
+    } catch (error) {
+        console.error('Ошибка получения истории корректировок:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, reportEndDate } = req.body;

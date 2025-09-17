@@ -794,82 +794,87 @@
                 </div>
             </div>
             
-            <div id="report-tab" class="tab-content">
-                <div class="control-panel compact-controls">
-                     <div class="control-row">
-                        <div class="control-group">
-                            <label>Месяц:</label>
-                            <select id="reportMonth">
-                                <option value="1">Январь</option>
-                                <option value="2">Февраль</option>
-                                <option value="3">Март</option>
-                                <option value="4">Апрель</option>
-                                <option value="5">Май</option>
-                                <option value="6">Июнь</option>
-                                <option value="7">Июль</option>
-                                <option value="8">Август</option>
-                                <option value="9">Сентябрь</option>
-                                <option value="10">Октябрь</option>
-                                <option value="11">Ноябрь</option>
-                                <option value="12">Декабрь</option>
-                            </select>
-                        </div>
-                        <div class="control-group">
-                            <label>Год:</label>
-                            <input type="number" id="reportYear" value="2025" min="2024" max="2030">
-                        </div>
-                        <div class="control-group">
-                            <label>Рассчитать по дату:</label>
-                            <input type="date" id="reportEndDate">
-                        </div>
-                        <div class="control-group">
-                            <label>&nbsp;</label>
-                            <button onclick="generateMonthlyReport()">Сформировать отчет</button>
-                        </div>
-                        <div class="control-group">
-                            <label>&nbsp;</label>
-                            <button class="success" onclick="calculateAdvance15()">Рассчитать аванс</button>
-                        </div>
-                        <div class="control-group">
-                            <label>&nbsp;</label>
-                            <button class="success" onclick="fixAdvancePayment()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                                🔒 Зафиксировать аванс
-                            </button>
-                        </div>
-                        <div class="control-group">
-                            <label>&nbsp;</label>
-                            <button class="success" onclick="calculateFinalPayroll()">Итоговый расчет</button>
-                        </div>
-                        <div class="control-group">
-                            <label>&nbsp;</label>
-                            <button class="secondary" onclick="exportMonthlyReportToExcel()">Экспорт в Excel</button>
-                        </div>
-                        <div class="control-group">
-                            <label>&nbsp;</label>
-                             <button class="secondary" onclick="printAllPayslips()">🖨️ Печать ведомостей</button>
-                        </div>
-                         <div class="control-group">
-                            <label>&nbsp;</label>
-                             <button class="secondary" onclick="generateCashPayoutReport()">📄 Ведомость по наличным</button>
-                        </div>
-                         <div class="control-group" style="display: none;">
-                            <label>&nbsp;</label>
-                            <button class="danger" onclick="clearDatabase()">
-                                ⚠️ Очистить данные
-                            </button>
-                        </div>
-                        <div class="control-group" style="margin-left: auto;">
-                            <label>&nbsp;</label>
-                             <button class="danger" onclick="logout()">
-                                Выйти
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div id="reportStatus" class="status" style="display:none;"></div>
-                <div id="monthlyReportContent">
-                </div>
+          <div id="report-tab" class="tab-content">
+    <div class="control-panel compact-controls">
+        <div class="control-row">
+            <div class="control-group">
+                <label>Месяц:</label>
+                <select id="reportMonth">
+                    <option value="1">Январь</option>
+                    <option value="2">Февраль</option>
+                    <option value="3">Март</option>
+                    <option value="4">Апрель</option>
+                    <option value="5">Май</option>
+                    <option value="6">Июнь</option>
+                    <option value="7">Июль</option>
+                    <option value="8">Август</option>
+                    <option value="9">Сентябрь</option>
+                    <option value="10">Октябрь</option>
+                    <option value="11">Ноябрь</option>
+                    <option value="12">Декабрь</option>
+                </select>
             </div>
+            <div class="control-group">
+                <label>Год:</label>
+                <input type="number" id="reportYear" value="2025" min="2024" max="2030">
+            </div>
+            <div class="control-group">
+                <label>Рассчитать по дату:</label>
+                <input type="date" id="reportEndDate">
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="generateMonthlyReport()">Сформировать отчет</button>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button class="success" onclick="calculateAdvance15()">Рассчитать аванс</button>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button class="success" onclick="fixAdvancePayment()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    🔒 Зафиксировать аванс
+                </button>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button class="success" onclick="calculateFinalPayroll()">Итоговый расчет</button>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button class="secondary" onclick="exportMonthlyReportToExcel()">Экспорт в Excel</button>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button class="secondary" onclick="printAllPayslips()">🖨️ Печать ведомостей</button>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button class="secondary" onclick="generateCashPayoutReport()">📄 Ведомость по наличным</button>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button class="secondary" onclick="showAdjustmentsHistory()">📜 История корректировок</button>
+            </div>
+            <div class="control-group" style="display: none;">
+                <label>&nbsp;</label>
+                <button class="danger" onclick="clearDatabase()">
+                    ⚠️ Очистить данные
+                </button>
+            </div>
+            <div class="control-group" style="margin-left: auto;">
+                <label>&nbsp;</label>
+                <button class="danger" onclick="logout()">
+                    Выйти
+                </button>
+            </div>
+        </div>
+    </div>
+    <div id="reportStatus" class="status" style="display:none;"></div>
+    <div id="monthlyReportContent">
+    </div>
+</div>
+
             
             <div id="fot-tab" class="tab-content">
                 <div class="control-panel">

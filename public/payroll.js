@@ -424,22 +424,6 @@ function exportMonthlyReportToExcel() {
 
     const exportData = [];
 
-    // Проверяем статус фиксации аванса
-    let advanceFixedInfo = '';
-    const advanceNotice = document.getElementById('advance-fixed-notice');
-    if (advanceNotice) {
-        const noticeText = advanceNotice.textContent;
-        const dateMatch = noticeText.match(/Дата выплаты: ([\d-]+)/);
-        const countMatch = noticeText.match(/Сотрудников: (\d+)/);
-        const sumMatch = noticeText.match(/Общая сумма: ([\d\s,]+)/);
-        
-        if (dateMatch) {
-            advanceFixedInfo = `АВАНС ЗАФИКСИРОВАН! Дата выплаты: ${dateMatch[1]}`;
-            if (countMatch) advanceFixedInfo += `, Сотрудников: ${countMatch[1]}`;
-            if (sumMatch) advanceFixedInfo += `, Сумма: ${sumMatch[1]}`;
-        }
-    }
-
     // Собираем данные из таблицы
     tableRows.forEach(row => {
         if (row.classList.contains('summary-row')) return;
@@ -455,10 +439,24 @@ function exportMonthlyReportToExcel() {
         const totalDeductions = penalty + shortage;
         const totalAfterDeductions = totalGross - totalDeductions;
         
-        // Проверяем фиксацию аванса
+        // Проверяем способ выплаты аванса
         const advanceCell = row.querySelector('.advance-payment');
-        const isAdvanceFixed = advanceCell && advanceCell.innerHTML.includes('🔒');
-        const advanceAmount = parseFloat(advanceCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        let advanceAmount = 0;
+        let advancePaymentMethod = 'card'; // по умолчанию
+        let isManualAdjustment = false;
+        
+        if (advanceCell) {
+            const advanceText = advanceCell.textContent;
+            advanceAmount = parseFloat(advanceText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+            
+            // Определяем способ оплаты по иконке
+            if (advanceCell.innerHTML.includes('💵')) {
+                advancePaymentMethod = 'cash';
+            }
+            if (advanceCell.innerHTML.includes('✏️')) {
+                isManualAdjustment = true;
+            }
+        }
         
         // Остаток на карту
         const cardRemainder = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
@@ -475,25 +473,6 @@ function exportMonthlyReportToExcel() {
             }
         }
         
-        // Общая сумма на карту
-        const totalCardPayment = advanceAmount + cardRemainder;
-        
-        // ДОБАВЛЯЕМ ПРОВЕРКУ ЛОГИКИ
-        const maxCardPayment = 8600;
-        const maxAdvance = 7900;
-        
-        // Проверки корректности
-        let validationErrors = [];
-        if (advanceAmount > maxAdvance) {
-            validationErrors.push(`Аванс ${advanceAmount} > ${maxAdvance}`);
-        }
-        if (totalCardPayment > maxCardPayment) {
-            validationErrors.push(`Карта ${totalCardPayment} > ${maxCardPayment}`);
-        }
-        if (Math.abs((totalCardPayment + cashAmount) - totalAfterDeductions) > 0.01) {
-            validationErrors.push('Сумма не сходится');
-        }
-        
         // Создаем объект с данными для экспорта
         const rowData = {
             'Сотрудник': row.dataset.employeeName || '',
@@ -508,14 +487,12 @@ function exportMonthlyReportToExcel() {
             'Вычет за недостачу': shortage,
             'Всего вычетов': totalDeductions,
             'К выплате после вычетов': totalAfterDeductions,
-            'Аванс (на карту)': advanceAmount,
-            'Статус аванса': isAdvanceFixed ? '🔒 ЗАФИКСИРОВАН' : 'Расчетный',
+            'Аванс': advanceAmount,
+            'Способ выплаты аванса': advancePaymentMethod === 'cash' ? 'Наличные' : 'Карта',
+            'Ручная корректировка': isManualAdjustment ? 'Да' : 'Нет',
             'Остаток (на карту)': cardRemainder,
-            'ИТОГО на карту': totalCardPayment,
-            'Лимит карты': totalCardPayment >= maxCardPayment ? `✓ Достигнут (${maxCardPayment})` : `${totalCardPayment}/${maxCardPayment}`,
             'Зарплата (наличными)': cashAmount,
             'ИТОГО к выплате': totalAfterDeductions,
-            'Проверка расчета': validationErrors.length === 0 ? '✓' : `❌ ${validationErrors.join(', ')}`,
             'Рабочие дни': JSON.parse(row.dataset.shifts || '[]').join(', ')
         };
         
@@ -1217,15 +1194,34 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             // Формируем содержимое ячейки аванса
             let advanceCellContent = '';
 
-            // Определяем состояние аванса
+                        // Определяем состояние аванса
             if (isManualAdvance) {
                 // 1. Ручная корректировка (приоритет)
                 const adjustedByText = finalCalc.adjusted_by ? ` (${finalCalc.adjusted_by})` : '';
+                const paymentIcon = finalCalc.advance_payment_method === 'cash' ? '💵' : '💳';
+                const paymentMethodText = finalCalc.advance_payment_method === 'cash' ? 'Наличные' : 'Карта';
                 advanceCellContent = `
                     <span style="color: #ff6b6b; font-weight: bold;" 
-                          title="Ручная корректировка: ${manualAdvanceReason}${adjustedByText}">
-                        ✏️ ${formatNumber(advancePayment)}
+                          title="Ручная корректировка: ${manualAdvanceReason}${adjustedByText} (${paymentMethodText})">
+                        ${paymentIcon} ✏️ ${formatNumber(advancePayment)}
                     </span>`;
+            } else if (finalCalc && finalCalc.is_fixed) {
+                // 2. Зафиксированный аванс (есть в payroll_payments)
+                advanceCellContent = `
+                    <strong style="color: #f5576c;" title="Аванс зафиксирован">
+                        🔒 ${formatNumber(advancePayment)}
+                    </strong>`;
+            } else if (finalCalc) {
+                // 3. Есть финальный расчет, но аванс не помечен как зафиксированный
+                advanceCellContent = `<strong>${formatNumber(advancePayment)}</strong>`;
+            } else {
+                // 4. Расчетный аванс (еще не зафиксирован)
+                advanceCellContent = `
+                    <span style="color: #666;" title="Расчетный аванс">
+                        ${formatNumber(advancePayment)}
+                    </span>`;
+            }
+
             } else if (finalCalc && finalCalc.is_fixed) {
                 // 2. Зафиксированный аванс (есть в payroll_payments)
                 advanceCellContent = `
@@ -1547,9 +1543,21 @@ async function adjustAdvanceManually(employeeId, employeeName) {
         return;
     }
     
+    // НОВОЕ: Запрашиваем способ выплаты
+    let paymentMethod = 'card'; // По умолчанию на карту
+    if (newAdvance > 0) {
+        const methodChoice = confirm(
+            `Выберите способ выплаты аванса для ${employeeName}:\n\n` +
+            `💳 ОК - На карту (безнал)\n` +
+            `💵 Отмена - Наличными\n\n` +
+            `Сумма: ${newAdvance} грн`
+        );
+        paymentMethod = methodChoice ? 'card' : 'cash';
+    }
+    
     const reason = prompt(
         'Укажите причину корректировки:\n' +
-        '(например: "Больничный", "По заявлению сотрудника", "Дисциплинарное взыскание")'
+        `(например: "Больничный", "По заявлению сотрудника", "Выплата ${paymentMethod === 'cash' ? 'наличными' : 'на карту'} по просьбе")`
     );
     
     if (!reason) {
@@ -1569,7 +1577,8 @@ async function adjustAdvanceManually(employeeId, employeeName) {
                 month: parseInt(month),
                 year: parseInt(year),
                 adjusted_advance: newAdvance,
-                adjustment_reason: reason
+                adjustment_reason: reason,
+                payment_method: paymentMethod // НОВОЕ: передаем способ выплаты
             })
         });
         
@@ -1578,8 +1587,14 @@ async function adjustAdvanceManually(employeeId, employeeName) {
         if (result.success) {
             showStatus('reportStatus', result.message, 'success');
             
-            // Обновляем отображение в таблице
-            advanceCell.innerHTML = `<span style="color: #ff6b6b;" title="${reason}">✏️ ${formatNumber(newAdvance)}</span>`;
+            // Обновляем отображение в таблице с индикацией способа выплаты
+            const icon = paymentMethod === 'cash' ? '💵' : '💳';
+            const methodText = paymentMethod === 'cash' ? 'Наличные' : 'Карта';
+            advanceCell.innerHTML = `
+                <span style="color: #ff6b6b; font-weight: bold;" 
+                      title="Ручная корректировка: ${reason} (${methodText})">
+                    ${icon} ✏️ ${formatNumber(newAdvance)}
+                </span>`;
             
             // Пересчитываем остальные поля
             setTimeout(() => {
@@ -1592,6 +1607,83 @@ async function adjustAdvanceManually(employeeId, employeeName) {
         showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
+
+async function showAdjustmentsHistory() {
+    const month = document.getElementById('reportMonth')?.value;
+    const year = document.getElementById('reportYear')?.value;
+    
+    if (!month || !year) {
+        showStatus('reportStatus', 'Сначала выберите период', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/advance-adjustments-history?month=${month}&year=${year}`, {
+            credentials: 'include'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.adjustments.length > 0) {
+            let historyHtml = `
+                <div class="status info" style="margin: 15px 0;">
+                    <div style="width: 100%;">
+                        <h4>📜 История ручных корректировок авансов</h4>
+                        <table style="width: 100%; margin-top: 10px; font-size: 12px;">
+                            <thead>
+                                <tr style="background: #f0f0f0;">
+                                    <th style="padding: 5px;">Сотрудник</th>
+                                    <th style="padding: 5px;">Сумма</th>
+                                    <th style="padding: 5px;">Способ</th>
+                                    <th style="padding: 5px;">Причина</th>
+                                    <th style="padding: 5px;">Кто изменил</th>
+                                    <th style="padding: 5px;">Когда</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+            
+            result.adjustments.forEach(adj => {
+                const icon = adj.payment_method === 'cash' ? '💵' : '💳';
+                const date = new Date(adj.adjusted_at).toLocaleString('ru-RU');
+                historyHtml += `
+                    <tr>
+                        <td style="padding: 5px;">${adj.employee_name}</td>
+                        <td style="padding: 5px;">${icon} ${adj.advance_amount} грн</td>
+                        <td style="padding: 5px;">${adj.payment_method === 'cash' ? 'Наличные' : 'Карта'}</td>
+                        <td style="padding: 5px;">${adj.reason}</td>
+                        <td style="padding: 5px;">${adj.adjusted_by}</td>
+                        <td style="padding: 5px; font-size: 11px;">${date}</td>
+                    </tr>`;
+            });
+            
+            historyHtml += `
+                            </tbody>
+                        </table>
+                        <p style="margin-top: 10px; font-weight: bold;">Всего корректировок: ${result.total}</p>
+                    </div>
+                </div>`;
+            
+            // Вставляем историю в начало контента отчета
+            const reportContent = document.getElementById('monthlyReportContent');
+            const existingHistory = reportContent.querySelector('.adjustments-history');
+            if (existingHistory) {
+                existingHistory.remove();
+            }
+            
+            const historyDiv = document.createElement('div');
+            historyDiv.className = 'adjustments-history';
+            historyDiv.innerHTML = historyHtml;
+            reportContent.insertBefore(historyDiv, reportContent.firstChild);
+            
+        } else {
+            showStatus('reportStatus', 'Нет ручных корректировок за выбранный период', 'info');
+        }
+        
+    } catch (error) {
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
 
 // Новая функция для фиксации аванса
 async function fixAdvancePayment() {
