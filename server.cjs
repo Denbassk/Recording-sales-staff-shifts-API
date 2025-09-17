@@ -19,6 +19,15 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
 
+// --- HELPER ФУНКЦИИ ---
+function formatNumber(num) {
+    if (num === null || num === undefined) return '0,00';
+    const number = typeof num === 'string' ? parseFloat(num) : num;
+    if (isNaN(number)) return '0,00';
+    return number.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$& ').replace('.', ',');
+}
+
+
 // НОВЫЙ БЛОК: Отключаем кэширование для файла входа
 app.use('/script.js', (req, res, next) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -881,7 +890,7 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
         
         let message = '';
         if (is_termination) {
-            message = `Выплата при увольнении: на карту ${formatNumber(cardAmount)} грн, наличными ${formatNumber(cashAmount)} грн`;
+            message = `Выплата при увольнении: на карту ${cardAmount} грн, наличными ${cashAmount} грн`;
         } else {
             if (cardAmount > 0 && cashAmount > 0) {
                 message = `Аванс скорректирован: на карту ${cardAmount} грн, наличными ${cashAmount} грн`;
@@ -902,6 +911,7 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 app.get('/advance-adjustments-history', checkAuth, canManagePayroll, async (req, res) => {
     const { month, year } = req.query;
