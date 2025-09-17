@@ -565,36 +565,70 @@
         }
         
         .adjustment-input:focus {
-    border-color: #667eea;
-    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
-    outline: none;
-}
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+            outline: none;
+        }
 
-/* Выделение строк с финальными расчетами */
-tr.has-final-calc {
-    background-color: rgba(40, 167, 69, 0.05);
-}
+        /* Выделение строк с финальными расчетами */
+        tr.has-final-calc {
+            background-color: rgba(40, 167, 69, 0.05);
+        }
 
-tr.has-final-calc:hover {
-    background-color: rgba(40, 167, 69, 0.1);
-}
+        tr.has-final-calc:hover {
+            background-color: rgba(40, 167, 69, 0.1);
+        }
 
-/* Визуальная индикация для ячеек с данными */
-.advance-payment[data-fixed="true"] {
-    background-color: #fff3cd;
-    font-weight: bold;
-}
+        /* Визуальная индикация для ячеек с данными */
+        .advance-payment[data-fixed="true"] {
+            background-color: #fff3cd;
+            font-weight: bold;
+        }
 
-.card-remainder.has-value {
-    color: #28a745;
-    font-weight: bold;
-}
+        .card-remainder.has-value {
+            color: #28a745;
+            font-weight: bold;
+        }
 
-.cash-payout.has-value strong {
-    color: #007bff;
-}
+        .cash-payout.has-value strong {
+            color: #007bff;
+        }
 
-
+        /* Закрепление первого столбца с фамилиями */
+        #monthlyReportTable {
+            position: relative;
+        }
+        
+        #monthlyReportTable tbody td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 5;
+            background: white;
+            border-right: 2px solid #dee2e6;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+        
+        #monthlyReportTable thead th:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 15;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+        
+        /* Сохраняем фон при наведении */
+        #monthlyReportTable tbody tr:hover td:first-child {
+            background: rgba(102, 126, 234, 0.05);
+        }
+        
+        /* Для строк с финальными расчетами */
+        #monthlyReportTable tbody tr.has-final-calc td:first-child {
+            background-color: rgba(40, 167, 69, 0.05);
+        }
+        
+        #monthlyReportTable tbody tr.has-final-calc:hover td:first-child {
+            background-color: rgba(40, 167, 69, 0.1);
+        }
     </style>
     <style media="print">
         @page {
@@ -617,8 +651,6 @@ tr.has-final-calc:hover {
         .payslip-compact h3 { text-align: center; font-size: 12pt; margin-bottom: 10px; }
         .payslip-compact table { width: 100%; border-collapse: collapse; margin: 5px 0; }
         .payslip-compact td { padding: 2px 0; }
-		
-		
     </style>
 </head>
 <body>
