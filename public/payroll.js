@@ -5,9 +5,9 @@ const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:30
 let fotReportDataCache = [];
 
 // --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
-const FIXED_CARD_PAYMENT = 8600;
-const ADVANCE_PERCENTAGE = 7900;
-const MAX_ADVANCE = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
+const FIXED_CARD_PAYMENT = 8600; 
+const ADVANCE_PERCENTAGE = 0.9;  // 90% от лимита карты
+const MAX_ADVANCE_AMOUNT = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE; //
 const ADVANCE_PERIOD_DAYS = 15;
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
 
@@ -1650,7 +1650,6 @@ async function calculateAdvance15(silent = false) {
     }
 }
 
-    // Функция ручной корректировки аванса
     async function adjustAdvanceManually(employeeId, employeeName) {
     const year = document.getElementById('reportYear')?.value;
     const month = document.getElementById('reportMonth')?.value;
@@ -1669,6 +1668,9 @@ async function calculateAdvance15(silent = false) {
     const currentAdvanceCash = parseFloat(advanceCellCash?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
     const currentAdvanceTotal = currentAdvanceCard + currentAdvanceCash;
     
+    // ВАЖНО: Используем правильную константу
+    const maxAdvanceAmount = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE; // 7740
+    
     // Новый диалог для разделения аванса
     const totalAdvanceStr = prompt(
         `Корректировка аванса для ${employeeName}\n\n` +
@@ -1676,7 +1678,7 @@ async function calculateAdvance15(silent = false) {
         `• На карту: ${currentAdvanceCard} грн\n` +
         `• Наличными: ${currentAdvanceCash} грн\n` +
         `• Всего: ${currentAdvanceTotal} грн\n\n` +
-        `Введите ОБЩУЮ сумму аванса (максимум 7900 грн):`,
+        `Введите ОБЩУЮ сумму аванса (максимум ${maxAdvanceAmount} грн):`,
         currentAdvanceTotal
     );
     
@@ -1688,8 +1690,8 @@ async function calculateAdvance15(silent = false) {
         return;
     }
     
-    if (totalAdvance > 7900) {
-        showStatus('reportStatus', 'Аванс не может превышать 7900 грн', 'error');
+    if (totalAdvance > maxAdvanceAmount) {
+        showStatus('reportStatus', `Аванс не может превышать ${maxAdvanceAmount} грн`, 'error');
         return;
     }
     
@@ -1697,35 +1699,38 @@ async function calculateAdvance15(silent = false) {
     let advanceCash = 0;
     
     if (totalAdvance > 0) {
-        // Спрашиваем способ выплаты
+        // ИСПРАВЛЕНО: Более понятный диалог
         const paymentChoice = prompt(
             `Как выплатить аванс ${totalAdvance} грн?\n\n` +
-            `1 - Всё на карту\n` +
+            `Введите:\n` +
+            `1 - Всё на карту (безнал)\n` +
             `2 - Всё наличными\n` +
             `3 - Разделить между картой и наличными\n\n` +
-            `Введите 1, 2 или 3:`,
+            `Ваш выбор (1, 2 или 3):`,
             '1'
         );
         
         if (paymentChoice === null) return;
         
-        if (paymentChoice === '1') {
+        if (paymentChoice === '1' || paymentChoice.toLowerCase() === 'карта') {
             advanceCard = totalAdvance;
             advanceCash = 0;
-        } else if (paymentChoice === '2') {
+        } else if (paymentChoice === '2' || paymentChoice.toLowerCase() === 'нал') {
             advanceCard = 0;
             advanceCash = totalAdvance;
-        } else if (paymentChoice === '3') {
+        } else if (paymentChoice === '3' || paymentChoice.toLowerCase().includes('раздел')) {
             // Разделение суммы
             const cardAmountStr = prompt(
                 `Разделение аванса ${totalAdvance} грн\n\n` +
-                `Введите сумму НА КАРТУ (остальное будет наличными):`,
-                Math.min(totalAdvance, 7900)
+                `Сколько выплатить НА КАРТУ?\n` +
+                `(остальное ${totalAdvance} грн будет выплачено наличными)\n\n` +
+                `Введите сумму для карты:`,
+                Math.floor(totalAdvance / 2)
             );
             
             if (cardAmountStr === null) return;
             
-            advanceCard = parseFloat(cardAmountStr);
+            advanceCard = parseFloat(cardAmountStr) || 0;
             if (isNaN(advanceCard) || advanceCard < 0 || advanceCard > totalAdvance) {
                 showStatus('reportStatus', 'Некорректная сумма для карты', 'error');
                 return;
@@ -1736,22 +1741,23 @@ async function calculateAdvance15(silent = false) {
             // Подтверждение разделения
             const confirmSplit = confirm(
                 `Подтвердите разделение аванса:\n\n` +
-                `• На карту: ${advanceCard} грн\n` +
-                `• Наличными: ${advanceCash} грн\n` +
-                `• Всего: ${totalAdvance} грн\n\n` +
+                `💳 На карту: ${advanceCard} грн\n` +
+                `💵 Наличными: ${advanceCash} грн\n` +
+                `━━━━━━━━━━━━━━━━━━\n` +
+                `📊 ИТОГО: ${totalAdvance} грн\n\n` +
                 `Продолжить?`
             );
             
             if (!confirmSplit) return;
         } else {
-            showStatus('reportStatus', 'Некорректный выбор', 'error');
+            showStatus('reportStatus', 'Некорректный выбор. Введите 1, 2 или 3', 'error');
             return;
         }
     }
     
     const reason = prompt(
         'Укажите причину корректировки:\n' +
-        `(например: "По заявлению сотрудника", "Частичная выплата")`
+        `(например: "По заявлению", "Больничный", "Частичная выплата")`
     );
     
     if (!reason) {
@@ -1828,8 +1834,6 @@ async function calculateAdvance15(silent = false) {
         showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
-
-
 
     async function showAdjustmentsHistory() {
         const month = document.getElementById('reportMonth')?.value;

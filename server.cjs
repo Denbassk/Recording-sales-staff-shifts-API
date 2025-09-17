@@ -34,9 +34,9 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
 // --- КОНСТАНТЫ ДЛЯ РАСЧЕТОВ И ВАЛИДАЦИИ ---
-const MAX_CARD_PAYMENT = 8600; 
-const ADVANCE_PERCENTAGE = 0.9; 
-const MAX_ADVANCE_AMOUNT = 7900;
+const FIXED_CARD_PAYMENT = 8600; 
+const ADVANCE_PERCENTAGE = 0.9;  // 90% от лимита карты
+const MAX_ADVANCE_AMOUNT = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE;
 const COMPANY_TAX_RATE = 0.22; 
 const FIXED_CARD_PAYMENT_FOR_REPORT = 8600;
 
@@ -763,9 +763,8 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
             
             for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
                 // ИСПРАВЛЕНО: Убираем проценты
-                let finalAdvance = Math.min(totalEarned, MAX_ADVANCE_AMOUNT);
-                finalAdvance = Math.floor(finalAdvance / 100) * 100;
-                
+                let finalAdvance = Math.min(totalEarned * ADVANCE_PERCENTAGE, MAX_ADVANCE_AMOUNT);                finalAdvance = Math.floor(finalAdvance / 100) * 100;
+
                 if (finalAdvance > 0) {
                     paymentsToInsert.push({
                         employee_id: employeeId,
