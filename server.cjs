@@ -1132,9 +1132,11 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             
             const advancePayments = {};
             const advanceDetails = {};
+            let hasFixedAdvances = false;
             
             // Если есть зафиксированные авансы, используем их
             if (fixedAdvances && fixedAdvances.length > 0) {
+                hasFixedAdvances = true; // ВАЖНО: Устанавливаем флаг
                 fixedAdvances.forEach(adv => {
                     advancePayments[adv.employee_id] = adv.amount;
                     advanceDetails[adv.employee_id] = {
@@ -1148,8 +1150,9 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 // Если авансы не зафиксированы, рассчитываем
                 console.log(`Зафиксированных авансов нет, рассчитываем автоматически`);
                 for (const [employeeId, totalEarned] of Object.entries(totalBasePayMap)) {
-                    let finalAdvance = Math.min(totalEarned * 0.9, MAX_ADVANCE_AMOUNT);
-                    finalAdvance = Math.floor(finalAdvance / 100) * 100;
+                    let calculatedAdvance = totalEarned * 0.9;
+                    let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
+                    let finalAdvance = Math.min(roundedAdvance, MAX_ADVANCE_AMOUNT);
                     advancePayments[employeeId] = finalAdvance;
                     advanceDetails[employeeId] = {
                         card: finalAdvance,
@@ -1204,13 +1207,19 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 let advancePayment = 0;
                 let advanceCard = 0;
                 let advanceCash = 0;
+                let isManualAdjustment = false;
+                let adjustmentReason = '';
+                let isTermination = false;
                 
-                // Проверяем ручные корректировки
+                // Проверяем ручные корректировки (приоритет)
                 if (manualMap.has(employeeId)) {
                     const manual = manualMap.get(employeeId);
                     advancePayment = manual.advance_payment || 0;
                     advanceCard = manual.advance_card || 0;
                     advanceCash = manual.advance_cash || 0;
+                    isManualAdjustment = true;
+                    adjustmentReason = manual.adjustment_reason || '';
+                    isTermination = manual.is_termination || false;
                 } else if (advanceDetails[employeeId]) {
                     // Используем зафиксированные авансы
                     advancePayment = advancePayments[employeeId] || 0;
@@ -1272,7 +1281,10 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     cash_payout: cashPayout,
                     total_card_payment: advanceCard + cardRemainder,
                     calculation_date: reportEndDate,
-                    is_fixed: true
+                    is_fixed: hasFixedAdvances, // ВАЖНО: Используем правильный флаг
+                    is_manual_adjustment: isManualAdjustment, // ВАЖНО: Сохраняем флаг ручной корректировки
+                    adjustment_reason: adjustmentReason,
+                    is_termination: isTermination
                 });
             }
 
@@ -1294,7 +1306,8 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 month, 
                 reportEndDate,
                 employeesCount: Object.keys(finalResults).length,
-                saved: dataToSave.length
+                saved: dataToSave.length,
+                hasFixedAdvances: hasFixedAdvances
             }, req.user.id);
             
             res.json({ success: true, results: finalResults });
@@ -1305,8 +1318,6 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
         }
     });
 });
-
-
 
 
 // ====== ХЕЛПЕР: собираем ФОТ с группировкой по магазинам (ИСПРАВЛЕННАЯ ВЕРСИЯ) ======

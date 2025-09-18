@@ -1507,6 +1507,11 @@ async function calculateAdvance15(silent = false) {
                 }
             });
 
+            // ВАЖНО: Пересчитываем итоговые суммы для всех строк после обновления авансов
+            tableRows.forEach(row => {
+                recalculateRow(row);
+            });
+
             // Добавляем кнопки корректировки для админов
             const authResponse = await fetch(`${API_BASE}/check-auth`, { credentials: 'include' });
             const authData = await authResponse.json();
@@ -1975,6 +1980,9 @@ async function calculateAdvance15(silent = false) {
                         }
                     }
                 }
+                
+                // ВАЖНО: ПЕРЕСЧИТЫВАЕМ ИТОГОВУЮ СУММУ ДЛЯ КАЖДОЙ СТРОКИ!
+                recalculateRow(row);
             });
 
             // Добавляем информационную панель (проверяем что её еще нет)
@@ -2007,6 +2015,7 @@ async function calculateAdvance15(silent = false) {
         }
     }
 }
+
 
  // Функция отмены фиксации аванса
 async function cancelAdvancePayment() {
