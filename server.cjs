@@ -1212,15 +1212,16 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     advanceCard = advanceDetails[employeeId].card || 0;
                     advanceCash = advanceDetails[employeeId].cash || 0;
                 } else {
-                    // Расчетный аванс (если нет фиксации)
-                    let calculatedAdvance = totalEarned * 0.9;
+                    // ИСПРАВЛЕНО: Расчетный аванс (если нет фиксации)
+                    // Используем basePay вместо несуществующего totalEarned
+                    let calculatedAdvance = basePay * 0.9;
                     let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
                     advancePayment = Math.min(roundedAdvance, MAX_ADVANCE_AMOUNT);
                     advanceCard = advancePayment;
                     advanceCash = 0;
                 }
                 
-                // 5. ИСПРАВЛЕННЫЙ РАСЧЕТ ОСТАТКОВ
+                // 5. Расчет остатков
                 let cardRemainder = 0;
                 let cashPayout = 0;
                 
@@ -1326,6 +1327,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
         }
     });
 });
+
 
 
 // ====== ХЕЛПЕР: собираем ФОТ с группировкой по магазинам (ИСПРАВЛЕННАЯ ВЕРСИЯ) ======
