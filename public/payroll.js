@@ -923,8 +923,85 @@ function updatePayrollSummary(totalPayroll, employeeCount) {
             if (payrollSummaryEl) payrollSummaryEl.style.display = 'block';
         }
 
-// --- ВКЛАДКА "ОТЧЕТ ЗА МЕСЯЦ" ---
+// --- ФУНКЦИИ ДЛЯ ОБРАБОТКИ КОРРЕКТИРОВОК ---
 let adjustmentDebounceTimer;
+
+function handleAdjustmentInput(e) {
+    clearTimeout(adjustmentDebounceTimer);
+    const row = e.target.closest('tr');
+    recalculateRow(row);
+    adjustmentDebounceTimer = setTimeout(() => {
+        saveAdjustments(row);
+    }, 800);
+}
+
+function recalculateRow(row) {
+    if (!row) return;
+    const basePay = parseFloat(row.dataset.basePay) || 0;
+    const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
+    const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+    const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+
+    const totalGross = basePay + manualBonus;
+    const totalAfterDeductions = totalGross - penalty - shortage;
+
+    // Получаем текущий аванс из обеих колонок
+    const advanceCardCell = row.querySelector('.advance-payment-card');
+    const advanceCashCell = row.querySelector('.advance-payment-cash');
+    
+    let totalAdvance = 0;
+    if (advanceCardCell) {
+        const cardText = advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
+        totalAdvance += parseFloat(cardText) || 0;
+    }
+    if (advanceCashCell) {
+        const cashText = advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
+        totalAdvance += parseFloat(cashText) || 0;
+    }
+
+    // ИСПРАВЛЕНИЕ: Остаток к выплате = Всего после вычетов - Аванс
+    const remainingToPay = totalAfterDeductions - totalAdvance;
+
+    const totalGrossCell = row.querySelector('.total-gross');
+    if (totalGrossCell) {
+        totalGrossCell.textContent = formatNumber(totalGross);
+    }
+
+    const totalPayoutCell = row.querySelector('.total-payout strong');
+    if (totalPayoutCell) {
+        totalPayoutCell.textContent = formatNumber(remainingToPay);
+        totalPayoutCell.title = `После вычета аванса ${formatNumber(totalAdvance)} грн`;
+    }
+}
+
+async function saveAdjustments(row) {
+    if (!row) return;
+    const payload = {
+        employee_id: row.dataset.employeeId,
+        month: row.dataset.month,
+        year: row.dataset.year,
+        manual_bonus: parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0,
+        penalty: parseFloat(row.querySelector('[name="penalty"]')?.value) || 0,
+        shortage: parseFloat(row.querySelector('[name="shortage"]')?.value) || 0,
+        bonus_reason: row.querySelector('[name="bonus_reason"]')?.value || '',
+        penalty_reason: row.querySelector('[name="penalty_reason"]')?.value || ''
+    };
+    try {
+        await fetchData(
+            `${API_BASE}/payroll/adjustments`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            },
+            'reportStatus'
+        );
+    } catch (error) {
+        console.error('Ошибка сохранения корректировок:', error);
+    }
+}
+
 
     async function generateMonthlyReport() {
         const monthEl = document.getElementById('reportMonth');
