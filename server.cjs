@@ -1122,7 +1122,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             // Получаем зафиксированные авансы из таблицы payroll_payments
             const { data: fixedAdvances, error: advanceError } = await supabase
                 .from('payroll_payments')
-                .select('employee_id, amount')
+                .select('employee_id, amount, advance_card, advance_cash, payment_method')
                 .eq('payment_type', 'advance')
                 .eq('payment_period_month', month)
                 .eq('payment_period_year', year)
@@ -1131,20 +1131,31 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             if (advanceError) throw advanceError;
             
             const advancePayments = {};
+            const advanceDetails = {};
             
             // Если есть зафиксированные авансы, используем их
             if (fixedAdvances && fixedAdvances.length > 0) {
                 fixedAdvances.forEach(adv => {
                     advancePayments[adv.employee_id] = adv.amount;
+                    advanceDetails[adv.employee_id] = {
+                        card: adv.advance_card || 0,
+                        cash: adv.advance_cash || 0,
+                        method: adv.payment_method || 'card'
+                    };
                 });
                 console.log(`Используются зафиксированные авансы для ${fixedAdvances.length} сотрудников`);
             } else {
-                // ИСПРАВЛЕНО: Если авансы не зафиксированы, рассчитываем БЕЗ процентов
+                // Если авансы не зафиксированы, рассчитываем
                 console.log(`Зафиксированных авансов нет, рассчитываем автоматически`);
                 for (const [employeeId, totalEarned] of Object.entries(totalBasePayMap)) {
-                    let finalAdvance = Math.min(totalEarned, MAX_ADVANCE_AMOUNT);
+                    let finalAdvance = Math.min(totalEarned * 0.9, MAX_ADVANCE_AMOUNT);
                     finalAdvance = Math.floor(finalAdvance / 100) * 100;
                     advancePayments[employeeId] = finalAdvance;
+                    advanceDetails[employeeId] = {
+                        card: finalAdvance,
+                        cash: 0,
+                        method: 'card'
+                    };
                 }
             }
 
@@ -1159,8 +1170,18 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             
             const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
 
+            // Получаем ручные корректировки авансов
+            const { data: manualAdvances, error: manualError } = await supabase
+                .from('final_payroll_calculations')
+                .select('*')
+                .eq('year', year)
+                .eq('month', month)
+                .eq('is_manual_adjustment', true);
+            
+            const manualMap = new Map(manualAdvances?.map(m => [m.employee_id, m]) || []);
+
             const finalResults = {};
-            const dataToSave = []; // Массив для сохранения в БД
+            const dataToSave = [];
             
             for (const employeeId in totalBasePayMap) {
                 const basePay = totalBasePayMap[employeeId];
@@ -1169,8 +1190,6 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     penalty: 0, 
                     shortage: 0 
                 };
-                
-                // ПРАВИЛЬНАЯ ЛОГИКА РАСЧЕТА:
                 
                 // 1. Всего начислено = база + премия
                 const totalGross = basePay + adj.manual_bonus;
@@ -1181,20 +1200,38 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 // 3. К выплате после вычетов
                 const totalAfterDeductions = totalGross - totalDeductions;
                 
-                // 4. Аванс (уже выплачен на карту)
-                const advancePayment = advancePayments[employeeId] || 0;
+                // 4. Аванс (уже выплачен)
+                let advancePayment = 0;
+                let advanceCard = 0;
+                let advanceCash = 0;
                 
-                // 5. ИСПРАВЛЕНО: Правильный расчет остатка на карту
-                // Максимум на карту за месяц = 8600
-                // Уже выплачено авансом = advancePayment
-                // Остаток места на карте = 8600 - advancePayment
-                const remainingCardCapacity = FIXED_CARD_PAYMENT_FOR_REPORT - advancePayment;
+                // Проверяем ручные корректировки
+                if (manualMap.has(employeeId)) {
+                    const manual = manualMap.get(employeeId);
+                    advancePayment = manual.advance_payment || 0;
+                    advanceCard = manual.advance_card || 0;
+                    advanceCash = manual.advance_cash || 0;
+                } else if (advanceDetails[employeeId]) {
+                    // Используем зафиксированные авансы
+                    advancePayment = advancePayments[employeeId] || 0;
+                    advanceCard = advanceDetails[employeeId].card || 0;
+                    advanceCash = advanceDetails[employeeId].cash || 0;
+                } else {
+                    // Расчетный аванс
+                    advancePayment = advancePayments[employeeId] || 0;
+                    advanceCard = advancePayment;
+                    advanceCash = 0;
+                }
+                
+                // 5. Расчет остатков
+                const totalOnCard = advanceCard; // Уже выплачено на карту
+                const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT; // Максимум 8600 на карту
+                const remainingCardCapacity = maxCardTotal - totalOnCard;
                 
                 // 6. Остаток к выплате после аванса
                 const remainingToPay = totalAfterDeductions - advancePayment;
                 
-                // 7. Остаток на карту = минимум из (остаток места на карте, остаток к выплате)
-                // Но не может быть отрицательным
+                // 7. Остаток на карту (не больше чем осталось места на карте)
                 const cardRemainder = Math.min(remainingCardCapacity, Math.max(0, remainingToPay));
                 
                 // 8. Наличными = всё что осталось после выплат на карту
@@ -1202,8 +1239,8 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 
                 // Логирование для отладки
                 console.log(`${employeeId}: Начислено=${totalGross}, Вычеты=${totalDeductions}, К выплате=${totalAfterDeductions}`);
-                console.log(`  Аванс=${advancePayment}, Место на карте=${remainingCardCapacity}, Остаток к выплате=${remainingToPay}`);
-                console.log(`  Остаток на карту=${cardRemainder}, Наличные=${cashPayout}`);
+                console.log(`  Аванс: карта=${advanceCard}, нал=${advanceCash}, всего=${advancePayment}`);
+                console.log(`  Остаток: карта=${cardRemainder}, нал=${cashPayout}`);
                 console.log(`  Проверка: ${advancePayment} + ${cardRemainder} + ${cashPayout} = ${advancePayment + cardRemainder + cashPayout} (должно быть ${totalAfterDeductions})`);
                 
                 finalResults[employeeId] = { 
@@ -1211,9 +1248,11 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     total_deductions: totalDeductions,
                     total_after_deductions: totalAfterDeductions,
                     advance_payment: advancePayment,
+                    advance_card: advanceCard,
+                    advance_cash: advanceCash,
                     card_remainder: cardRemainder,
                     cash_payout: cashPayout,
-                    total_card_payment: advancePayment + cardRemainder,
+                    total_card_payment: advanceCard + cardRemainder,
                     penalties_total: totalDeductions
                 };
 
@@ -1226,60 +1265,25 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     total_deductions: totalDeductions,
                     total_after_deductions: totalAfterDeductions,
                     advance_payment: advancePayment,
+                    advance_card: advanceCard,
+                    advance_cash: advanceCash,
+                    advance_payment_method: advanceCash > 0 ? (advanceCard > 0 ? 'mixed' : 'cash') : 'card',
                     card_remainder: cardRemainder,
                     cash_payout: cashPayout,
-                    total_card_payment: advancePayment + cardRemainder,
-                    calculation_date: reportEndDate
+                    total_card_payment: advanceCard + cardRemainder,
+                    calculation_date: reportEndDate,
+                    is_fixed: true
                 });
             }
 
             // Сохраняем финальные расчеты в базу данных
             if (dataToSave.length > 0) {
-                // Сначала проверяем, существует ли таблица
-                const { error: tableCheckError } = await supabase
-                    .from('final_payroll_calculations')
-                    .select('id')
-                    .limit(1);
-                
-                if (tableCheckError && tableCheckError.code === '42P01') {
-                    // Таблица не существует, создаем её
-                    console.log('Таблица final_payroll_calculations не существует, создаем...');
-                    
-                    const { error: createTableError } = await supabase.rpc('create_final_payroll_table', {
-                        sql_query: `
-                            CREATE TABLE IF NOT EXISTS final_payroll_calculations (
-                                id SERIAL PRIMARY KEY,
-                                employee_id VARCHAR(50) NOT NULL,
-                                month INTEGER NOT NULL,
-                                year INTEGER NOT NULL,
-                                total_gross DECIMAL(10,2) DEFAULT 0,
-                                total_deductions DECIMAL(10,2) DEFAULT 0,
-                                total_after_deductions DECIMAL(10,2) DEFAULT 0,
-                                advance_payment DECIMAL(10,2) DEFAULT 0,
-                                card_remainder DECIMAL(10,2) DEFAULT 0,
-                                cash_payout DECIMAL(10,2) DEFAULT 0,
-                                total_card_payment DECIMAL(10,2) DEFAULT 0,
-                                calculation_date DATE,
-                                created_at TIMESTAMP DEFAULT NOW(),
-                                updated_at TIMESTAMP DEFAULT NOW(),
-                                UNIQUE(employee_id, month, year)
-                            );
-                        `
-                    });
-                    
-                    if (createTableError) {
-                        console.error('Не удалось создать таблицу, сохранение пропущено:', createTableError);
-                    }
-                }
-                
-                // Теперь сохраняем данные
                 const { error: saveError } = await supabase
                     .from('final_payroll_calculations')
                     .upsert(dataToSave, { onConflict: 'employee_id,month,year' });
                 
                 if (saveError) {
                     console.error('Ошибка сохранения финальных расчетов:', saveError);
-                    // Не прерываем выполнение, просто логируем
                 } else {
                     console.log(`Успешно сохранено ${dataToSave.length} финальных расчетов`);
                 }
@@ -1301,6 +1305,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
         }
     });
 });
+
 
 
 

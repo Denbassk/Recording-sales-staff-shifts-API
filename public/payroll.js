@@ -2164,148 +2164,171 @@ async function cancelAdvancePayment() {
 
 
     async function calculateFinalPayroll() {
-        const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-        if (tableRows.length === 0) {
-            showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
-            return;
-        }
-        showStatus('reportStatus', 'Выполняем окончательный расчет...', 'info');
-
-        const year = document.getElementById('reportYear')?.value;
-        const month = document.getElementById('reportMonth')?.value;
-        const reportEndDate = document.getElementById('reportEndDate')?.value;
-        if (!year || !month || !reportEndDate) return;
-
-        try {
-            // Сохраняем все корректировки перед расчетом
-            const savePromises = [];
-            tableRows.forEach(row => savePromises.push(saveAdjustments(row)));
-            await Promise.all(savePromises);
-
-            // Отправляем запрос на сервер для финального расчета
-            const data = await fetchData(
-                `${API_BASE}/calculate-final-payroll`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ year, month, reportEndDate })
-                },
-                'reportStatus'
-            );
-
-            if (data.success) {
-                tableRows.forEach(row => {
-                    const employeeId = row.dataset.employeeId;
-                    const result = data.results[employeeId];
-
-                    if (result) {
-                        // Обновляем отображение всех полей
-                        const totalGrossCell = row.querySelector('.total-gross');
-                        if (totalGrossCell) {
-                            totalGrossCell.textContent = formatNumber(result.total_gross);
-                        }
-
-                        const advanceCell = row.querySelector('.advance-payment');
-                        if (advanceCell) {
-                            advanceCell.textContent = formatNumber(result.advance_payment);
-                            // Сохраняем индикацию фиксации если была
-                            if (advanceCell.innerHTML.includes('🔒')) {
-                                advanceCell.innerHTML = `<strong style="color: #f5576c;">🔒 ${formatNumber(result.advance_payment)}</strong>`;
-                            }
-                        }
-
-                        const cardRemainderCell = row.querySelector('.card-remainder');
-                        if (cardRemainderCell) {
-                            cardRemainderCell.textContent = formatNumber(result.card_remainder);
-                            // Визуальная индикация если остаток на карту > 0
-                            if (result.card_remainder > 0) {
-                                cardRemainderCell.style.fontWeight = 'bold';
-                                cardRemainderCell.style.color = '#28a745'; // Зеленый цвет
-                                cardRemainderCell.title = `Остаток к выплате на карту: ${formatNumber(result.card_remainder)} грн`;
-                            } else {
-                                cardRemainderCell.style.fontWeight = 'normal';
-                                cardRemainderCell.style.color = '';
-                                cardRemainderCell.title = '';
-                            }
-                        }
-
-                        const cashPayoutCell = row.querySelector('.cash-payout strong');
-                        if (cashPayoutCell) {
-                            cashPayoutCell.textContent = formatNumber(result.cash_payout);
-                            // Подсветка если есть наличные к выплате
-                            if (result.cash_payout > 0) {
-                                cashPayoutCell.style.color = '#007bff'; // Синий цвет
-                            }
-                        }
-
-                        // Правильный расчет итоговой суммы к выплате
-                        const totalPayoutCell = row.querySelector('.total-payout strong');
-                        if (totalPayoutCell) {
-                            // Используем total_after_deductions если есть, иначе считаем сами
-                            let totalToPay = 0;
-                            if (result.total_after_deductions !== undefined) {
-                                totalToPay = result.total_after_deductions;
-                            } else {
-                                // Fallback расчет на случай если сервер не вернул это поле
-                                const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-                                const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
-                                totalToPay = result.total_gross - penalty - shortage;
-                            }
-                            totalPayoutCell.textContent = formatNumber(totalToPay);
-
-                            // Проверка корректности расчета
-                            const calculatedTotal = result.advance_payment + result.card_remainder + result.cash_payout;
-                            const difference = Math.abs(calculatedTotal - totalToPay);
-
-                            if (difference > 0.01) { // Допускаем погрешность в 1 копейку
-                                console.warn(`Расхождение в расчете для ${employeeId}: итого ${totalToPay}, сумма частей ${calculatedTotal}`);
-                                totalPayoutCell.style.color = '#ff6b6b'; // Красный если есть расхождение
-                                totalPayoutCell.title = `Внимание: возможна ошибка в расчете! Проверьте суммы.`;
-                            } else {
-                                totalPayoutCell.style.color = '';
-                                totalPayoutCell.title = '';
-                            }
-                        }
-
-                        // Добавляем data-атрибуты для экспорта
-                        row.dataset.finalAdvance = result.advance_payment || 0;
-                        row.dataset.finalCardRemainder = result.card_remainder || 0;
-                        row.dataset.finalCash = result.cash_payout || 0;
-                        row.dataset.finalTotal = result.total_after_deductions || 0;
-                    }
-                });
-
-                // Показываем сводную информацию
-                const totalEmployees = tableRows.length;
-                let totalAdvance = 0;
-                let totalCardRemainder = 0;
-                let totalCash = 0;
-                let employeesWithCardRemainder = 0;
-
-                tableRows.forEach(row => {
-                    const advance = parseFloat(row.dataset.finalAdvance) || 0;
-                    const cardRemainder = parseFloat(row.dataset.finalCardRemainder) || 0;
-                    const cash = parseFloat(row.dataset.finalCash) || 0;
-
-                    totalAdvance += advance;
-                    totalCardRemainder += cardRemainder;
-                    totalCash += cash;
-
-                    if (cardRemainder > 0) employeesWithCardRemainder++;
-                });
-
-                const summaryMessage = `✅ Расчет выполнен для ${totalEmployees} сотрудников.\n` +
-                    `💳 Остаток на карту у ${employeesWithCardRemainder} человек на сумму ${formatNumber(totalCardRemainder)} грн\n` +
-                    `💵 Наличными: ${formatNumber(totalCash)} грн`;
-
-                showStatus('reportStatus', summaryMessage, 'success');
-            }
-        } catch (error) {
-            console.error('Ошибка при окончательном расчете:', error);
-            showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
-        }
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    if (tableRows.length === 0) {
+        showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
+        return;
     }
+    showStatus('reportStatus', 'Выполняем окончательный расчет...', 'info');
+
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    const reportEndDate = document.getElementById('reportEndDate')?.value;
+    if (!year || !month || !reportEndDate) return;
+
+    try {
+        // Сохраняем все корректировки перед расчетом
+        const savePromises = [];
+        tableRows.forEach(row => savePromises.push(saveAdjustments(row)));
+        await Promise.all(savePromises);
+
+        // Отправляем запрос на сервер для финального расчета
+        const data = await fetchData(
+            `${API_BASE}/calculate-final-payroll`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ year, month, reportEndDate })
+            },
+            'reportStatus'
+        );
+
+        if (data.success) {
+            tableRows.forEach(row => {
+                const employeeId = row.dataset.employeeId;
+                const result = data.results[employeeId];
+
+                if (result) {
+                    // Обновляем отображение всех полей
+                    const totalGrossCell = row.querySelector('.total-gross');
+                    if (totalGrossCell) {
+                        totalGrossCell.textContent = formatNumber(result.total_gross);
+                    }
+
+                    // Получаем текущие авансы из таблицы (они уже могут быть зафиксированы)
+                    const advanceCardCell = row.querySelector('.advance-payment-card');
+                    const advanceCashCell = row.querySelector('.advance-payment-cash');
+                    
+                    let currentAdvanceCard = 0;
+                    let currentAdvanceCash = 0;
+                    
+                    if (advanceCardCell) {
+                        const cardText = advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
+                        currentAdvanceCard = parseFloat(cardText) || 0;
+                    }
+                    
+                    if (advanceCashCell) {
+                        const cashText = advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
+                        currentAdvanceCash = parseFloat(cashText) || 0;
+                    }
+                    
+                    const totalAdvance = currentAdvanceCard + currentAdvanceCash;
+
+                    // Обновляем остаток на карту
+                    const cardRemainderCell = row.querySelector('.card-remainder');
+                    if (cardRemainderCell) {
+                        cardRemainderCell.textContent = formatNumber(result.card_remainder);
+                        // Визуальная индикация если остаток на карту > 0
+                        if (result.card_remainder > 0) {
+                            cardRemainderCell.style.fontWeight = 'bold';
+                            cardRemainderCell.style.color = '#28a745'; // Зеленый цвет
+                            cardRemainderCell.title = `Остаток к выплате на карту: ${formatNumber(result.card_remainder)} грн`;
+                        } else {
+                            cardRemainderCell.style.fontWeight = 'normal';
+                            cardRemainderCell.style.color = '';
+                            cardRemainderCell.title = '';
+                        }
+                    }
+
+                    // Обновляем зарплату наличными
+                    const cashPayoutCell = row.querySelector('.cash-payout');
+                    if (cashPayoutCell) {
+                        cashPayoutCell.innerHTML = `<strong>${formatNumber(result.cash_payout)}</strong>`;
+                        // Подсветка если есть наличные к выплате
+                        if (result.cash_payout > 0) {
+                            const strongEl = cashPayoutCell.querySelector('strong');
+                            if (strongEl) strongEl.style.color = '#007bff'; // Синий цвет
+                        }
+                    }
+
+                    // ВАЖНО: Правильный расчет итоговой суммы к выплате
+                    // Итого к выплате = Остаток на карту + Зарплата наличными (БЕЗ аванса, он уже выплачен!)
+                    const totalPayoutCell = row.querySelector('.total-payout');
+                    if (totalPayoutCell) {
+                        const totalRemaining = result.card_remainder + result.cash_payout;
+                        totalPayoutCell.innerHTML = `<strong>${formatNumber(totalRemaining)}</strong>`;
+                        
+                        // Проверка корректности расчета
+                        const totalAfterDeductions = result.total_after_deductions || result.total_gross - (result.penalties_total || 0);
+                        const calculatedTotal = totalAdvance + result.card_remainder + result.cash_payout;
+                        const difference = Math.abs(calculatedTotal - totalAfterDeductions);
+
+                        if (difference > 0.01) { // Допускаем погрешность в 1 копейку
+                            console.warn(`Расхождение для ${employeeId}:`);
+                            console.warn(`  Начислено после вычетов: ${totalAfterDeductions}`);
+                            console.warn(`  Аванс: ${totalAdvance}`);
+                            console.warn(`  Остаток на карту: ${result.card_remainder}`);
+                            console.warn(`  Наличные: ${result.cash_payout}`);
+                            console.warn(`  Сумма частей: ${calculatedTotal}`);
+                            
+                            const strongEl = totalPayoutCell.querySelector('strong');
+                            if (strongEl) {
+                                strongEl.style.color = '#ff6b6b'; // Красный если есть расхождение
+                                strongEl.title = `Внимание: возможна ошибка в расчете! Проверьте суммы.`;
+                            }
+                        } else {
+                            const strongEl = totalPayoutCell.querySelector('strong');
+                            if (strongEl) {
+                                strongEl.style.color = '';
+                                strongEl.title = `Аванс: ${formatNumber(totalAdvance)} + Остаток: ${formatNumber(result.card_remainder + result.cash_payout)} = ${formatNumber(totalAfterDeductions)}`;
+                            }
+                        }
+                    }
+
+                    // Добавляем data-атрибуты для экспорта
+                    row.dataset.finalAdvance = totalAdvance;
+                    row.dataset.finalCardRemainder = result.card_remainder || 0;
+                    row.dataset.finalCash = result.cash_payout || 0;
+                    row.dataset.finalTotal = result.card_remainder + result.cash_payout;
+                }
+            });
+
+            // Показываем сводную информацию
+            const totalEmployees = tableRows.length;
+            let totalAdvance = 0;
+            let totalCardRemainder = 0;
+            let totalCash = 0;
+            let totalRemaining = 0;
+            let employeesWithCardRemainder = 0;
+
+            tableRows.forEach(row => {
+                const advance = parseFloat(row.dataset.finalAdvance) || 0;
+                const cardRemainder = parseFloat(row.dataset.finalCardRemainder) || 0;
+                const cash = parseFloat(row.dataset.finalCash) || 0;
+
+                totalAdvance += advance;
+                totalCardRemainder += cardRemainder;
+                totalCash += cash;
+                totalRemaining += (cardRemainder + cash);
+
+                if (cardRemainder > 0) employeesWithCardRemainder++;
+            });
+
+            const summaryMessage = `✅ Расчет выполнен для ${totalEmployees} сотрудников.\n` +
+                `💳 Уже выплачено авансом: ${formatNumber(totalAdvance)} грн\n` +
+                `💳 Остаток на карту у ${employeesWithCardRemainder} человек: ${formatNumber(totalCardRemainder)} грн\n` +
+                `💵 Зарплата наличными: ${formatNumber(totalCash)} грн\n` +
+                `📊 ИТОГО к доплате: ${formatNumber(totalRemaining)} грн`;
+
+            showStatus('reportStatus', summaryMessage, 'success');
+        }
+    } catch (error) {
+        console.error('Ошибка при окончательном расчете:', error);
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
 
 
     function generateCashPayoutReport() {
