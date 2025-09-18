@@ -2192,7 +2192,7 @@ async function cancelAdvancePayment() {
                         totalGrossCell.textContent = formatNumber(result.total_gross);
                     }
 
-                    // Обновляем остаток на карту
+                    // ВАЖНО: Обновляем остаток на карту
                     const cardRemainderCell = row.querySelector('.card-remainder');
                     if (cardRemainderCell) {
                         cardRemainderCell.textContent = formatNumber(result.card_remainder);
@@ -2208,14 +2208,13 @@ async function cancelAdvancePayment() {
                         }
                     }
 
-                    // Обновляем зарплату наличными
+                    // ВАЖНО: Обновляем зарплату наличными
                     const cashPayoutCell = row.querySelector('.cash-payout');
                     if (cashPayoutCell) {
-                        cashPayoutCell.innerHTML = `<strong>${formatNumber(result.cash_payout)}</strong>`;
-                        // Подсветка если есть наличные к выплате
                         if (result.cash_payout > 0) {
-                            const strongEl = cashPayoutCell.querySelector('strong');
-                            if (strongEl) strongEl.style.color = '#007bff'; // Синий цвет
+                            cashPayoutCell.innerHTML = `<strong style="color: #007bff;">${formatNumber(result.cash_payout)}</strong>`;
+                        } else {
+                            cashPayoutCell.innerHTML = `<strong>${formatNumber(result.cash_payout)}</strong>`;
                         }
                     }
 
@@ -2250,6 +2249,11 @@ async function cancelAdvancePayment() {
                     row.dataset.finalCardRemainder = result.card_remainder || 0;
                     row.dataset.finalCash = result.cash_payout || 0;
                     row.dataset.finalTotal = result.card_remainder + result.cash_payout;
+
+                    // ВАЖНО: Вызываем пересчет строки для обновления итогов
+                    setTimeout(() => {
+                        recalculateRow(row);
+                    }, 100);
                 }
             });
 
