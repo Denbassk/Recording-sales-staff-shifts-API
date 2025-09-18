@@ -1843,7 +1843,7 @@ async function calculateAdvance15(silent = false) {
         return;
     }
 
-    // НОВОЕ: Проверяем, не зафиксирован ли уже аванс
+    // Проверяем, не зафиксирован ли уже аванс
     let alreadyFixed = false;
     tableRows.forEach(row => {
         const advanceCardCell = row.querySelector('.advance-payment-card');
@@ -1964,7 +1964,7 @@ async function calculateAdvance15(silent = false) {
                 'success'
             );
 
-            // Обновляем визуальное отображение
+            // Обновляем визуальное отображение с учетом увольнений
             tableRows.forEach(row => {
                 const advanceCardCell = row.querySelector('.advance-payment-card');
                 const advanceCashCell = row.querySelector('.advance-payment-cash');
@@ -1973,11 +1973,15 @@ async function calculateAdvance15(silent = false) {
                     const cardSpan = advanceCardCell.querySelector('.advance-card-content');
                     if (cardSpan) {
                         const currentHTML = cardSpan.innerHTML;
-                        // Добавляем замок только если его еще нет и сумма > 0
-                        if (!currentHTML.includes('🔒') && !currentHTML.includes('>0<')) {
-                            if (currentHTML.includes('💳')) {
-                                cardSpan.innerHTML = currentHTML.replace(/(💳)/, '🔒 $1');
-                            } else if (!currentHTML.includes('0')) {
+                        // Добавляем замок если его еще нет и сумма > 0
+                        if (!currentHTML.includes('🔒')) {
+                            // Проверяем на увольнение
+                            if (currentHTML.includes('🚪')) {
+                                // Для увольнения добавляем замок после иконки двери
+                                cardSpan.innerHTML = currentHTML.replace('🚪', '🚪 🔒');
+                            } else if (currentHTML.includes('💳') && !currentHTML.includes('>0<')) {
+                                cardSpan.innerHTML = currentHTML.replace('💳', '🔒 💳');
+                            } else if (!currentHTML.includes('0') && !currentHTML.includes('>0<')) {
                                 cardSpan.innerHTML = `🔒 ${currentHTML}`;
                             }
                         }
@@ -1988,11 +1992,12 @@ async function calculateAdvance15(silent = false) {
                     const cashSpan = advanceCashCell.querySelector('.advance-cash-content');
                     if (cashSpan) {
                         const currentHTML = cashSpan.innerHTML;
-                        // Добавляем замок только если его еще нет и сумма > 0
-                        if (!currentHTML.includes('🔒') && !currentHTML.includes('>0<')) {
-                            if (currentHTML.includes('💵')) {
-                                cashSpan.innerHTML = currentHTML.replace(/(💵)/, '🔒 $1');
-                            } else if (!currentHTML.includes('0')) {
+                        if (!currentHTML.includes('🔒')) {
+                            if (currentHTML.includes('🚪')) {
+                                cashSpan.innerHTML = currentHTML.replace('🚪', '🚪 🔒');
+                            } else if (currentHTML.includes('💵') && !currentHTML.includes('>0<')) {
+                                cashSpan.innerHTML = currentHTML.replace('💵', '🔒 💵');
+                            } else if (!currentHTML.includes('0') && !currentHTML.includes('>0<')) {
                                 cashSpan.innerHTML = `🔒 ${currentHTML}`;
                             }
                         }
@@ -2017,13 +2022,11 @@ async function calculateAdvance15(silent = false) {
         }
     } catch (error) {
         console.error('Ошибка фиксации аванса:', error);
-        // Если ошибка о дубликате
         if (error.message && error.message.includes('уже зафиксирован')) {
             showStatus('reportStatus',
                 '⚠️ Аванс за этот период уже зафиксирован. Необходимо сначала отменить предыдущую фиксацию.',
                 'warning'
             );
-            // Обновляем визуальное отображение чтобы показать что аванс зафиксирован
             setTimeout(() => {
                 calculateAdvance15(true);
             }, 500);
@@ -2032,7 +2035,6 @@ async function calculateAdvance15(silent = false) {
         }
     }
 }
-
 
     // Функция отмены фиксации аванса
     async function cancelAdvancePayment() {
@@ -2293,172 +2295,185 @@ async function calculateAdvance15(silent = false) {
     }
 
     function printAllPayslips() {
-        const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-        if (tableRows.length === 0) { return showStatus('reportStatus', 'Нет данных для печати', 'error'); }
-        const month = tableRows[0].dataset.month;
-        const year = tableRows[0].dataset.year;
-        const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
-        let allPayslipsHTML = '';
-        tableRows.forEach(row => {
-            const employeeName = row.dataset.employeeName;
-            const storeAddress = row.dataset.storeAddress;
-            const basePay = parseFloat(row.dataset.basePay);
-            const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
-            const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-            const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
-            const bonus_reason = row.querySelector('[name="bonus_reason"]')?.value || '-';
-            const penalty_reason = row.querySelector('[name="penalty_reason"]')?.value || '-';
-            const totalGross = basePay + manualBonus;
-            const advanceAmount = parseFloat(row.querySelector('.advance-payment')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-            const cardRemainderAmount = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-            const cashAmount = parseFloat(row.querySelector('.cash-payout strong')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-            const totalToPay = totalGross - penalty - shortage;
-            allPayslipsHTML += `<div class="payslip-compact">
-                                <h3>Расчетный лист</h3>
-                                <p><strong>Сотрудник:</strong> ${employeeName}</p>
-                                ${storeAddress !== 'Старший продавец' && storeAddress !== 'Не определен' ? `<p><strong>Магазин:</strong> ${storeAddress}</p>` : ''}
-                                <p><strong>Период:</strong> ${monthNames[month - 1]} ${year}</p>
-                                <table>
-                                    <tr><td>Начислено (ставка + бонус):</td><td align="right">${formatNumber(basePay)} грн</td></tr>
-                                    <tr><td>Премирование (${bonus_reason}):</td><td align="right">${formatNumber(manualBonus)} грн</td></tr>
-                                    <tr><td><strong>Всего начислено:</strong></td><td align="right"><strong>${formatNumber(totalGross)} грн</strong></td></tr>
-                                    <tr><td style="color:red;">Депремирование (${penalty_reason}):</td><td align="right" style="color:red;">-${formatNumber(penalty)} грн</td></tr>
-                                    <tr><td style="color:red;">Вычет за недостачу:</td><td align="right" style="color:red;">-${formatNumber(shortage)} грн</td></tr>
-                                    <tr><td><strong>Итого к выплате:</strong></td><td align="right"><strong>${formatNumber(totalToPay)} грн</strong></td></tr>
-                                </table>
-                                <table>
-                                    <tr><td>Выплачено авансом (на карту):</td><td align="right">${formatNumber(advanceAmount)} грн</td></tr>
-                                    <tr><td>Выплачено остатка (на карту):</td><td align="right">${formatNumber(cardRemainderAmount)} грн</td></tr>
-                                    <tr><td>Выплачено зарплаты (наличными):</td><td align="right">${formatNumber(cashAmount)} грн</td></tr>
-                                </table>
-                                <p style="margin-top: 15px;">Подпись: _________________________</p>
-                            </div>`;
-        });
-        const printWindow = window.open('', '_blank');
-        printWindow.document.write(`<html><head><title>Расчетные ведомости</title><style>
-        body { font-family: Arial, sans-serif; }
-        .payslip-compact { font-size: 9pt; height: 30%; box-sizing: border-box; padding-bottom: 5mm; margin-bottom: 5mm; border-bottom: 2px dashed #999; page-break-inside: avoid; }
-        .payslip-compact:last-child { border-bottom: none; }
-        .payslip-compact h3 { text-align: center; font-size: 12pt; margin-bottom: 10px; }
-        .payslip-compact table { width: 100%; border-collapse: collapse; margin: 5px 0; }
-        .payslip-compact td { padding: 2px 0; }
-        @page { size: A4; margin: 15mm; }
-    </style></head><body><div id="print-area">${allPayslipsHTML}</div></body></html>`);
-        printWindow.document.close();
-        printWindow.focus();
-        setTimeout(() => { printWindow.print(); printWindow.close(); }, 500);
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    if (tableRows.length === 0) { 
+        return showStatus('reportStatus', 'Нет данных для печати', 'error'); 
     }
-
-    async function generateFotReport() {
-        const monthEl = document.getElementById('fotReportMonth');
-        const yearEl = document.getElementById('fotReportYear');
-        const endDateEl = document.getElementById('fotReportEndDate');
-        const loader = document.getElementById('fotLoader');
-        const contentEl = document.getElementById('fotReportContent');
-
-        if (!monthEl || !yearEl || !endDateEl || !loader || !contentEl) return;
-
-        const month = monthEl.value;
-        const year = yearEl.value;
-        const reportEndDate = endDateEl.value;
-
-        if (!month || !year || !reportEndDate) {
-            showStatus('fotReportStatus', 'Пожалуйста, выберите все параметры.', 'error');
-            return;
-        }
-        showStatus('fotReportStatus', 'Формирование отчета ФОТ...', 'info');
-        loader.style.display = 'block';
-
-        const summaryPanel = contentEl.querySelector('.summary-panel');
-        const storePanel = document.getElementById('fotByStorePanel');
-        if (summaryPanel) summaryPanel.style.display = 'none';
-        if (storePanel) storePanel.style.display = 'none';
-
-        try {
-            const result = await fetchData(
-                `${API_BASE}/get-fot-report`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ year, month, reportEndDate })
-            },
-                'fotReportStatus'
-            );
-
-            if (result.success) {
-                hideStatus('fotReportStatus');
-                fotReportDataCache = result.rows;
-                const reportData = result.rows;
-
-                const fotByStoreBody = document.getElementById('fotByStoreTableBody');
-                if (fotByStoreBody) fotByStoreBody.innerHTML = '';
-
-                if (reportData.length === 0) {
-                    if (fotByStoreBody) fotByStoreBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">Нет данных для расчета за выбранный период.</td></tr>';
-                    if (summaryPanel) summaryPanel.style.display = 'none';
-                    if (storePanel) storePanel.style.display = 'block';
-                    return;
+    
+    const month = tableRows[0].dataset.month;
+    const year = tableRows[0].dataset.year;
+    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
+                        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+    
+    let allPayslipsHTML = '';
+    
+    tableRows.forEach(row => {
+        const employeeName = row.dataset.employeeName;
+        const storeAddress = row.dataset.storeAddress;
+        const basePay = parseFloat(row.dataset.basePay) || 0;
+        const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
+        const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+        const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+        const bonus_reason = row.querySelector('[name="bonus_reason"]')?.value || '';
+        const penalty_reason = row.querySelector('[name="penalty_reason"]')?.value || '';
+        const totalGross = basePay + manualBonus;
+        const totalDeductions = penalty + shortage;
+        const totalToPay = totalGross - totalDeductions;
+        
+        // Получаем авансы раздельно
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        
+        const advanceCard = parseFloat(advanceCardCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        const advanceCash = parseFloat(advanceCashCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        
+        const cardRemainderAmount = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        const cashAmount = parseFloat(row.querySelector('.cash-payout')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        
+        allPayslipsHTML += `<div class="payslip-compact">
+            <h3>РАСЧЕТНЫЙ ЛИСТ</h3>
+            <p><strong>Сотрудник:</strong> ${employeeName}</p>
+            ${storeAddress !== 'Старший продавец' && storeAddress !== 'Не определен' ? 
+                `<p><strong>Магазин:</strong> ${storeAddress}</p>` : ''}
+            <p><strong>Период:</strong> ${monthNames[month - 1]} ${year}</p>
+            <hr style="border: 0; border-top: 1px solid #ccc; margin: 10px 0;">
+            
+            <h4 style="margin: 10px 0 5px 0;">Начисления:</h4>
+            <table>
+                <tr><td>База (ставка + бонусы за смены):</td><td align="right">${formatNumber(basePay)} грн</td></tr>
+                ${manualBonus > 0 ? `<tr><td>Премирование${bonus_reason ? ` (${bonus_reason})` : ''}:</td><td align="right" style="color: green;">+${formatNumber(manualBonus)} грн</td></tr>` : ''}
+                <tr style="font-weight: bold;"><td>ВСЕГО НАЧИСЛЕНО:</td><td align="right">${formatNumber(totalGross)} грн</td></tr>
+            </table>
+            
+            ${totalDeductions > 0 ? `
+            <h4 style="margin: 10px 0 5px 0;">Удержания:</h4>
+            <table>
+                ${penalty > 0 ? `<tr><td>Депремирование${penalty_reason ? ` (${penalty_reason})` : ''}:</td><td align="right" style="color: red;">-${formatNumber(penalty)} грн</td></tr>` : ''}
+                ${shortage > 0 ? `<tr><td>Вычет за недостачу:</td><td align="right" style="color: red;">-${formatNumber(shortage)} грн</td></tr>` : ''}
+                <tr style="font-weight: bold;"><td>ВСЕГО УДЕРЖАНО:</td><td align="right" style="color: red;">-${formatNumber(totalDeductions)} грн</td></tr>
+            </table>
+            ` : ''}
+            
+            <hr style="border: 0; border-top: 1px solid #ccc; margin: 10px 0;">
+            <table style="font-weight: bold; font-size: 11pt;">
+                <tr><td>К ВЫПЛАТЕ ПОСЛЕ ВЫЧЕТОВ:</td><td align="right">${formatNumber(totalToPay)} грн</td></tr>
+            </table>
+            
+            <h4 style="margin: 10px 0 5px 0;">Выплаты:</h4>
+            <table>
+                ${advanceCard > 0 ? `<tr><td>Аванс (на карту):</td><td align="right">${formatNumber(advanceCard)} грн</td></tr>` : ''}
+                ${advanceCash > 0 ? `<tr><td>Аванс (наличными):</td><td align="right">${formatNumber(advanceCash)} грн</td></tr>` : ''}
+                ${cardRemainderAmount > 0 ? `<tr><td>Остаток зарплаты (на карту):</td><td align="right">${formatNumber(cardRemainderAmount)} грн</td></tr>` : ''}
+                ${cashAmount > 0 ? `<tr><td>Остаток зарплаты (наличными):</td><td align="right">${formatNumber(cashAmount)} грн</td></tr>` : ''}
+            </table>
+            
+            <hr style="border: 0; border-top: 1px solid #ccc; margin: 10px 0;">
+            <p style="margin-top: 20px;">С расчетом ознакомлен(а): _________________________</p>
+            <p style="font-size: 9pt; margin-top: 5px;">Дата: _______________ Подпись: _______________</p>
+        </div>`;
+    });
+    
+    // Создаем окно предпросмотра
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Расчетные листы - ${monthNames[month - 1]} ${year}</title>
+            <style>
+                body { 
+                    font-family: Arial, sans-serif; 
+                    margin: 0;
+                    padding: 10mm;
                 }
+                .payslip-compact { 
+                    font-size: 10pt; 
+                    min-height: 90mm;
+                    max-height: 95mm;
+                    box-sizing: border-box; 
+                    padding: 10px;
+                    margin-bottom: 10mm; 
+                    border: 1px solid #ccc;
+                    border-radius: 5px;
+                    page-break-inside: avoid; 
+                }
+                .payslip-compact:nth-child(3n) {
+                    page-break-after: always;
+                }
+                .payslip-compact h3 { 
+                    text-align: center; 
+                    font-size: 12pt; 
+                    margin-bottom: 10px;
+                    text-decoration: underline;
+                }
+                .payslip-compact h4 { 
+                    font-size: 10pt; 
+                    margin: 10px 0 5px 0;
+                    text-decoration: underline;
+                }
+                .payslip-compact table { 
+                    width: 100%; 
+                    border-collapse: collapse; 
+                    margin: 5px 0; 
+                }
+                .payslip-compact td { 
+                    padding: 2px 0; 
+                    font-size: 10pt;
+                }
+                @media print {
+                    @page { 
+                        size: A4; 
+                        margin: 10mm; 
+                    }
+                    body {
+                        margin: 0;
+                        padding: 0;
+                    }
+                }
+                .no-print {
+                    margin: 20px 0;
+                    text-align: center;
+                    padding: 20px;
+                    background: #f0f0f0;
+                    border-radius: 10px;
+                }
+                @media print {
+                    .no-print {
+                        display: none;
+                    }
+                }
+                button {
+                    padding: 10px 20px;
+                    font-size: 16px;
+                    margin: 0 5px;
+                    cursor: pointer;
+                    border: none;
+                    border-radius: 5px;
+                    background: #667eea;
+                    color: white;
+                }
+                button:hover {
+                    background: #5a6edc;
+                }
+                button.close {
+                    background: #dc3545;
+                }
+                button.close:hover {
+                    background: #c82333;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="no-print">
+                <h2>Предварительный просмотр расчетных листов</h2>
+                <p>Всего листов: ${tableRows.length}</p>
+                <button onclick="window.print()">🖨️ Печать</button>
+                <button class="close" onclick="window.close()">❌ Закрыть</button>
+            </div>
+            <div id="print-area">${allPayslipsHTML}</div>
+        </body>
+        </html>
+    `);
+    printWindow.document.close();
+}
 
-                if (summaryPanel) summaryPanel.style.display = 'block';
-                if (storePanel) storePanel.style.display = 'block';
-
-                let grandTotalRevenue = 0;
-                let grandTotalFotFund = 0;
-
-                reportData.sort((a, b) => a.store_address.localeCompare(b.store_address)).forEach(data => {
-                    const row = `
-                    <tr>
-                        <td>${data.store_address}</td>
-                        <td>${formatNumber(data.total_revenue)} грн</td>
-                        <td>${formatNumber(data.total_payout_with_tax)} грн</td>
-                        <td><strong>${formatNumber(data.fot_percentage)} %</strong></td>
-                    </tr>
-                `;
-                    if (fotByStoreBody) fotByStoreBody.innerHTML += row;
-                    grandTotalRevenue += data.total_revenue;
-                    grandTotalFotFund += data.total_payout_with_tax;
-                });
-
-                const grandTotalFotPercentage = grandTotalRevenue > 0 ? (grandTotalFotFund / grandTotalRevenue) * 100 : 0;
-                document.getElementById('fotTotalRevenue').textContent = `${formatNumber(grandTotalRevenue)} грн`;
-                document.getElementById('fotTotalFund').textContent = `${formatNumber(grandTotalFotFund)} грн`;
-                document.getElementById('fotPercentage').textContent = `${formatNumber(grandTotalFotPercentage)} %`;
-            }
-        } catch (error) {
-        } finally {
-            if (loader) loader.style.display = 'none';
-        }
-    }
-
-    async function clearDatabase() {
-    const firstConfirm = confirm("ВНИМАНИЕ!\nВы собираетесь удалить все данные о сменах, расчетах зарплаты и выручке. Эта операция необратима.\n\nВы уверены, что хотите продолжить?");
-    if (!firstConfirm) {
-        showStatus('reportStatus', 'Очистка данных отменена.', 'info');
-        return;
-    }
-    const secondConfirm = confirm("ПОСЛЕДНЕЕ ПРЕДУПРЕЖДЕНИЕ.\nВсе операционные данные будут стерты. Справочники (сотрудники, магазины) останутся.\n\nПодтверждаете удаление?");
-    if (!secondConfirm) {
-        showStatus('reportStatus', 'Очистка данных отменена.', 'info');
-        return;
-    }
-    showStatus('reportStatus', 'Выполняется очистка данных...', 'info');
-    try {
-        const result = await fetchData(
-            `${API_BASE}/clear-transactional-data`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include'
-            },
-            'reportStatus'
-        );
-        if (result.success) {
-            showStatus('reportStatus', result.message, 'success');
-            document.getElementById('monthlyReportContent').innerHTML = '';
-        }
-    } catch (error) {
-        // Можно добавить обработку ошибки, если нужно
-        console.error('Ошибка очистки базы данных:', error);
-    }
-} // <-- ДОБАВЛЕНА ЗАКРЫВАЮЩАЯ СКОБКА ФУНКЦИИ

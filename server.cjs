@@ -769,10 +769,10 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
             });
         }
         
-        // Получаем ручные корректировки если есть
+        // Получаем ручные корректировки если есть (включая увольнения)
         const { data: manualAdjustments } = await supabase
             .from('final_payroll_calculations')
-            .select('employee_id, advance_payment, advance_payment_method')
+            .select('employee_id, advance_payment, advance_card, advance_cash, advance_payment_method, is_termination')
             .eq('month', month)
             .eq('year', year)
             .eq('is_manual_adjustment', true);
@@ -786,18 +786,25 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
         
         for (const [employeeId, totalEarned] of Object.entries(earnedInPeriod)) {
             let advanceAmount = 0;
+            let advanceCard = 0;
+            let advanceCash = 0;
             let paymentMethod = 'card';
+            let isTermination = false;
             
             // Проверяем ручные корректировки
             if (manualMap.has(employeeId)) {
                 const manual = manualMap.get(employeeId);
                 advanceAmount = manual.advance_payment || 0;
+                advanceCard = manual.advance_card || 0;
+                advanceCash = manual.advance_cash || 0;
                 paymentMethod = manual.advance_payment_method || 'card';
+                isTermination = manual.is_termination || false;
             } else {
                 // Автоматический расчет
                 let calculatedAdvance = totalEarned * 0.9;
                 let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
                 advanceAmount = Math.min(roundedAdvance, 7900);
+                advanceCard = advanceAmount; // По умолчанию на карту
             }
             
             if (advanceAmount > 0) {
@@ -805,10 +812,13 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
                     employee_id: employeeId,
                     payment_type: 'advance',
                     amount: advanceAmount,
+                    advance_card: advanceCard,
+                    advance_cash: advanceCash,
                     payment_date: paymentDate,
                     payment_period_month: parseInt(month),
                     payment_period_year: parseInt(year),
                     payment_method: paymentMethod,
+                    is_termination: isTermination,
                     created_by: req.user.id,
                     is_cancelled: false
                 });
@@ -844,6 +854,7 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 // --- НОВЫЙ ЭНДПОИНТ: Отмена зафиксированного аванса ---
 // Обновленная функция отмены фиксации аванса в server.cjs (с обнулением)
