@@ -50,26 +50,21 @@ document.addEventListener('DOMContentLoaded', async function () {
             const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
 
             // Проверяем роль пользователя
-            if (data.success && data.user) {
-                const isAdmin = data.user.role === 'admin';
-                const isAccountant = data.user.role === 'accountant';
+  if (data.success && data.user) {
+    const isAdmin = data.user.role === 'admin';
+    const isAccountant = data.user.role === 'accountant';
 
-                // ФОТ - только для админа
-                if (fotTabButton) {
-                    fotTabButton.style.display = isAdmin ? 'block' : 'none';
-                }
+    // ФОТ - только для админа
+    if (fotTabButton) {
+        fotTabButton.style.display = isAdmin ? 'block' : 'none';
+    }
 
-                // Очистка данных - только для админа
-                if (clearDataButton && clearDataButton.parentElement) {
-                    clearDataButton.parentElement.style.display = isAdmin ? 'block' : 'none';
-                }
-            } else {
-                // Скрываем всё если нет авторизации
-                if (fotTabButton) fotTabButton.style.display = 'none';
-                if (clearDataButton && clearDataButton.parentElement) {
-                    clearDataButton.parentElement.style.display = 'none';
-                }
-            }
+    // Админская секция - только для админа
+    const adminSection = document.getElementById('adminSection');
+    if (adminSection) {
+        adminSection.style.display = isAdmin ? 'block' : 'none';
+    }
+}
 
             initializePage();
 
@@ -2036,80 +2031,137 @@ async function calculateAdvance15(silent = false) {
     }
 }
 
-    // Функция отмены фиксации аванса
-    async function cancelAdvancePayment() {
-        const year = document.getElementById('reportYear')?.value;
-        const month = document.getElementById('reportMonth')?.value;
+ // Функция отмены фиксации аванса
+async function cancelAdvancePayment() {
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
 
-        if (!year || !month) {
-            showStatus('reportStatus', 'Не указан период', 'error');
-            return;
+    if (!year || !month) {
+        showStatus('reportStatus', 'Сначала выберите период', 'error');
+        return;
+    }
+
+    // Проверяем, есть ли зафиксированный аванс
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    let hasFixedAdvance = false;
+    
+    if (tableRows.length === 0) {
+        showStatus('reportStatus', 'Сначала сформируйте отчет', 'info');
+        return;
+    }
+    
+    tableRows.forEach(row => {
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        if ((advanceCardCell && advanceCardCell.innerHTML.includes('🔒')) || 
+            (advanceCashCell && advanceCashCell.innerHTML.includes('🔒'))) {
+            hasFixedAdvance = true;
         }
+    });
 
-        const cancellationReason = prompt(
-            'Укажите причину отмены фиксации аванса:\n' +
-            '(например: "Ошибка в расчете", "Изменение даты выплаты" и т.д.)'
+    if (!hasFixedAdvance) {
+        showStatus('reportStatus', 'Нет зафиксированного аванса для отмены', 'info');
+        return;
+    }
+
+    const cancellationReason = prompt(
+        'Укажите причину отмены фиксации аванса:\n' +
+        '(например: "Ошибка в расчете", "Изменение даты выплаты" и т.д.)'
+    );
+
+    if (!cancellationReason) {
+        showStatus('reportStatus', 'Отмена не выполнена - не указана причина', 'info');
+        return;
+    }
+
+    if (!confirm('Вы уверены, что хотите отменить фиксацию аванса?')) {
+        return;
+    }
+
+    showStatus('reportStatus', 'Отменяем фиксацию аванса...', 'info');
+
+    try {
+        const result = await fetchData(
+            `${API_BASE}/cancel-advance-payment`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    year: parseInt(year),
+                    month: parseInt(month),
+                    cancellationReason
+                })
+            },
+            'reportStatus'
         );
 
-        if (!cancellationReason) {
-            showStatus('reportStatus', 'Отмена не выполнена - не указана причина', 'info');
-            return;
-        }
+        if (result.success) {
+            showStatus('reportStatus', result.message, 'success');
 
-        if (!confirm('Вы уверены, что хотите отменить фиксацию аванса?')) {
-            return;
-        }
-
-        showStatus('reportStatus', 'Отменяем фиксацию аванса...', 'info');
-
-        try {
-            const result = await fetchData(
-                `${API_BASE}/cancel-advance-payment`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        year: parseInt(year),
-                        month: parseInt(month),
-                        cancellationReason
-                    })
-                },
-                'reportStatus'
-            );
-
-            if (result.success) {
-                showStatus('reportStatus', result.message, 'success');
-
-                // ВАЖНО: Убираем визуальную индикацию фиксации из таблицы
-                const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-                tableRows.forEach(row => {
-                    const advanceCell = row.querySelector('.advance-payment');
-                    if (advanceCell) {
-                        // Получаем числовое значение без символов
-                        const amount = advanceCell.textContent.replace(/[^0-9,]/g, '');
-                        // Убираем стили и символ блокировки
-                        advanceCell.innerHTML = amount;
-                        advanceCell.style = ''; // Сбрасываем все стили
+            // ВАЖНО: Убираем визуальную индикацию фиксации из таблицы
+            tableRows.forEach(row => {
+                // Обработка колонки "Аванс (на карту)"
+                const advanceCardCell = row.querySelector('.advance-payment-card');
+                if (advanceCardCell) {
+                    const cardSpan = advanceCardCell.querySelector('.advance-card-content');
+                    if (cardSpan) {
+                        let currentHTML = cardSpan.innerHTML;
+                        // Убираем символ замка и пробелы
+                        currentHTML = currentHTML.replace(/🔒\s*/g, '');
+                        // Убираем дополнительные пробелы между иконками
+                        currentHTML = currentHTML.replace(/\s+/g, ' ').trim();
+                        cardSpan.innerHTML = currentHTML;
                     }
-                });
-
-                // Убираем уведомление о фиксации
-                const notice = document.getElementById('advance-fixed-notice');
-                if (notice) {
-                    notice.remove();
                 }
+                
+                // Обработка колонки "Аванс (наличные)"
+                const advanceCashCell = row.querySelector('.advance-payment-cash');
+                if (advanceCashCell) {
+                    const cashSpan = advanceCashCell.querySelector('.advance-cash-content');
+                    if (cashSpan) {
+                        let currentHTML = cashSpan.innerHTML;
+                        // Убираем символ замка и пробелы
+                        currentHTML = currentHTML.replace(/🔒\s*/g, '');
+                        // Убираем дополнительные пробелы между иконками
+                        currentHTML = currentHTML.replace(/\s+/g, ' ').trim();
+                        cashSpan.innerHTML = currentHTML;
+                    }
+                }
+                
+                // Если есть старые ячейки .advance-payment (для совместимости)
+                const oldAdvanceCell = row.querySelector('.advance-payment');
+                if (oldAdvanceCell) {
+                    let currentHTML = oldAdvanceCell.innerHTML;
+                    currentHTML = currentHTML.replace(/🔒\s*/g, '');
+                    currentHTML = currentHTML.replace(/<strong[^>]*>/g, '');
+                    currentHTML = currentHTML.replace(/<\/strong>/g, '');
+                    oldAdvanceCell.innerHTML = currentHTML;
+                    oldAdvanceCell.style = '';
+                }
+            });
 
-                // ВАЖНО: Пересчитываем аванс заново
-                setTimeout(() => {
-                    calculateAdvance15(true); // silent = true
-                }, 500);
+            // Убираем уведомление о фиксации
+            const notice = document.getElementById('advance-fixed-notice');
+            if (notice) {
+                notice.remove();
             }
-        } catch (error) {
-            console.error('Ошибка отмены фиксации:', error);
-            showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+
+            // Убираем все другие возможные индикаторы фиксации
+            const allFixedNotices = document.querySelectorAll('[id*="fixed"], .fixed-notice, .advance-fixed');
+            allFixedNotices.forEach(el => el.remove());
+
+            // ВАЖНО: Пересчитываем аванс заново
+            setTimeout(() => {
+                calculateAdvance15(true); // silent = true
+            }, 500);
         }
+    } catch (error) {
+        console.error('Ошибка отмены фиксации:', error);
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
+}
+
 
     async function calculateFinalPayroll() {
         const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
