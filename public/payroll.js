@@ -176,9 +176,19 @@ function switchTab(tabName, button) {
     button.classList.add('active');
 }
 function formatNumber(num) {
-    if (typeof num !== 'number') return '0,00';
-    return num.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$& ').replace('.', ',');
+    // Проверяем, что это число
+    if (num === null || num === undefined) return '0,00';
+    
+    // Преобразуем в число если это строка
+    const number = typeof num === 'string' ? parseFloat(num) : num;
+    
+    // Проверяем что получилось число
+    if (isNaN(number)) return '0,00';
+    
+    // Форматируем
+    return number.toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$& ').replace('.', ',');
 }
+
 function showStatus(elementId, message, type) {
     const statusEl = document.getElementById(elementId);
     if (!statusEl) return;
@@ -186,6 +196,8 @@ function showStatus(elementId, message, type) {
     statusEl.textContent = message;
     statusEl.style.display = 'flex';
 }
+
+
 function hideStatus(elementId) {
     const statusEl = document.getElementById(elementId);
     if (statusEl) statusEl.style.display = 'none';
@@ -1590,8 +1602,7 @@ async function calculateAdvance15(silent = false) {
     const currentAdvanceCard = parseFloat(advanceCellCard?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
     const currentAdvanceCash = parseFloat(advanceCellCash?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
     const currentAdvanceTotal = currentAdvanceCard + currentAdvanceCash;
-    
-    const maxAdvanceAmount = FIXED_CARD_PAYMENT * ADVANCE_PERCENTAGE; // 7740
+    const maxAdvanceAmount = MAX_ADVANCE; // 7900
     
     // НОВОЕ: Спрашиваем тип операции
     const operationType = prompt(
@@ -1814,252 +1825,214 @@ async function calculateAdvance15(silent = false) {
     }
 }
 
-    async function showAdjustmentsHistory() {
-        const month = document.getElementById('reportMonth')?.value;
-        const year = document.getElementById('reportYear')?.value;
+    // Новая функция для фиксации аванса
+    async function fixAdvancePayment() {
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    const advanceEndDate = document.getElementById('reportEndDate')?.value;
 
-        if (!month || !year) {
-            showStatus('reportStatus', 'Сначала выберите период', 'error');
-            return;
+    if (!year || !month || !advanceEndDate) {
+        showStatus('reportStatus', 'Сначала выберите период и дату расчета', 'error');
+        return;
+    }
+
+    // Проверяем, был ли рассчитан аванс
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    if (tableRows.length === 0) {
+        showStatus('reportStatus', 'Сначала сформируйте отчет и рассчитайте аванс', 'error');
+        return;
+    }
+
+    // НОВОЕ: Проверяем, не зафиксирован ли уже аванс
+    let alreadyFixed = false;
+    tableRows.forEach(row => {
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        if ((advanceCardCell && advanceCardCell.innerHTML.includes('🔒')) || 
+            (advanceCashCell && advanceCashCell.innerHTML.includes('🔒'))) {
+            alreadyFixed = true;
         }
+    });
 
-        try {
-            const response = await fetch(`${API_BASE}/advance-adjustments-history?month=${month}&year=${year}`, {
-                credentials: 'include'
+    if (alreadyFixed) {
+        showStatus('reportStatus',
+            '⚠️ Аванс уже зафиксирован! Сначала отмените текущую фиксацию.',
+            'warning'
+        );
+        return;
+    }
+
+    // Проверяем наличие рассчитанного аванса
+    let hasAdvance = false;
+    let totalAdvanceAmount = 0;
+    let employeesWithAdvance = 0;
+
+    tableRows.forEach(row => {
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        
+        let cardAmount = 0;
+        let cashAmount = 0;
+        
+        if (advanceCardCell) {
+            const cardText = advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
+            cardAmount = parseFloat(cardText) || 0;
+        }
+        
+        if (advanceCashCell) {
+            const cashText = advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
+            cashAmount = parseFloat(cashText) || 0;
+        }
+        
+        const totalRowAdvance = cardAmount + cashAmount;
+        if (totalRowAdvance > 0) {
+            hasAdvance = true;
+            totalAdvanceAmount += totalRowAdvance;
+            employeesWithAdvance++;
+        }
+    });
+
+    if (!hasAdvance) {
+        showStatus('reportStatus', 'Сначала рассчитайте аванс', 'error');
+        return;
+    }
+
+    // Запрашиваем дату выплаты
+    const today = new Date().toISOString().split('T')[0];
+    const paymentDate = prompt(
+        `Укажите дату фактической выплаты аванса (по умолчанию - сегодня: ${today}):\n\n` +
+        `Будет зафиксировано:\n` +
+        `• Сотрудников: ${employeesWithAdvance}\n` +
+        `• Общая сумма: ${formatNumber(totalAdvanceAmount)} грн\n\n` +
+        `ВНИМАНИЕ! После фиксации суммы изменить их можно будет только через отмену.`,
+        today
+    );
+
+    if (!paymentDate) {
+        showStatus('reportStatus', 'Фиксация отменена', 'info');
+        return;
+    }
+
+    // Проверка корректности даты
+    const paymentDateObj = new Date(paymentDate);
+    if (isNaN(paymentDateObj.getTime())) {
+        showStatus('reportStatus', 'Некорректная дата выплаты', 'error');
+        return;
+    }
+
+    // Подтверждение фиксации
+    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+
+    const confirmMessage = `⚠️ ПОДТВЕРЖДЕНИЕ ФИКСАЦИИ АВАНСА\n\n` +
+        `Период: ${monthNames[month - 1]} ${year}\n` +
+        `Расчет по дату: ${advanceEndDate}\n` +
+        `Дата выплаты: ${paymentDate}\n` +
+        `Сотрудников: ${employeesWithAdvance}\n` +
+        `Сумма: ${formatNumber(totalAdvanceAmount)} грн\n\n` +
+        `После фиксации суммы авансов станут неизменными.\n` +
+        `Это действие можно отменить только через функцию отмены.\n\n` +
+        `Продолжить фиксацию?`;
+
+    if (!confirm(confirmMessage)) {
+        showStatus('reportStatus', 'Фиксация отменена', 'info');
+        return;
+    }
+
+    showStatus('reportStatus', 'Фиксируем выплату аванса...', 'info');
+
+    try {
+        const result = await fetchData(
+            `${API_BASE}/fix-advance-payment`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    year: parseInt(year),
+                    month: parseInt(month),
+                    advanceEndDate,
+                    paymentDate
+                })
+            },
+            'reportStatus'
+        );
+
+        if (result.success) {
+            showStatus('reportStatus',
+                `✅ ${result.message}`,
+                'success'
+            );
+
+            // Обновляем визуальное отображение
+            tableRows.forEach(row => {
+                const advanceCardCell = row.querySelector('.advance-payment-card');
+                const advanceCashCell = row.querySelector('.advance-payment-cash');
+                
+                if (advanceCardCell) {
+                    const cardSpan = advanceCardCell.querySelector('.advance-card-content');
+                    if (cardSpan) {
+                        const currentHTML = cardSpan.innerHTML;
+                        // Добавляем замок только если его еще нет и сумма > 0
+                        if (!currentHTML.includes('🔒') && !currentHTML.includes('>0<')) {
+                            if (currentHTML.includes('💳')) {
+                                cardSpan.innerHTML = currentHTML.replace(/(💳)/, '🔒 $1');
+                            } else if (!currentHTML.includes('0')) {
+                                cardSpan.innerHTML = `🔒 ${currentHTML}`;
+                            }
+                        }
+                    }
+                }
+                
+                if (advanceCashCell) {
+                    const cashSpan = advanceCashCell.querySelector('.advance-cash-content');
+                    if (cashSpan) {
+                        const currentHTML = cashSpan.innerHTML;
+                        // Добавляем замок только если его еще нет и сумма > 0
+                        if (!currentHTML.includes('🔒') && !currentHTML.includes('>0<')) {
+                            if (currentHTML.includes('💵')) {
+                                cashSpan.innerHTML = currentHTML.replace(/(💵)/, '🔒 $1');
+                            } else if (!currentHTML.includes('0')) {
+                                cashSpan.innerHTML = `🔒 ${currentHTML}`;
+                            }
+                        }
+                    }
+                }
             });
 
-            const result = await response.json();
-
-            if (result.success && result.adjustments.length > 0) {
-                let historyHtml = `
-                <div class="status info" style="margin: 15px 0;">
-                    <div style="width: 100%;">
-                        <h4>📜 История ручных корректировок авансов</h4>
-                        <table style="width: 100%; margin-top: 10px; font-size: 12px;">
-                            <thead>
-                                <tr style="background: #f0f0f0;">
-                                    <th style="padding: 5px;">Сотрудник</th>
-                                    <th style="padding: 5px;">Сумма</th>
-                                    <th style="padding: 5px;">Способ</th>
-                                    <th style="padding: 5px;">Причина</th>
-                                    <th style="padding: 5px;">Кто изменил</th>
-                                    <th style="padding: 5px;">Когда</th>
-                                </tr>
-                            </thead>
-                            <tbody>`;
-
-                result.adjustments.forEach(adj => {
-                    const icon = adj.payment_method === 'cash' ? '💵' : '💳';
-                    const date = new Date(adj.adjusted_at).toLocaleString('ru-RU');
-                    historyHtml += `
-                    <tr>
-                        <td style="padding: 5px;">${adj.employee_name}</td>
-                        <td style="padding: 5px;">${icon} ${adj.advance_amount} грн</td>
-                        <td style="padding: 5px;">${adj.payment_method === 'cash' ? 'Наличные' : 'Карта'}</td>
-                        <td style="padding: 5px;">${adj.reason}</td>
-                        <td style="padding: 5px;">${adj.adjusted_by}</td>
-                        <td style="padding: 5px; font-size: 11px;">${date}</td>
-                    </tr>`;
-                });
-
-                historyHtml += `
-                            </tbody>
-                        </table>
-                        <p style="margin-top: 10px; font-weight: bold;">Всего корректировок: ${result.total}</p>
-                    </div>
-                </div>`;
-
-                // Вставляем историю в начало контента отчета
-                const reportContent = document.getElementById('monthlyReportContent');
-                const existingHistory = reportContent.querySelector('.adjustments-history');
-                if (existingHistory) {
-                    existingHistory.remove();
-                }
-
-                const historyDiv = document.createElement('div');
-                historyDiv.className = 'adjustments-history';
-                historyDiv.innerHTML = historyHtml;
-                reportContent.insertBefore(historyDiv, reportContent.firstChild);
-
-            } else {
-                showStatus('reportStatus', 'Нет ручных корректировок за выбранный период', 'info');
+            // Добавляем информационную панель (проверяем что её еще нет)
+            const reportContent = document.getElementById('monthlyReportContent');
+            if (reportContent && !document.getElementById('advance-fixed-notice')) {
+                const noticeHtml = `
+                <div id="advance-fixed-notice" class="status success" style="margin: 15px 0;">
+                    <strong>🔒 Аванс зафиксирован!</strong><br>
+                    Дата выплаты: ${paymentDate}<br>
+                    Сотрудников: ${result.employeesCount}<br>
+                    Общая сумма: ${formatNumber(result.totalAmount)} грн
+                    <button onclick="cancelAdvancePayment()" class="danger" style="margin-left: 20px; padding: 5px 10px; font-size: 12px;">Отменить фиксацию</button>
+                </div>
+            `;
+                reportContent.insertAdjacentHTML('afterbegin', noticeHtml);
             }
-
-        } catch (error) {
+        }
+    } catch (error) {
+        console.error('Ошибка фиксации аванса:', error);
+        // Если ошибка о дубликате
+        if (error.message && error.message.includes('уже зафиксирован')) {
+            showStatus('reportStatus',
+                '⚠️ Аванс за этот период уже зафиксирован. Необходимо сначала отменить предыдущую фиксацию.',
+                'warning'
+            );
+            // Обновляем визуальное отображение чтобы показать что аванс зафиксирован
+            setTimeout(() => {
+                calculateAdvance15(true);
+            }, 500);
+        } else {
             showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
         }
     }
+}
 
-
-    // Новая функция для фиксации аванса
-    async function fixAdvancePayment() {
-        const year = document.getElementById('reportYear')?.value;
-        const month = document.getElementById('reportMonth')?.value;
-        const advanceEndDate = document.getElementById('reportEndDate')?.value;
-
-        if (!year || !month || !advanceEndDate) {
-            showStatus('reportStatus', 'Сначала выберите период и дату расчета', 'error');
-            return;
-        }
-
-        // Проверяем, был ли рассчитан аванс
-        const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
-        if (tableRows.length === 0) {
-            showStatus('reportStatus', 'Сначала сформируйте отчет и рассчитайте аванс', 'error');
-            return;
-        }
-
-        // НОВОЕ: Проверяем, не зафиксирован ли уже аванс
-        let alreadyFixed = false;
-        tableRows.forEach(row => {
-            const advanceCell = row.querySelector('.advance-payment');
-            if (advanceCell && advanceCell.innerHTML.includes('🔒')) {
-                alreadyFixed = true;
-            }
-        });
-
-        if (alreadyFixed) {
-            showStatus('reportStatus',
-                '⚠️ Аванс уже зафиксирован! Сначала отмените текущую фиксацию.',
-                'warning'
-            );
-            return;
-        }
-
-        // Проверяем наличие рассчитанного аванса
-        let hasAdvance = false;
-        let totalAdvanceAmount = 0;
-        let employeesWithAdvance = 0;
-
-        tableRows.forEach(row => {
-            const advanceCell = row.querySelector('.advance-payment');
-            if (advanceCell) {
-                const advanceText = advanceCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-                const advanceAmount = parseFloat(advanceText) || 0;
-                if (advanceAmount > 0) {
-                    hasAdvance = true;
-                    totalAdvanceAmount += advanceAmount;
-                    employeesWithAdvance++;
-                }
-            }
-        });
-
-        if (!hasAdvance) {
-            showStatus('reportStatus', 'Сначала рассчитайте аванс', 'error');
-            return;
-        }
-
-        // Запрашиваем дату выплаты
-        const today = new Date().toISOString().split('T')[0];
-        const paymentDate = prompt(
-            `Укажите дату фактической выплаты аванса (по умолчанию - сегодня: ${today}):\n\n` +
-            `Будет зафиксировано:\n` +
-            `• Сотрудников: ${employeesWithAdvance}\n` +
-            `• Общая сумма: ${formatNumber(totalAdvanceAmount)} грн\n\n` +
-            `ВНИМАНИЕ! После фиксации суммы изменить их можно будет только через отмену.`,
-            today
-        );
-
-        if (!paymentDate) {
-            showStatus('reportStatus', 'Фиксация отменена', 'info');
-            return;
-        }
-
-        // Проверка корректности даты
-        const paymentDateObj = new Date(paymentDate);
-        if (isNaN(paymentDateObj.getTime())) {
-            showStatus('reportStatus', 'Некорректная дата выплаты', 'error');
-            return;
-        }
-
-        // Подтверждение фиксации
-        const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
-            "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
-
-        const confirmMessage = `⚠️ ПОДТВЕРЖДЕНИЕ ФИКСАЦИИ АВАНСА\n\n` +
-            `Период: ${monthNames[month - 1]} ${year}\n` +
-            `Расчет по дату: ${advanceEndDate}\n` +
-            `Дата выплаты: ${paymentDate}\n` +
-            `Сотрудников: ${employeesWithAdvance}\n` +
-            `Сумма: ${formatNumber(totalAdvanceAmount)} грн\n\n` +
-            `После фиксации суммы авансов станут неизменными.\n` +
-            `Это действие можно отменить только через функцию отмены.\n\n` +
-            `Продолжить фиксацию?`;
-
-        if (!confirm(confirmMessage)) {
-            showStatus('reportStatus', 'Фиксация отменена', 'info');
-            return;
-        }
-
-        showStatus('reportStatus', 'Фиксируем выплату аванса...', 'info');
-
-        try {
-            const result = await fetchData(
-                `${API_BASE}/fix-advance-payment`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        year: parseInt(year),
-                        month: parseInt(month),
-                        advanceEndDate,
-                        paymentDate
-                    })
-                },
-                'reportStatus'
-            );
-
-            if (result.success) {
-                showStatus('reportStatus',
-                    `✅ ${result.message}`,
-                    'success'
-                );
-
-                // Обновляем визуальное отображение
-                tableRows.forEach(row => {
-                    const advanceCell = row.querySelector('.advance-payment');
-                    if (advanceCell) {
-                        const currentValue = advanceCell.textContent;
-                        const amount = parseFloat(currentValue.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-                        if (amount > 0) {
-                            advanceCell.innerHTML = `<strong style="color: #f5576c;">🔒 ${currentValue}</strong>`;
-                        }
-                    }
-                });
-
-                // Добавляем информационную панель (проверяем что её еще нет)
-                const reportContent = document.getElementById('monthlyReportContent');
-                if (reportContent && !document.getElementById('advance-fixed-notice')) {
-                    const noticeHtml = `
-                    <div id="advance-fixed-notice" class="status success" style="margin: 15px 0;">
-                        <strong>🔒 Аванс зафиксирован!</strong><br>
-                        Дата выплаты: ${paymentDate}<br>
-                        Сотрудников: ${result.employeesCount}<br>
-                        Общая сумма: ${formatNumber(result.totalAmount)} грн
-                        <button onclick="cancelAdvancePayment()" class="danger" style="margin-left: 20px; padding: 5px 10px; font-size: 12px;">Отменить фиксацию</button>
-                    </div>
-                `;
-                    reportContent.insertAdjacentHTML('afterbegin', noticeHtml);
-                }
-            }
-        } catch (error) {
-            console.error('Ошибка фиксации аванса:', error);
-            // Если ошибка о дубликате
-            if (error.message && error.message.includes('уже зафиксирован')) {
-                showStatus('reportStatus',
-                    '⚠️ Аванс за этот период уже зафиксирован. Необходимо сначала отменить предыдущую фиксацию.',
-                    'warning'
-                );
-                // Обновляем визуальное отображение чтобы показать что аванс зафиксирован
-                setTimeout(() => {
-                    calculateAdvance15(true);
-                }, 500);
-            } else {
-                showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
-            }
-        }
-    }
 
     // Функция отмены фиксации аванса
     async function cancelAdvancePayment() {
