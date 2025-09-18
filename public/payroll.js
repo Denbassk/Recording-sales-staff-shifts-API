@@ -982,8 +982,6 @@ let adjustmentDebounceTimer;
         }
     }
 
-
-
     function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = []) {
     const reportContentEl = document.getElementById('monthlyReportContent');
     if (!reportContentEl) return;
@@ -1034,7 +1032,7 @@ let adjustmentDebounceTimer;
     // Создаем мапы для корректировок и финальных расчетов
     const adjustmentsMap = new Map(adjustments.map(adj => [adj.employee_id, adj]));
 
-    // НОВОЕ: Создаем мапу финальных расчетов
+    // Создаем мапу финальных расчетов
     const finalCalcMap = new Map();
     if (finalCalculations && finalCalculations.length > 0) {
         finalCalculations.forEach(calc => {
@@ -1102,7 +1100,7 @@ let adjustmentDebounceTimer;
             let isTermination = false;
 
             if (finalCalc) {
-                // Если есть финальный расчет, берем данные из него
+                // Если есть финальный расчет, берем ВСЕ данные из него
                 advancePayment = finalCalc.advance_payment || 0;
                 advanceCard = finalCalc.advance_card || 0;
                 advanceCash = finalCalc.advance_cash || 0;
@@ -1115,8 +1113,19 @@ let adjustmentDebounceTimer;
                 console.log(`Для ${data.name} загружены финальные данные: аванс=${advancePayment}, остаток=${cardRemainder}, наличные=${cashPayout}`);
             }
 
-            // ИСПРАВЛЕНИЕ: Правильный расчет остатка к выплате
-            const remainingToPay = totalAfterDeductions - advancePayment;
+            // ВАЖНО: Расчет остатка к выплате зависит от наличия финального расчета
+            let remainingToPay;
+            let hasCompleteCalculation = false;
+            
+            if (finalCalc && finalCalc.is_fixed) {
+                // Если есть финальный расчет с зафиксированным авансом
+                remainingToPay = cardRemainder + cashPayout;
+                hasCompleteCalculation = true;
+            } else {
+                // Предварительный расчет - просто разница
+                remainingToPay = totalAfterDeductions - advancePayment;
+                hasCompleteCalculation = false;
+            }
 
             // Определяем содержимое для авансов на карту и наличными
             let advanceCardContent = '0';
@@ -1215,7 +1224,7 @@ let adjustmentDebounceTimer;
             // Добавляем класс для выделения если есть финальный расчет
             const rowClass = finalCalc ? 'has-final-calc' : '';
 
-            // Добавляем строку в таблицу с ИСПРАВЛЕННЫМ итогом
+            // Добавляем строку в таблицу
             tableHtml += `<tr class="${rowClass}" 
             data-employee-id="${id}" 
             data-employee-name="${data.name}" 
@@ -1238,10 +1247,14 @@ let adjustmentDebounceTimer;
             <td class="advance-payment-cash" style="padding: 5px;">
                 <span class="advance-cash-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCashContent}</span>
             </td>
-            <td class="card-remainder" style="padding: 5px;">${formatNumber(cardRemainder)}</td>
-            <td class="cash-payout" style="padding: 5px;">${formatNumber(cashPayout)}</td>
+            <td class="card-remainder" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : (cardRemainder > 0 ? 'color: #28a745; font-weight: bold;' : '')}">
+                ${hasCompleteCalculation ? formatNumber(cardRemainder) : '—'}
+            </td>
+            <td class="cash-payout" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : ''}">
+                ${hasCompleteCalculation ? (cashPayout > 0 ? `<strong style="color: #007bff;">${formatNumber(cashPayout)}</strong>` : formatNumber(cashPayout)) : '—'}
+            </td>
             <td class="total-payout" style="padding: 5px;">
-                <strong title="Остаток к выплате после аванса">${formatNumber(remainingToPay)}</strong>
+                <strong title="${hasCompleteCalculation ? 'Итоговый расчет выполнен' : 'Предварительный расчет'}">${formatNumber(remainingToPay)}</strong>
             </td>
         </tr>`;
         }
@@ -1311,7 +1324,7 @@ let adjustmentDebounceTimer;
 
                 if (finalCalc.cash_payout > 0) {
                     const cashPayoutCell = row.querySelector('.cash-payout');
-                    if (cashPayoutCell) {
+                    if (cashPayoutCell && !cashPayoutCell.innerHTML.includes('strong')) {
                         cashPayoutCell.innerHTML = `<strong style="color: #007bff;">${formatNumber(finalCalc.cash_payout)}</strong>`;
                     }
                 }
@@ -1332,15 +1345,6 @@ let adjustmentDebounceTimer;
         console.log('Финальные расчеты загружены, пропускаем автоматический расчет аванса');
     }
 }
-
-    function handleAdjustmentInput(e) {
-        clearTimeout(adjustmentDebounceTimer);
-        const row = e.target.closest('tr');
-        recalculateRow(row);
-        adjustmentDebounceTimer = setTimeout(() => {
-            saveAdjustments(row);
-        }, 800);
-    }
 
     function recalculateRow(row) {
     if (!row) return;

@@ -1136,7 +1136,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             
             // Если есть зафиксированные авансы, используем их
             if (fixedAdvances && fixedAdvances.length > 0) {
-                hasFixedAdvances = true; // ВАЖНО: Устанавливаем флаг
+                hasFixedAdvances = true;
                 fixedAdvances.forEach(adv => {
                     advancePayments[adv.employee_id] = adv.amount;
                     advanceDetails[adv.employee_id] = {
@@ -1146,20 +1146,6 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     };
                 });
                 console.log(`Используются зафиксированные авансы для ${fixedAdvances.length} сотрудников`);
-            } else {
-                // Если авансы не зафиксированы, рассчитываем
-                console.log(`Зафиксированных авансов нет, рассчитываем автоматически`);
-                for (const [employeeId, totalEarned] of Object.entries(totalBasePayMap)) {
-                    let calculatedAdvance = totalEarned * 0.9;
-                    let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
-                    let finalAdvance = Math.min(roundedAdvance, MAX_ADVANCE_AMOUNT);
-                    advancePayments[employeeId] = finalAdvance;
-                    advanceDetails[employeeId] = {
-                        card: finalAdvance,
-                        cash: 0,
-                        method: 'card'
-                    };
-                }
             }
 
             // Получаем корректировки (премии, штрафы, недостачи)
@@ -1203,7 +1189,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 // 3. К выплате после вычетов
                 const totalAfterDeductions = totalGross - totalDeductions;
                 
-                // 4. Аванс (уже выплачен)
+                // 4. Определяем аванс
                 let advancePayment = 0;
                 let advanceCard = 0;
                 let advanceCash = 0;
@@ -1226,31 +1212,53 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     advanceCard = advanceDetails[employeeId].card || 0;
                     advanceCash = advanceDetails[employeeId].cash || 0;
                 } else {
-                    // Расчетный аванс
-                    advancePayment = advancePayments[employeeId] || 0;
+                    // Расчетный аванс (если нет фиксации)
+                    let calculatedAdvance = totalEarned * 0.9;
+                    let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
+                    advancePayment = Math.min(roundedAdvance, MAX_ADVANCE_AMOUNT);
                     advanceCard = advancePayment;
                     advanceCash = 0;
                 }
                 
-                // 5. Расчет остатков
-                const totalOnCard = advanceCard; // Уже выплачено на карту
-                const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT; // Максимум 8600 на карту
-                const remainingCardCapacity = maxCardTotal - totalOnCard;
+                // 5. ИСПРАВЛЕННЫЙ РАСЧЕТ ОСТАТКОВ
+                let cardRemainder = 0;
+                let cashPayout = 0;
                 
-                // 6. Остаток к выплате после аванса
-                const remainingToPay = totalAfterDeductions - advancePayment;
-                
-                // 7. Остаток на карту (не больше чем осталось места на карте)
-                const cardRemainder = Math.min(remainingCardCapacity, Math.max(0, remainingToPay));
-                
-                // 8. Наличными = всё что осталось после выплат на карту
-                const cashPayout = Math.max(0, remainingToPay - cardRemainder);
+                // Если увольнение - всё уже выплачено в авансе
+                if (isTermination) {
+                    cardRemainder = 0;
+                    cashPayout = 0;
+                } else {
+                    // Обычный расчет
+                    const totalOnCard = advanceCard; // Уже выплачено на карту в авансе
+                    const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT; // Максимум 8600 на карту за месяц
+                    const remainingCardCapacity = Math.max(0, maxCardTotal - totalOnCard); // Сколько еще можно на карту
+                    
+                    // Остаток к выплате после аванса
+                    const remainingToPay = Math.max(0, totalAfterDeductions - advancePayment);
+                    
+                    // Распределяем остаток
+                    if (remainingToPay > 0) {
+                        // Сначала пытаемся положить на карту (до лимита)
+                        cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+                        // Остальное - наличными
+                        cashPayout = remainingToPay - cardRemainder;
+                    } else {
+                        // Если остаток отрицательный или 0
+                        cardRemainder = 0;
+                        cashPayout = 0;
+                    }
+                }
                 
                 // Логирование для отладки
                 console.log(`${employeeId}: Начислено=${totalGross}, Вычеты=${totalDeductions}, К выплате=${totalAfterDeductions}`);
                 console.log(`  Аванс: карта=${advanceCard}, нал=${advanceCash}, всего=${advancePayment}`);
-                console.log(`  Остаток: карта=${cardRemainder}, нал=${cashPayout}`);
-                console.log(`  Проверка: ${advancePayment} + ${cardRemainder} + ${cashPayout} = ${advancePayment + cardRemainder + cashPayout} (должно быть ${totalAfterDeductions})`);
+                console.log(`  Остаток к выплате: ${totalAfterDeductions - advancePayment}`);
+                console.log(`  Распределение остатка: карта=${cardRemainder}, нал=${cashPayout}`);
+                console.log(`  Всего на карту за месяц: ${advanceCard + cardRemainder} (лимит ${FIXED_CARD_PAYMENT_FOR_REPORT})`);
+                if (isTermination) {
+                    console.log(`  УВОЛЬНЕНИЕ - остатки обнулены`);
+                }
                 
                 finalResults[employeeId] = { 
                     total_gross: totalGross,
@@ -1281,8 +1289,8 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     cash_payout: cashPayout,
                     total_card_payment: advanceCard + cardRemainder,
                     calculation_date: reportEndDate,
-                    is_fixed: hasFixedAdvances, // ВАЖНО: Используем правильный флаг
-                    is_manual_adjustment: isManualAdjustment, // ВАЖНО: Сохраняем флаг ручной корректировки
+                    is_fixed: hasFixedAdvances,
+                    is_manual_adjustment: isManualAdjustment,
                     adjustment_reason: adjustmentReason,
                     is_termination: isTermination
                 });
