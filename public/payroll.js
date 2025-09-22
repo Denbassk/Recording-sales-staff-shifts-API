@@ -3041,3 +3041,246 @@ async function fixManualAdvances() {
     printWindow.document.close();
 }
 
+// ========== ФУНКЦИИ ДЛЯ ВКЛАДКИ "ФОНД ОПЛАТЫ ТРУДА" ==========
+
+async function generateFotReport() {
+    const yearEl = document.getElementById('fotReportYear');
+    const monthEl = document.getElementById('fotReportMonth');
+    const endDateEl = document.getElementById('fotReportEndDate');
+    
+    if (!yearEl || !monthEl || !endDateEl) {
+        showStatus('fotReportStatus', 'Ошибка: не найдены элементы управления', 'error');
+        return;
+    }
+    
+    const year = yearEl.value;
+    const month = monthEl.value;
+    const reportEndDate = endDateEl.value;
+    
+    if (!year || !month || !reportEndDate) {
+        showStatus('fotReportStatus', 'Пожалуйста, выберите месяц, год и дату расчета', 'error');
+        return;
+    }
+    
+    showStatus('fotReportStatus', 'Формирование отчета ФОТ...', 'info');
+    
+    const loader = document.getElementById('fotLoader');
+    if (loader) loader.style.display = 'block';
+    
+    try {
+        const response = await fetch(`${API_BASE}/get-fot-report`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ year: parseInt(year), month: parseInt(month), reportEndDate })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            hideStatus('fotReportStatus');
+            displayFotReport(result.rows);
+            
+            // Кэшируем данные для экспорта
+            fotReportDataCache = result.rows;
+        } else {
+            showStatus('fotReportStatus', result.error || 'Ошибка формирования отчета', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка при формировании отчета ФОТ:', error);
+        showStatus('fotReportStatus', `Ошибка: ${error.message}`, 'error');
+    } finally {
+        if (loader) loader.style.display = 'none';
+    }
+}
+
+function displayFotReport(rows) {
+    const fotReportContent = document.getElementById('fotReportContent');
+    if (!fotReportContent) return;
+    
+    // Показываем панели
+    const summaryPanel = fotReportContent.querySelector('.summary-panel');
+    const byStorePanel = document.getElementById('fotByStorePanel');
+    
+    if (summaryPanel) summaryPanel.style.display = 'block';
+    if (byStorePanel) byStorePanel.style.display = 'block';
+    
+    // Считаем итоги
+    let totalRevenue = 0;
+    let totalFund = 0;
+    
+    rows.forEach(row => {
+        totalRevenue += row.total_revenue || 0;
+        totalFund += row.total_payout_with_tax || 0;
+    });
+    
+    const fotPercentage = totalRevenue > 0 ? (totalFund / totalRevenue) * 100 : 0;
+    
+    // Обновляем итоговые суммы
+    const totalRevenueEl = document.getElementById('fotTotalRevenue');
+    const totalFundEl = document.getElementById('fotTotalFund');
+    const percentageEl = document.getElementById('fotPercentage');
+    
+    if (totalRevenueEl) totalRevenueEl.textContent = formatNumber(totalRevenue) + ' грн';
+    if (totalFundEl) totalFundEl.textContent = formatNumber(totalFund) + ' грн';
+    if (percentageEl) percentageEl.textContent = fotPercentage.toFixed(2) + ' %';
+    
+    // Заполняем таблицу по магазинам
+    const tbody = document.getElementById('fotByStoreTableBody');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+    
+    if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">Нет данных для отображения</td></tr>';
+        return;
+    }
+    
+    // Сортируем по адресу магазина
+    rows.sort((a, b) => (a.store_address || '').localeCompare(b.store_address || ''));
+    
+    rows.forEach(row => {
+        const tr = document.createElement('tr');
+        
+        // Определяем цвет для процента ФОТ
+        let percentageClass = '';
+        if (row.fot_percentage > 15) {
+            percentageClass = 'style="color: #dc3545; font-weight: bold;"'; // Красный если > 15%
+        } else if (row.fot_percentage > 12) {
+            percentageClass = 'style="color: #ffc107; font-weight: bold;"'; // Желтый если > 12%
+        } else {
+            percentageClass = 'style="color: #28a745;"'; // Зеленый если <= 12%
+        }
+        
+        tr.innerHTML = `
+            <td>${row.store_address || 'Не указан'}</td>
+            <td style="text-align: right;">${formatNumber(row.total_revenue || 0)} грн</td>
+            <td style="text-align: right;">${formatNumber(row.total_payout_with_tax || 0)} грн</td>
+            <td style="text-align: center;" ${percentageClass}>${(row.fot_percentage || 0).toFixed(2)}%</td>
+        `;
+        tbody.appendChild(tr);
+    });
+    
+    // Добавляем итоговую строку
+    tbody.innerHTML += `
+        <tr class="summary-row" style="background-color: #f0f2f5; font-weight: bold;">
+            <td>ИТОГО:</td>
+            <td style="text-align: right;">${formatNumber(totalRevenue)} грн</td>
+            <td style="text-align: right;">${formatNumber(totalFund)} грн</td>
+            <td style="text-align: center; color: ${fotPercentage > 15 ? '#dc3545' : fotPercentage > 12 ? '#ffc107' : '#28a745'};">
+                ${fotPercentage.toFixed(2)}%
+            </td>
+        </tr>
+    `;
+}
+
+async function exportFotReportToExcel() {
+    // Проверяем наличие данных
+    if (!fotReportDataCache || fotReportDataCache.length === 0) {
+        showStatus('fotReportStatus', 'Сначала сформируйте отчет', 'error');
+        return;
+    }
+    
+    const yearEl = document.getElementById('fotReportYear');
+    const monthEl = document.getElementById('fotReportMonth');
+    const year = yearEl ? yearEl.value : '';
+    const month = monthEl ? monthEl.value : '';
+    
+    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+    
+    // Подготавливаем данные для экспорта
+    const exportData = fotReportDataCache.map(row => ({
+        'Адрес магазина': row.store_address || 'Не указан',
+        'Выручка магазина': row.total_revenue || 0,
+        'Фонд оплаты труда (с налогами)': row.total_payout_with_tax || 0,
+        'ФОТ %': (row.fot_percentage || 0).toFixed(2)
+    }));
+    
+    // Считаем итоги
+    let totalRevenue = 0;
+    let totalFund = 0;
+    
+    fotReportDataCache.forEach(row => {
+        totalRevenue += row.total_revenue || 0;
+        totalFund += row.total_payout_with_tax || 0;
+    });
+    
+    const fotPercentage = totalRevenue > 0 ? (totalFund / totalRevenue) * 100 : 0;
+    
+    // Добавляем итоговую строку
+    exportData.push({
+        'Адрес магазина': 'ИТОГО',
+        'Выручка магазина': totalRevenue,
+        'Фонд оплаты труда (с налогами)': totalFund,
+        'ФОТ %': fotPercentage.toFixed(2)
+    });
+    
+    // Создаем Excel файл
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    
+    // Настраиваем ширину колонок
+    ws['!cols'] = [
+        { wch: 30 }, // Адрес магазина
+        { wch: 20 }, // Выручка
+        { wch: 25 }, // ФОТ
+        { wch: 10 }  // Процент
+    ];
+    
+    XLSX.utils.book_append_sheet(wb, ws, "ФОТ по магазинам");
+    
+    // Добавляем второй лист со сводкой
+    const summaryData = [
+        { 'Показатель': 'Период', 'Значение': `${monthNames[month - 1]} ${year}` },
+        { 'Показатель': 'Общая выручка', 'Значение': formatNumber(totalRevenue) + ' грн' },
+        { 'Показатель': 'Общий ФОТ (с налогами)', 'Значение': formatNumber(totalFund) + ' грн' },
+        { 'Показатель': 'ФОТ % от выручки', 'Значение': fotPercentage.toFixed(2) + '%' },
+        { 'Показатель': '', 'Значение': '' },
+        { 'Показатель': 'Целевой показатель ФОТ', 'Значение': '12%' },
+        { 'Показатель': 'Отклонение от цели', 'Значение': (fotPercentage - 12).toFixed(2) + '%' }
+    ];
+    
+    const ws2 = XLSX.utils.json_to_sheet(summaryData);
+    ws2['!cols'] = [{ wch: 25 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Сводка");
+    
+    // Сохраняем файл
+    const fileName = `ФОТ_${monthNames[month - 1]}_${year}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    
+    showStatus('fotReportStatus', `✅ Экспорт выполнен: ${fileName}`, 'success');
+}
+
+// Функция очистки базы данных (для админов)
+async function clearDatabase() {
+    if (!confirm('ВНИМАНИЕ! Это действие удалит ВСЕ транзакционные данные (смены, расчеты, выручку). Продолжить?')) {
+        return;
+    }
+    
+    const confirmText = prompt('Введите "УДАЛИТЬ ВСЕ" для подтверждения:');
+    if (confirmText !== 'УДАЛИТЬ ВСЕ') {
+        showStatus('reportStatus', 'Операция отменена', 'info');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/clear-transactional-data`, {
+            method: 'POST',
+            credentials: 'include'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('reportStatus', result.message, 'success');
+            alert('Все транзакционные данные были удалены. Рекомендуется перезагрузить страницу.');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showStatus('reportStatus', result.error || 'Ошибка при очистке данных', 'error');
+        }
+    } catch (error) {
+        console.error('Ошибка очистки БД:', error);
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
