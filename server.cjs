@@ -1025,6 +1025,150 @@ app.post('/fix-manual-advances', checkAuth, canManagePayroll, async (req, res) =
     }
 });
 
+// --- ЭНДПОИНТЫ ДЛЯ РАБОТЫ С НОВЫМИ СОТРУДНИКАМИ ---
+
+// Проверка новых сотрудников
+app.post('/check-new-employees', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month } = req.body;
+    
+    try {
+        // Получаем сотрудников со статусом 'new' или тех, кто работает первый месяц
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+        
+        // Получаем всех сотрудников с подсчетом смен
+        const { data: shifts, error } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, employee_name')
+            .gte('work_date', startDate)
+            .lte('work_date', endDate);
+        
+        if (error) throw error;
+        
+        // Группируем по сотрудникам и считаем смены
+        const employeeShifts = {};
+        shifts.forEach(shift => {
+            if (!employeeShifts[shift.employee_id]) {
+                employeeShifts[shift.employee_id] = {
+                    name: shift.employee_name,
+                    count: 0
+                };
+            }
+            employeeShifts[shift.employee_id].count++;
+        });
+        
+        // Проверяем статусы сотрудников
+        const { data: employees, error: empError } = await supabase
+            .from('employees')
+            .select('id, fullname, employee_status')
+            .in('id', Object.keys(employeeShifts));
+        
+        if (empError) throw empError;
+        
+        const newEmployees = [];
+        
+        for (const emp of employees) {
+            // Если статус 'new' или не установлен
+            if (!emp.employee_status || emp.employee_status === 'new') {
+                // Проверяем историю работы в предыдущем месяце
+                const prevMonth = month === 1 ? 12 : month - 1;
+                const prevYear = month === 1 ? year - 1 : year;
+                const prevStartDate = `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`;
+                const prevEndDate = new Date(prevYear, prevMonth, 0).toISOString().split('T')[0];
+                
+                const { data: prevShifts } = await supabase
+                    .from('payroll_calculations')
+                    .select('id')
+                    .eq('employee_id', emp.id)
+                    .gte('work_date', prevStartDate)
+                    .lte('work_date', prevEndDate)
+                    .limit(1);
+                
+                // Если в прошлом месяце не работал или мало смен в текущем
+                if (!prevShifts || prevShifts.length === 0 || employeeShifts[emp.id].count < 10) {
+                    // Получаем сумму начислений
+                    const { data: earnings } = await supabase
+                        .from('payroll_calculations')
+                        .select('total_pay')
+                        .eq('employee_id', emp.id)
+                        .gte('work_date', startDate)
+                        .lte('work_date', endDate);
+                    
+                    const totalEarned = earnings.reduce((sum, e) => sum + e.total_pay, 0);
+                    
+                    newEmployees.push({
+                        employee_id: emp.id,
+                        employee_name: emp.fullname,
+                        shifts_count: employeeShifts[emp.id].count,
+                        earned_amount: totalEarned,
+                        status: emp.employee_status || 'new'
+                    });
+                }
+            }
+        }
+        
+        res.json({ success: true, newEmployees });
+        
+    } catch (error) {
+        console.error('Ошибка проверки новых сотрудников:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Обработка решений по новым сотрудникам
+app.post('/process-new-employees-advances', checkAuth, canManagePayroll, async (req, res) => {
+    const { month, year, decisions } = req.body;
+    
+    try {
+        let processedCount = 0;
+        let updatedStatuses = 0;
+        
+        for (const decision of decisions) {
+            // Обновляем статус если нужно
+            if (decision.make_regular) {
+                await supabase
+                    .from('employees')
+                    .update({ employee_status: 'regular' })
+                    .eq('id', decision.employee_id);
+                updatedStatuses++;
+            }
+            
+            // Сохраняем решение по авансу
+            if (decision.decision === 'custom') {
+                const totalAdvance = decision.advance_card + decision.advance_cash;
+                
+                await supabase
+                    .from('final_payroll_calculations')
+                    .upsert({
+                        employee_id: decision.employee_id,
+                        month: parseInt(month),
+                        year: parseInt(year),
+                        advance_payment: totalAdvance,
+                        advance_card: decision.advance_card,
+                        advance_cash: decision.advance_cash,
+                        advance_payment_method: decision.advance_cash > 0 ? 
+                            (decision.advance_card > 0 ? 'mixed' : 'cash') : 'card',
+                        is_manual_adjustment: true,
+                        adjustment_reason: decision.reason || 'Решение по новому сотруднику',
+                        adjusted_by: req.user.id
+                    }, { onConflict: 'employee_id,month,year' });
+            }
+            
+            processedCount++;
+        }
+        
+        res.json({ 
+            success: true, 
+            message: `Обработано ${processedCount} сотрудников. Статусы обновлены: ${updatedStatuses}` 
+        });
+        
+    } catch (error) {
+        console.error('Ошибка обработки решений:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, res) => {
     const { 
         employee_id, month, year, 
