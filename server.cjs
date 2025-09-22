@@ -957,6 +957,74 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
     }
 });
 
+// Добавим новый эндпоинт для фиксации уже скорректированных авансов
+app.post('/fix-manual-advances', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, paymentDate } = req.body;
+    
+    try {
+        // Получаем все ручные корректировки, которые еще не зафиксированы
+        const { data: manualAdvances, error } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('year', year)
+            .eq('month', month)
+            .eq('is_manual_adjustment', true)
+            .eq('is_fixed', false);
+        
+        if (error) throw error;
+        
+        if (!manualAdvances || manualAdvances.length === 0) {
+            return res.json({ 
+                success: false, 
+                message: 'Нет нефиксированных ручных корректировок' 
+            });
+        }
+        
+        // Создаем записи в payroll_payments для фиксации
+        const paymentsToInsert = manualAdvances.map(ma => ({
+            employee_id: ma.employee_id,
+            payment_type: 'advance',
+            amount: ma.advance_payment,
+            advance_card: ma.advance_card || 0,
+            advance_cash: ma.advance_cash || 0,
+            payment_date: paymentDate || new Date().toISOString().split('T')[0],
+            payment_period_month: parseInt(month),
+            payment_period_year: parseInt(year),
+            payment_method: ma.advance_payment_method || 'card',
+            is_termination: ma.is_termination || false,
+            created_by: req.user.id,
+            is_cancelled: false
+        }));
+        
+        // Сохраняем в payroll_payments
+        const { error: insertError } = await supabase
+            .from('payroll_payments')
+            .insert(paymentsToInsert);
+        
+        if (insertError) throw insertError;
+        
+        // Обновляем флаг is_fixed в final_payroll_calculations
+        const { error: updateError } = await supabase
+            .from('final_payroll_calculations')
+            .update({ is_fixed: true })
+            .eq('year', year)
+            .eq('month', month)
+            .eq('is_manual_adjustment', true);
+        
+        if (updateError) throw updateError;
+        
+        res.json({ 
+            success: true, 
+            message: `Зафиксировано ${manualAdvances.length} ручных корректировок`,
+            count: manualAdvances.length
+        });
+        
+    } catch (error) {
+        console.error('Ошибка фиксации ручных корректировок:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, res) => {
     const { 
         employee_id, month, year, 

@@ -1503,6 +1503,28 @@ async function calculateAdvance15(silent = false) {
     const advanceEndDate = document.getElementById('reportEndDate')?.value;
     if (!year || !month || !advanceEndDate) return;
 
+    // ========== НОВЫЙ КОД: Проверка новых сотрудников ==========
+    try {
+        const checkResponse = await fetch(`${API_BASE}/check-new-employees`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ year, month })
+        });
+        
+        const checkData = await checkResponse.json();
+        
+        if (checkData.newEmployees && checkData.newEmployees.length > 0) {
+            // Показываем диалог для новых сотрудников
+            await showNewEmployeesDialog(checkData.newEmployees, month, year);
+            return; // Прерываем автоматический расчет
+        }
+    } catch (error) {
+        console.error('Ошибка проверки новых сотрудников:', error);
+        // Продолжаем выполнение даже если проверка не удалась
+    }
+    // ========== КОНЕЦ НОВОГО КОДА ==========
+
     try {
         const data = await fetchData(
             `${API_BASE}/calculate-advance`, 
@@ -1632,6 +1654,7 @@ async function calculateAdvance15(silent = false) {
         }
     }
 }
+
 
     async function adjustAdvanceManually(employeeId, employeeName) {
     const year = document.getElementById('reportYear')?.value;
@@ -2229,6 +2252,261 @@ async function cancelAdvancePayment() {
     }
 }
 
+// Функция для показа диалога новых сотрудников
+async function showNewEmployeesDialog(newEmployees, month, year) {
+    // Создаем HTML для диалогового окна
+    let dialogHTML = `
+        <div id="newEmployeesModal" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        ">
+            <div style="
+                background: white;
+                border-radius: 10px;
+                padding: 20px;
+                max-width: 800px;
+                max-height: 80vh;
+                overflow-y: auto;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            ">
+                <h2 style="color: #667eea; margin-bottom: 20px;">
+                    ⚠️ Требуется решение по новым сотрудникам
+                </h2>
+                <div id="newEmployeesList">`;
+    
+    newEmployees.forEach((emp, index) => {
+        dialogHTML += `
+            <div class="employee-decision-block" data-employee-id="${emp.employee_id}" style="
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                padding: 15px;
+                margin-bottom: 15px;
+                background: #f9f9f9;
+            ">
+                <h3 style="margin: 0 0 10px 0; color: #333;">
+                    ${index + 1}. ${emp.employee_name} 
+                    <span style="
+                        background: #fff3cd;
+                        color: #856404;
+                        padding: 2px 8px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        margin-left: 10px;
+                    ">НОВЫЙ СОТРУДНИК</span>
+                </h3>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0;">
+                    <div>📅 Отработано смен: <strong>${emp.shifts_count}</strong></div>
+                    <div>💰 Начислено за период: <strong>${formatNumber(emp.earned_amount)} грн</strong></div>
+                </div>
+                
+                <div style="border-top: 1px solid #dee2e6; margin: 15px 0; padding-top: 15px;">
+                    <div style="margin-bottom: 10px;">
+                        <label style="display: inline-block; margin-right: 15px;">
+                            <input type="radio" name="advance_decision_${emp.employee_id}" value="none" checked>
+                            ❌ Не начислять аванс
+                        </label>
+                        <label style="display: inline-block;">
+                            <input type="radio" name="advance_decision_${emp.employee_id}" value="custom">
+                            💰 Начислить аванс
+                        </label>
+                    </div>
+                    
+                    <div class="advance-inputs" style="display: none; margin-top: 10px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; font-weight: 600;">
+                                    💳 На карту:
+                                </label>
+                                <input type="number" 
+                                    class="advance-card-input" 
+                                    min="0" 
+                                    max="${Math.min(emp.earned_amount * 0.9, 7900)}"
+                                    value="0"
+                                    style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 5px; font-weight: 600;">
+                                    💵 Наличными:
+                                </label>
+                                <input type="number" 
+                                    class="advance-cash-input" 
+                                    min="0"
+                                    value="0"
+                                    style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                            </div>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 600;">
+                                📝 Причина/комментарий:
+                            </label>
+                            <input type="text" 
+                                class="advance-reason-input"
+                                placeholder="Например: первый месяц работы"
+                                style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 15px;">
+                        <label style="
+                            display: inline-flex;
+                            align-items: center;
+                            background: #e8f5e9;
+                            padding: 8px 12px;
+                            border-radius: 4px;
+                            cursor: pointer;
+                        ">
+                            <input type="checkbox" class="make-regular-checkbox" style="margin-right: 8px;">
+                            🔄 Сделать постоянным сотрудником (авансы будут начисляться автоматически)
+                        </label>
+                    </div>
+                </div>
+            </div>`;
+    });
+    
+    dialogHTML += `
+                </div>
+                <div style="
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 10px;
+                    margin-top: 20px;
+                    padding-top: 20px;
+                    border-top: 2px solid #e0e0e0;
+                ">
+                    <button onclick="cancelNewEmployeesDialog()" style="
+                        padding: 10px 20px;
+                        background: #6c757d;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        cursor: pointer;
+                    ">❌ Отмена</button>
+                    <button onclick="applyNewEmployeesDecisions(${month}, ${year})" style="
+                        padding: 10px 20px;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        font-weight: 600;
+                    ">💾 Применить все решения</button>
+                </div>
+            </div>
+        </div>`;
+    
+    // Добавляем диалог в DOM
+    document.body.insertAdjacentHTML('beforeend', dialogHTML);
+    
+    // Добавляем обработчики для радио-кнопок
+    document.querySelectorAll('input[type="radio"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            const block = this.closest('.employee-decision-block');
+            const advanceInputs = block.querySelector('.advance-inputs');
+            if (this.value === 'custom') {
+                advanceInputs.style.display = 'block';
+            } else {
+                advanceInputs.style.display = 'none';
+            }
+        });
+    });
+}
+
+// Функция закрытия диалога
+function cancelNewEmployeesDialog() {
+    const modal = document.getElementById('newEmployeesModal');
+    if (modal) modal.remove();
+}
+
+// Функция применения решений
+async function applyNewEmployeesDecisions(month, year) {
+    const decisions = [];
+    
+    document.querySelectorAll('.employee-decision-block').forEach(block => {
+        const employeeId = block.dataset.employeeId;
+        const decision = block.querySelector(`input[name="advance_decision_${employeeId}"]:checked`).value;
+        const makeRegular = block.querySelector('.make-regular-checkbox').checked;
+        
+        const data = {
+            employee_id: employeeId,
+            make_regular: makeRegular,
+            decision: decision
+        };
+        
+        if (decision === 'custom') {
+            data.advance_card = parseFloat(block.querySelector('.advance-card-input').value) || 0;
+            data.advance_cash = parseFloat(block.querySelector('.advance-cash-input').value) || 0;
+            data.reason = block.querySelector('.advance-reason-input').value || '';
+        }
+        
+        decisions.push(data);
+    });
+    
+    try {
+        // Отправляем решения на сервер
+        const response = await fetch(`${API_BASE}/process-new-employees-advances`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ month, year, decisions })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('reportStatus', result.message, 'success');
+            cancelNewEmployeesDialog();
+            // Перезагружаем расчет аванса
+            setTimeout(() => calculateAdvance15(true), 500);
+        } else {
+            showStatus('reportStatus', result.error, 'error');
+        }
+    } catch (error) {
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
+async function fixManualAdvances() {
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    
+    if (!year || !month) {
+        showStatus('reportStatus', 'Сначала выберите период', 'error');
+        return;
+    }
+    
+    const paymentDate = prompt('Укажите дату выплаты (ГГГГ-ММ-ДД):', new Date().toISOString().split('T')[0]);
+    if (!paymentDate) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/fix-manual-advances`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ year, month, paymentDate })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('reportStatus', result.message, 'success');
+            // Перезагружаем отчет для обновления замочков
+            setTimeout(() => generateMonthlyReport(), 1000);
+        } else {
+            showStatus('reportStatus', result.message || 'Нет корректировок для фиксации', 'info');
+        }
+    } catch (error) {
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
 
     async function calculateFinalPayroll() {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
