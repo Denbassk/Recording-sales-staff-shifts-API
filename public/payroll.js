@@ -1059,7 +1059,7 @@ async function saveAdjustments(row) {
         }
     }
 
-    function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = []) {
+function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = []) {
     const reportContentEl = document.getElementById('monthlyReportContent');
     if (!reportContentEl) return;
 
@@ -1414,6 +1414,33 @@ async function saveAdjustments(row) {
         input.addEventListener('input', handleAdjustmentInput);
     });
 
+    // ИСПРАВЛЕНИЕ: Добавляем кнопки корректировки для админов с правильными обработчиками
+    setTimeout(async () => {
+        try {
+            const authResponse = await fetch(`${API_BASE}/check-auth`, { credentials: 'include' });
+            const authData = await authResponse.json();
+            const canAdjust = authData.success && authData.user && 
+                             (authData.user.role === 'admin' || authData.user.role === 'accountant');
+            
+            if (canAdjust) {
+                document.querySelectorAll('.advance-card-content, .advance-cash-content').forEach(cell => {
+                    if (!cell.querySelector('button')) {
+                        const employeeId = cell.dataset.employeeId;
+                        const employeeName = cell.dataset.employeeName;
+                        const button = document.createElement('button');
+                        button.innerHTML = '✏️';
+                        button.style.cssText = 'padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; margin-left: 5px;';
+                        button.title = 'Корректировать аванс';
+                        button.onclick = () => adjustAdvanceManually(employeeId, employeeName);
+                        cell.appendChild(button);
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Ошибка проверки прав:', error);
+        }
+    }, 100);
+
     // Если есть сотрудники и нет финальных расчетов, пробуем рассчитать аванс
     if (sortedEmployees.length > 0 && finalCalcMap.size === 0) {
         console.log('Финальных расчетов нет, выполняем расчет аванса...');
@@ -1422,6 +1449,7 @@ async function saveAdjustments(row) {
         console.log('Финальные расчеты загружены, пропускаем автоматический расчет аванса');
     }
 }
+
 
     function recalculateRow(row) {
     if (!row) return;
@@ -1503,7 +1531,10 @@ async function calculateAdvance15(silent = false) {
     const advanceEndDate = document.getElementById('reportEndDate')?.value;
     if (!year || !month || !advanceEndDate) return;
 
-    // ========== НОВЫЙ КОД: Проверка новых сотрудников ==========
+    // Сохраняем ссылку на новых сотрудников для использования в диалоге
+    let newEmployeesData = null;
+
+    // ========== ПРОВЕРКА НОВЫХ СОТРУДНИКОВ ==========
     try {
         const checkResponse = await fetch(`${API_BASE}/check-new-employees`, {
             method: 'POST',
@@ -1515,16 +1546,18 @@ async function calculateAdvance15(silent = false) {
         const checkData = await checkResponse.json();
         
         if (checkData.newEmployees && checkData.newEmployees.length > 0) {
-            // Показываем диалог для новых сотрудников
+            newEmployeesData = checkData.newEmployees;
+            // Показываем диалог и ждем решения
             await showNewEmployeesDialog(checkData.newEmployees, month, year);
-            return; // Прерываем автоматический расчет
+            // После закрытия диалога функция завершится и будет вызвана заново
+            return;
         }
     } catch (error) {
         console.error('Ошибка проверки новых сотрудников:', error);
         // Продолжаем выполнение даже если проверка не удалась
     }
-    // ========== КОНЕЦ НОВОГО КОДА ==========
 
+    // ========== ОСНОВНОЙ РАСЧЕТ АВАНСА ==========
     try {
         const data = await fetchData(
             `${API_BASE}/calculate-advance`, 
@@ -1903,6 +1936,101 @@ async function calculateAdvance15(silent = false) {
         }
     } catch (error) {
         showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
+// Добавьте эту функцию после функции adjustAdvanceManually (примерно на строке 1650-1700)
+
+async function showAdjustmentsHistory() {
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+    
+    if (!year || !month) {
+        showStatus('reportStatus', 'Сначала выберите период', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/advance-adjustments-history?month=${month}&year=${year}`, {
+            method: 'GET',
+            credentials: 'include'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success && result.adjustments && result.adjustments.length > 0) {
+            let historyHTML = `
+                <div style="
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: white;
+                    padding: 20px;
+                    border-radius: 10px;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                    max-width: 900px;
+                    max-height: 600px;
+                    overflow-y: auto;
+                    z-index: 10000;
+                " id="history-modal">
+                    <h3 style="margin-bottom: 20px;">📜 История корректировок за ${month}/${year}</h3>
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                                <th style="padding: 10px; text-align: left;">Сотрудник</th>
+                                <th style="padding: 10px;">Сумма</th>
+                                <th style="padding: 10px;">Способ</th>
+                                <th style="padding: 10px;">Причина</th>
+                                <th style="padding: 10px;">Кто изменил</th>
+                                <th style="padding: 10px;">Когда</th>
+                            </tr>
+                        </thead>
+                        <tbody>`;
+            
+            result.adjustments.forEach((adj, index) => {
+                const date = new Date(adj.adjusted_at).toLocaleString('ru-RU');
+                const method = adj.payment_method === 'cash' ? 'Наличные' : 
+                              adj.payment_method === 'mixed' ? 'Карта+Наличные' : 'Карта';
+                const bgColor = index % 2 === 0 ? '#f9f9f9' : '#ffffff';
+                historyHTML += `
+                    <tr style="background: ${bgColor};">
+                        <td style="padding: 10px; border-bottom: 1px solid #ddd;">${adj.employee_name}</td>
+                        <td style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd;">${formatNumber(adj.advance_amount)} грн</td>
+                        <td style="padding: 10px; text-align: center; border-bottom: 1px solid #ddd;">${method}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #ddd;">${adj.reason}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #ddd;">${adj.adjusted_by}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #ddd;">${date}</td>
+                    </tr>`;
+            });
+            
+            historyHTML += `
+                        </tbody>
+                    </table>
+                    <div style="text-align: center; margin-top: 20px;">
+                        <button onclick="document.getElementById('history-modal').remove(); document.getElementById('history-overlay').remove();" 
+                                style="padding: 10px 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 5px; cursor: pointer;">
+                            Закрыть
+                        </button>
+                    </div>
+                </div>
+                <div id="history-overlay" style="
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.5);
+                    z-index: 9999;
+                " onclick="document.getElementById('history-modal').remove(); document.getElementById('history-overlay').remove();"></div>`;
+            
+            document.body.insertAdjacentHTML('beforeend', historyHTML);
+        } else {
+            showStatus('reportStatus', 'Нет истории корректировок за выбранный период', 'info');
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки истории:', error);
+        showStatus('reportStatus', `Ошибка загрузки истории: ${error.message}`, 'error');
     }
 }
 
@@ -2464,17 +2592,24 @@ async function applyNewEmployeesDecisions(month, year) {
             data.advance_cash = parseFloat(block.querySelector('.advance-cash-input').value) || 0;
             data.reason = block.querySelector('.advance-reason-input').value || '';
         } else if (decision === 'auto') {
-            // Берем автоматически рассчитанную сумму
-            data.advance_card = parseFloat(block.dataset.autoAdvance) || 0;
+            const emp = newEmployees.find(e => e.employee_id === employeeId);
+            if (emp) {
+                const autoAdvance = Math.min(Math.floor(emp.earned_amount * 0.9 / 100) * 100, 7900);
+                data.advance_card = autoAdvance;
+                data.advance_cash = 0;
+                data.reason = 'Автоматический расчет 90%';
+            }
+        } else if (decision === 'none') {
+            // Не начисляем аванс
+            data.advance_card = 0;
             data.advance_cash = 0;
-            data.reason = 'Автоматический расчет 90%';
+            data.reason = 'Аванс не начислен (мало смен)';
         }
         
         decisions.push(data);
     });
     
     try {
-        // Отправляем решения на сервер
         const response = await fetch(`${API_BASE}/process-new-employees-advances`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2486,13 +2621,20 @@ async function applyNewEmployeesDecisions(month, year) {
         
         if (result.success) {
             showStatus('reportStatus', result.message, 'success');
+            
+            // Закрываем диалог
             cancelNewEmployeesDialog();
-            // Перезагружаем расчет аванса
-            setTimeout(() => calculateAdvance15(true), 500);
+            
+            // Обновляем отображение в таблице
+            setTimeout(() => {
+                // Перезагружаем данные месяца для обновления таблицы
+                generateMonthlyReport();
+            }, 500);
         } else {
-            showStatus('reportStatus', result.error, 'error');
+            showStatus('reportStatus', result.error || 'Ошибка применения решений', 'error');
         }
     } catch (error) {
+        console.error('Ошибка применения решений:', error);
         showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
 }

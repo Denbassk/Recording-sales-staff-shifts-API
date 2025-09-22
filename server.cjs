@@ -1098,8 +1098,6 @@ app.post('/check-new-employees', checkAuth, canManagePayroll, async (req, res) =
     }
 });
 
-
-// Обработка решений по новым сотрудникам
 app.post('/process-new-employees-advances', checkAuth, canManagePayroll, async (req, res) => {
     const { month, year, decisions } = req.body;
     
@@ -1110,32 +1108,36 @@ app.post('/process-new-employees-advances', checkAuth, canManagePayroll, async (
         for (const decision of decisions) {
             // Обновляем статус если нужно
             if (decision.make_regular) {
-                await supabase
+                const { error } = await supabase
                     .from('employees')
                     .update({ employee_status: 'regular' })
                     .eq('id', decision.employee_id);
-                updatedStatuses++;
+                
+                if (!error) updatedStatuses++;
             }
             
-            // Сохраняем решение по авансу
-            if (decision.decision === 'custom') {
-                const totalAdvance = decision.advance_card + decision.advance_cash;
+            // Сохраняем решение по авансу только если не "none"
+            if (decision.decision !== 'none') {
+                const totalAdvance = (decision.advance_card || 0) + (decision.advance_cash || 0);
                 
-                await supabase
-                    .from('final_payroll_calculations')
-                    .upsert({
-                        employee_id: decision.employee_id,
-                        month: parseInt(month),
-                        year: parseInt(year),
-                        advance_payment: totalAdvance,
-                        advance_card: decision.advance_card,
-                        advance_cash: decision.advance_cash,
-                        advance_payment_method: decision.advance_cash > 0 ? 
-                            (decision.advance_card > 0 ? 'mixed' : 'cash') : 'card',
-                        is_manual_adjustment: true,
-                        adjustment_reason: decision.reason || 'Решение по новому сотруднику',
-                        adjusted_by: req.user.id
-                    }, { onConflict: 'employee_id,month,year' });
+                if (totalAdvance > 0) {
+                    await supabase
+                        .from('final_payroll_calculations')
+                        .upsert({
+                            employee_id: decision.employee_id,
+                            month: parseInt(month),
+                            year: parseInt(year),
+                            advance_payment: totalAdvance,
+                            advance_card: decision.advance_card || 0,
+                            advance_cash: decision.advance_cash || 0,
+                            advance_payment_method: decision.advance_cash > 0 ? 
+                                (decision.advance_card > 0 ? 'mixed' : 'cash') : 'card',
+                            is_manual_adjustment: true,
+                            adjustment_reason: decision.reason || 'Решение по новому сотруднику',
+                            adjusted_by: req.user.id,
+                            is_fixed: false
+                        }, { onConflict: 'employee_id,month,year' });
+                }
             }
             
             processedCount++;
