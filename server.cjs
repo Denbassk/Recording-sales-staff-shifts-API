@@ -1028,85 +1028,68 @@ app.post('/fix-manual-advances', checkAuth, canManagePayroll, async (req, res) =
 // --- ЭНДПОИНТЫ ДЛЯ РАБОТЫ С НОВЫМИ СОТРУДНИКАМИ ---
 
 // Проверка новых сотрудников
+// Проверка новых сотрудников - УПРОЩЕННАЯ ВЕРСИЯ
 app.post('/check-new-employees', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month } = req.body;
     
     try {
-        // Получаем сотрудников со статусом 'new' или тех, кто работает первый месяц
         const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
         const endDate = new Date(year, month, 0).toISOString().split('T')[0];
         
-        // Получаем всех сотрудников с подсчетом смен
-        const { data: shifts, error } = await supabase
+        // Получаем всех сотрудников с подсчетом смен в ТЕКУЩЕМ месяце до даты расчета
+        const { data: currentMonthShifts, error } = await supabase
             .from('payroll_calculations')
-            .select('employee_id, employee_name')
+            .select('employee_id, employee_name, total_pay')
             .gte('work_date', startDate)
             .lte('work_date', endDate);
         
         if (error) throw error;
         
-        // Группируем по сотрудникам и считаем смены
-        const employeeShifts = {};
-        shifts.forEach(shift => {
-            if (!employeeShifts[shift.employee_id]) {
-                employeeShifts[shift.employee_id] = {
+        // Группируем по сотрудникам
+        const employeeData = {};
+        currentMonthShifts.forEach(shift => {
+            if (!employeeData[shift.employee_id]) {
+                employeeData[shift.employee_id] = {
                     name: shift.employee_name,
-                    count: 0
+                    shifts: 0,
+                    totalEarned: 0
                 };
             }
-            employeeShifts[shift.employee_id].count++;
+            employeeData[shift.employee_id].shifts++;
+            employeeData[shift.employee_id].totalEarned += shift.total_pay;
         });
         
-        // Проверяем статусы сотрудников
+        // Получаем статусы из таблицы employees
         const { data: employees, error: empError } = await supabase
             .from('employees')
             .select('id, fullname, employee_status')
-            .in('id', Object.keys(employeeShifts));
+            .in('id', Object.keys(employeeData));
         
         if (empError) throw empError;
         
+        const employeeStatusMap = new Map(employees.map(e => [e.id, e.employee_status]));
+        
         const newEmployees = [];
         
-        for (const emp of employees) {
-            // Если статус 'new' или не установлен
-            if (!emp.employee_status || emp.employee_status === 'new') {
-                // Проверяем историю работы в предыдущем месяце
-                const prevMonth = month === 1 ? 12 : month - 1;
-                const prevYear = month === 1 ? year - 1 : year;
-                const prevStartDate = `${prevYear}-${String(prevMonth).padStart(2, '0')}-01`;
-                const prevEndDate = new Date(prevYear, prevMonth, 0).toISOString().split('T')[0];
-                
-                const { data: prevShifts } = await supabase
-                    .from('payroll_calculations')
-                    .select('id')
-                    .eq('employee_id', emp.id)
-                    .gte('work_date', prevStartDate)
-                    .lte('work_date', prevEndDate)
-                    .limit(1);
-                
-                // Если в прошлом месяце не работал или мало смен в текущем
-                if (!prevShifts || prevShifts.length === 0 || employeeShifts[emp.id].count < 10) {
-                    // Получаем сумму начислений
-                    const { data: earnings } = await supabase
-                        .from('payroll_calculations')
-                        .select('total_pay')
-                        .eq('employee_id', emp.id)
-                        .gte('work_date', startDate)
-                        .lte('work_date', endDate);
-                    
-                    const totalEarned = earnings.reduce((sum, e) => sum + e.total_pay, 0);
-                    
-                    newEmployees.push({
-                        employee_id: emp.id,
-                        employee_name: emp.fullname,
-                        shifts_count: employeeShifts[emp.id].count,
-                        earned_amount: totalEarned,
-                        status: emp.employee_status || 'new'
-                    });
-                }
+        for (const [employeeId, data] of Object.entries(employeeData)) {
+            const status = employeeStatusMap.get(employeeId);
+            
+            // Если статус уже 'regular' - пропускаем
+            if (status === 'regular') continue;
+            
+            // ПРОСТАЯ ЛОГИКА: от 1 до 5 смен = требует решения
+            if (data.shifts >= 1 && data.shifts <= 5) {
+                newEmployees.push({
+                    employee_id: employeeId,
+                    employee_name: data.name,
+                    shifts_count: data.shifts,
+                    earned_amount: data.totalEarned,
+                    status: status || 'new'
+                });
             }
         }
         
+        console.log(`Найдено ${newEmployees.length} сотрудников с 1-5 сменами для проверки`);
         res.json({ success: true, newEmployees });
         
     } catch (error) {
@@ -1114,6 +1097,7 @@ app.post('/check-new-employees', checkAuth, canManagePayroll, async (req, res) =
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 // Обработка решений по новым сотрудникам
 app.post('/process-new-employees-advances', checkAuth, canManagePayroll, async (req, res) => {

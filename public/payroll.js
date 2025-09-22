@@ -2278,8 +2278,11 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 box-shadow: 0 10px 40px rgba(0,0,0,0.3);
             ">
                 <h2 style="color: #667eea; margin-bottom: 20px;">
-                    ⚠️ Требуется решение по новым сотрудникам
+                    ⚠️ Обнаружены сотрудники с малым количеством смен
                 </h2>
+                <p style="margin-bottom: 20px; color: #666;">
+                    Следующие сотрудники отработали от 1 до 5 смен. Примите решение по каждому:
+                </p>
                 <div id="newEmployeesList">`;
     
     newEmployees.forEach((emp, index) => {
@@ -2300,23 +2303,27 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                         border-radius: 4px;
                         font-size: 12px;
                         margin-left: 10px;
-                    ">НОВЫЙ СОТРУДНИК</span>
+                    ">${emp.shifts_count} ${emp.shifts_count === 1 ? 'СМЕНА' : 'СМЕНЫ'}</span>
                 </h3>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0;">
-                    <div>📅 Отработано смен: <strong>${emp.shifts_count}</strong></div>
-                    <div>💰 Начислено за период: <strong>${formatNumber(emp.earned_amount)} грн</strong></div>
+                    <div>💰 Начислено за ${emp.shifts_count} ${emp.shifts_count === 1 ? 'день' : 'дня'}: <strong>${formatNumber(emp.earned_amount)} грн</strong></div>
+                    <div>📊 Расчетный аванс (90%): <strong>${formatNumber(Math.min(Math.floor(emp.earned_amount * 0.9 / 100) * 100, 7900))} грн</strong></div>
                 </div>
                 
                 <div style="border-top: 1px solid #dee2e6; margin: 15px 0; padding-top: 15px;">
                     <div style="margin-bottom: 10px;">
                         <label style="display: inline-block; margin-right: 15px;">
                             <input type="radio" name="advance_decision_${emp.employee_id}" value="none" checked>
-                            ❌ Не начислять аванс
+                            ❌ Не начислять аванс (мало смен)
+                        </label>
+                        <label style="display: inline-block; margin-right: 15px;">
+                            <input type="radio" name="advance_decision_${emp.employee_id}" value="auto">
+                            ✅ Начислить автоматически (90%)
                         </label>
                         <label style="display: inline-block;">
                             <input type="radio" name="advance_decision_${emp.employee_id}" value="custom">
-                            💰 Начислить аванс
+                            💰 Указать сумму вручную
                         </label>
                     </div>
                     
@@ -2329,7 +2336,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                                 <input type="number" 
                                     class="advance-card-input" 
                                     min="0" 
-                                    max="${Math.min(emp.earned_amount * 0.9, 7900)}"
+                                    max="${Math.min(emp.earned_amount, 8600)}"
                                     value="0"
                                     style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
                             </div>
@@ -2350,7 +2357,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                             </label>
                             <input type="text" 
                                 class="advance-reason-input"
-                                placeholder="Например: первый месяц работы"
+                                placeholder="Например: первые дни работы, болезнь и т.д."
                                 style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
                         </div>
                     </div>
@@ -2365,7 +2372,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                             cursor: pointer;
                         ">
                             <input type="checkbox" class="make-regular-checkbox" style="margin-right: 8px;">
-                            🔄 Сделать постоянным сотрудником (авансы будут начисляться автоматически)
+                            🔄 Сделать постоянным сотрудником (больше не спрашивать при 1-5 сменах)
                         </label>
                     </div>
                 </div>
@@ -2416,6 +2423,17 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
             } else {
                 advanceInputs.style.display = 'none';
             }
+            
+            // Если выбрано "автоматически", заполняем поля
+            if (this.value === 'auto') {
+                const empId = block.dataset.employeeId;
+                const emp = newEmployees.find(e => e.employee_id === empId);
+                if (emp) {
+                    const autoAdvance = Math.min(Math.floor(emp.earned_amount * 0.9 / 100) * 100, 7900);
+                    // Сохраняем значение в data-атрибуте для последующей обработки
+                    block.dataset.autoAdvance = autoAdvance;
+                }
+            }
         });
     });
 }
@@ -2426,7 +2444,7 @@ function cancelNewEmployeesDialog() {
     if (modal) modal.remove();
 }
 
-// Функция применения решений
+// Обновляем функцию применения решений
 async function applyNewEmployeesDecisions(month, year) {
     const decisions = [];
     
@@ -2445,6 +2463,11 @@ async function applyNewEmployeesDecisions(month, year) {
             data.advance_card = parseFloat(block.querySelector('.advance-card-input').value) || 0;
             data.advance_cash = parseFloat(block.querySelector('.advance-cash-input').value) || 0;
             data.reason = block.querySelector('.advance-reason-input').value || '';
+        } else if (decision === 'auto') {
+            // Берем автоматически рассчитанную сумму
+            data.advance_card = parseFloat(block.dataset.autoAdvance) || 0;
+            data.advance_cash = 0;
+            data.reason = 'Автоматический расчет 90%';
         }
         
         decisions.push(data);
