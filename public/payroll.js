@@ -1317,7 +1317,10 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
             <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
-            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;"></td>
+            <td style="padding: 5px;">
+    <input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;">
+    <button onclick="manageShortages('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Управление недостачами">📋</button>
+</td>
             <td class="advance-payment-card" style="padding: 5px;">
                 <span class="advance-card-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCardContent}</span>
             </td>
@@ -1325,8 +1328,9 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 <span class="advance-cash-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCashContent}</span>
             </td>
             <td class="card-remainder" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : (cardRemainder > 0 ? 'color: #28a745; font-weight: bold;' : '')}">
-                ${hasCompleteCalculation ? formatNumber(cardRemainder) : '—'}
-            </td>
+    ${hasCompleteCalculation ? formatNumber(cardRemainder) : '—'}
+    ${hasCompleteCalculation ? `<button onclick="adjustCardRemainder('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Корректировать остаток">✏️</button>` : ''}
+</td>
             <td class="cash-payout" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : ''}">
                 ${hasCompleteCalculation ? (cashPayout > 0 ? `<strong style="color: #007bff;">${formatNumber(cashPayout)}</strong>` : formatNumber(cashPayout)) : '—'}
             </td>
@@ -3283,4 +3287,424 @@ async function clearDatabase() {
         console.error('Ошибка очистки БД:', error);
         showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
+}
+
+// ========== НОВЫЕ ФУНКЦИИ ДЛЯ КОРРЕКТИРОВКИ ОСТАТКОВ И НЕДОСТАЧ ==========
+
+// Функция корректировки остатка на карту
+async function adjustCardRemainder(employeeId, employeeName) {
+    const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
+    if (!row) return;
+    
+    const year = row.dataset.year;
+    const month = row.dataset.month;
+    
+    // Получаем текущие значения
+    const basePay = parseFloat(row.dataset.basePay) || 0;
+    const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
+    const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+    const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+    
+    const totalGross = basePay + manualBonus;
+    const totalDeductions = penalty + shortage;
+    const totalAfterDeductions = totalGross - totalDeductions;
+    
+    // Получаем аванс
+    const advanceCardCell = row.querySelector('.advance-payment-card');
+    const advanceCashCell = row.querySelector('.advance-payment-cash');
+    const advanceCard = parseFloat(advanceCardCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+    const advanceCash = parseFloat(advanceCashCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+    const totalAdvance = advanceCard + advanceCash;
+    
+    // Остаток к выплате
+    const remainingToPay = totalAfterDeductions - totalAdvance;
+    
+    // Текущие значения остатков
+    const currentCardRemainder = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+    const currentCashPayout = parseFloat(row.querySelector('.cash-payout')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+    
+    // Максимум на карту (лимит минус аванс)
+    const maxCard = Math.max(0, 8600 - advanceCard);
+    
+    // Создаем диалоговое окно
+    const dialogHTML = `
+        <div id="adjustmentModal" style="
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 10000;
+            min-width: 400px;
+        ">
+            <h3 style="margin-bottom: 20px; color: #667eea;">
+                💰 Корректировка остатка выплат
+            </h3>
+            <p><strong>Сотрудник:</strong> ${employeeName}</p>
+            <hr style="margin: 15px 0;">
+            
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+                <p style="margin: 5px 0;"><strong>К выплате после вычетов:</strong> ${formatNumber(totalAfterDeductions)} грн</p>
+                <p style="margin: 5px 0;"><strong>Уже выплачен аванс:</strong> ${formatNumber(totalAdvance)} грн</p>
+                <p style="margin: 5px 0; font-size: 18px; color: #667eea;">
+                    <strong>Остается выплатить:</strong> ${formatNumber(remainingToPay)} грн
+                </p>
+            </div>
+            
+            <div style="margin: 20px 0;">
+                <label style="display: block; margin-bottom: 10px; font-weight: 600;">
+                    💳 Остаток на карту (макс. ${formatNumber(maxCard)} грн):
+                </label>
+                <input type="number" id="newCardRemainder" 
+                    value="${currentCardRemainder}" 
+                    min="0" 
+                    max="${Math.min(remainingToPay, maxCard)}"
+                    style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 16px;">
+                
+                <label style="display: block; margin: 15px 0 10px 0; font-weight: 600;">
+                    💵 Зарплата наличными (автоматически):
+                </label>
+                <input type="text" id="newCashPayout" 
+                    value="${formatNumber(currentCashPayout)}" 
+                    readonly
+                    style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 16px; background: #f8f9fa;">
+                
+                <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px;">
+                    <small>⚠️ Лимит на карту за месяц: 8600 грн<br>
+                    Уже на карте (аванс): ${formatNumber(advanceCard)} грн<br>
+                    Доступно для остатка: ${formatNumber(maxCard)} грн</small>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button onclick="saveCardRemainderAdjustment('${employeeId}')" style="
+                    flex: 1;
+                    padding: 12px;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    font-weight: 600;
+                ">💾 Сохранить</button>
+                <button onclick="closeAdjustmentModal()" style="
+                    flex: 1;
+                    padding: 12px;
+                    background: #6c757d;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                ">Отмена</button>
+            </div>
+        </div>
+        <div style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 9999;
+        " onclick="closeAdjustmentModal()"></div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', dialogHTML);
+    
+    // Автоматический пересчет наличных при изменении карты
+    document.getElementById('newCardRemainder').addEventListener('input', function() {
+        const cardValue = parseFloat(this.value) || 0;
+        const cashValue = Math.max(0, remainingToPay - cardValue);
+        document.getElementById('newCashPayout').value = formatNumber(cashValue);
+        
+        // Проверка лимитов
+        if (cardValue > maxCard) {
+            this.style.borderColor = '#dc3545';
+            this.setCustomValidity(`Превышен лимит карты. Максимум: ${maxCard} грн`);
+        } else {
+            this.style.borderColor = '#28a745';
+            this.setCustomValidity('');
+        }
+    });
+}
+
+// Сохранение корректировки остатка
+async function saveCardRemainderAdjustment(employeeId) {
+    const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
+    const year = row.dataset.year;
+    const month = row.dataset.month;
+    
+    const newCardRemainder = parseFloat(document.getElementById('newCardRemainder').value) || 0;
+    const newCashPayout = parseFloat(document.getElementById('newCashPayout').value.replace(/\s/g, '').replace(',', '.')) || 0;
+    
+    try {
+        const response = await fetch(`${API_BASE}/adjust-final-payment`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                employee_id: employeeId,
+                year: parseInt(year),
+                month: parseInt(month),
+                card_remainder: newCardRemainder,
+                cash_payout: newCashPayout
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Обновляем отображение в таблице
+            const cardRemainderCell = row.querySelector('.card-remainder');
+            const cashPayoutCell = row.querySelector('.cash-payout');
+            
+            if (cardRemainderCell) {
+                cardRemainderCell.textContent = formatNumber(newCardRemainder);
+                if (newCardRemainder > 0) {
+                    cardRemainderCell.style.color = '#28a745';
+                    cardRemainderCell.style.fontWeight = 'bold';
+                }
+            }
+            
+            if (cashPayoutCell) {
+                if (newCashPayout > 0) {
+                    cashPayoutCell.innerHTML = `<strong style="color: #007bff;">${formatNumber(newCashPayout)}</strong>`;
+                } else {
+                    cashPayoutCell.innerHTML = formatNumber(newCashPayout);
+                }
+            }
+            
+            showStatus('reportStatus', '✅ Корректировка остатков сохранена', 'success');
+            closeAdjustmentModal();
+        } else {
+            showStatus('reportStatus', result.error || 'Ошибка сохранения', 'error');
+        }
+    } catch (error) {
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
+// Закрытие модального окна
+function closeAdjustmentModal() {
+    const modal = document.getElementById('adjustmentModal');
+    if (modal) modal.remove();
+    const overlay = modal?.nextElementSibling;
+    if (overlay) overlay.remove();
+}
+
+// ========== ФУНКЦИИ ДЛЯ УПРАВЛЕНИЯ НЕДОСТАЧАМИ ==========
+
+// Открытие диалога недостач
+async function manageShortages(employeeId, employeeName) {
+    const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
+    if (!row) return;
+    
+    const year = row.dataset.year;
+    const month = row.dataset.month;
+    
+    // Получаем историю недостач
+    try {
+        const response = await fetch(`${API_BASE}/get-shortages?employee_id=${employeeId}&year=${year}&month=${month}`, {
+            credentials: 'include'
+        });
+        
+        const result = await response.json();
+        const shortages = result.shortages || [];
+        
+        let shortagesHTML = '';
+        let totalShortage = 0;
+        
+        shortages.forEach((shortage, index) => {
+            totalShortage += shortage.amount;
+            shortagesHTML += `
+                <div style="border: 1px solid #dee2e6; border-radius: 5px; padding: 10px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div style="flex: 1;">
+                            <strong>Недостача #${index + 1}</strong><br>
+                            <small>Дата: ${new Date(shortage.created_at).toLocaleDateString('ru-RU')}</small><br>
+                            <small>Сумма: ${formatNumber(shortage.amount)} грн</small><br>
+                            <small>Описание: ${shortage.description || 'Не указано'}</small><br>
+                            <small>Вычет из: ${shortage.deduction_from || 'Не указано'}</small>
+                        </div>
+                        <button onclick="removeShortage('${shortage.id}')" style="
+                            padding: 5px 10px;
+                            background: #dc3545;
+                            color: white;
+                            border: none;
+                            border-radius: 3px;
+                            cursor: pointer;
+                        ">🗑️</button>
+                    </div>
+                </div>
+            `;
+        });
+        
+        const dialogHTML = `
+            <div id="shortagesModal" style="
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 25px;
+                border-radius: 10px;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                z-index: 10000;
+                min-width: 500px;
+                max-height: 80vh;
+                overflow-y: auto;
+            ">
+                <h3 style="margin-bottom: 20px; color: #667eea;">
+                    📉 Управление недостачами
+                </h3>
+                <p><strong>Сотрудник:</strong> ${employeeName}</p>
+                <p><strong>Период:</strong> ${month}/${year}</p>
+                <hr style="margin: 15px 0;">
+                
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+                    <h4>Текущие недостачи:</h4>
+                    ${shortagesHTML || '<p>Нет зарегистрированных недостач</p>'}
+                    <hr>
+                    <strong>Общая сумма недостач: ${formatNumber(totalShortage)} грн</strong>
+                </div>
+                
+                <h4>Добавить новую недостачу:</h4>
+                <div style="margin: 20px 0;">
+                    <label style="display: block; margin-bottom: 5px;">Сумма недостачи (грн):</label>
+                    <input type="number" id="shortageAmount" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 5px;">
+                    
+                    <label style="display: block; margin: 10px 0 5px;">Описание (накладная, период, причина):</label>
+                    <textarea id="shortageDescription" rows="3" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 5px;"></textarea>
+                    
+                    <label style="display: block; margin: 10px 0 5px;">Вычесть из:</label>
+                    <select id="shortageDeduction" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 5px;">
+                        <option value="advance">Аванс (15 число)</option>
+                        <option value="salary">Зарплата (конец месяца)</option>
+                        <option value="both">Разделить 50/50</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button onclick="addShortage('${employeeId}')" style="
+                        flex: 1;
+                        padding: 12px;
+                        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        cursor: pointer;
+                        font-weight: 600;
+                    ">➕ Добавить недостачу</button>
+                    <button onclick="closeShortagesModal()" style="
+                        flex: 1;
+                        padding: 12px;
+                        background: #6c757d;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        cursor: pointer;
+                    ">Закрыть</button>
+                </div>
+            </div>
+            <div style="
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                z-index: 9999;
+            " onclick="closeShortagesModal()"></div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', dialogHTML);
+        
+    } catch (error) {
+        showStatus('reportStatus', `Ошибка загрузки недостач: ${error.message}`, 'error');
+    }
+}
+
+// Добавление недостачи
+async function addShortage(employeeId) {
+    const amount = parseFloat(document.getElementById('shortageAmount').value) || 0;
+    const description = document.getElementById('shortageDescription').value;
+    const deductionFrom = document.getElementById('shortageDeduction').value;
+    
+    if (amount <= 0) {
+        alert('Введите корректную сумму недостачи');
+        return;
+    }
+    
+    const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
+    const year = row.dataset.year;
+    const month = row.dataset.month;
+    
+    try {
+        const response = await fetch(`${API_BASE}/add-shortage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                employee_id: employeeId,
+                year: parseInt(year),
+                month: parseInt(month),
+                amount: amount,
+                description: description,
+                deduction_from: deductionFrom
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('reportStatus', '✅ Недостача добавлена', 'success');
+            closeShortagesModal();
+            
+            // Обновляем значение в таблице
+            const shortageInput = row.querySelector('[name="shortage"]');
+            if (shortageInput) {
+                const currentShortage = parseFloat(shortageInput.value) || 0;
+                shortageInput.value = currentShortage + amount;
+                shortageInput.dispatchEvent(new Event('input'));
+            }
+            
+            // Перезагружаем модальное окно
+            setTimeout(() => manageShortages(employeeId, row.dataset.employeeName), 500);
+        } else {
+            alert(result.error || 'Ошибка добавления недостачи');
+        }
+    } catch (error) {
+        alert(`Ошибка: ${error.message}`);
+    }
+}
+
+// Удаление недостачи
+async function removeShortage(shortageId) {
+    if (!confirm('Удалить эту недостачу?')) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/remove-shortage/${shortageId}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('reportStatus', '✅ Недостача удалена', 'success');
+            location.reload(); // Перезагружаем для обновления данных
+        }
+    } catch (error) {
+        alert(`Ошибка: ${error.message}`);
+    }
+}
+
+function closeShortagesModal() {
+    const modal = document.getElementById('shortagesModal');
+    if (modal) modal.remove();
+    const overlay = modal?.nextElementSibling;
+    if (overlay) overlay.remove();
 }

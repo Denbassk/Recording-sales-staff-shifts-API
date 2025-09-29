@@ -1526,7 +1526,192 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
     });
 });
 
+// Корректировка финальных выплат (остаток на карту/наличные)
+app.post('/adjust-final-payment', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, year, month, card_remainder, cash_payout } = req.body;
+    
+    try {
+        // Проверяем лимиты
+        const { data: currentData } = await supabase
+            .from('final_payroll_calculations')
+            .select('advance_card, total_after_deductions, advance_payment')
+            .eq('employee_id', employee_id)
+            .eq('year', year)
+            .eq('month', month)
+            .single();
+        
+        if (!currentData) {
+            return res.status(404).json({ success: false, error: 'Расчет не найден' });
+        }
+        
+        const maxCard = Math.max(0, FIXED_CARD_PAYMENT_FOR_REPORT - (currentData.advance_card || 0));
+        if (card_remainder > maxCard) {
+            return res.status(400).json({ 
+                success: false, 
+                error: `Превышен лимит карты. Максимум: ${maxCard} грн` 
+            });
+        }
+        
+        // Обновляем данные
+        const { error } = await supabase
+            .from('final_payroll_calculations')
+            .update({
+                card_remainder: card_remainder,
+                cash_payout: cash_payout,
+                total_card_payment: (currentData.advance_card || 0) + card_remainder,
+                is_remainder_adjusted: true,
+                remainder_adjusted_at: new Date().toISOString(),
+                remainder_adjusted_by: req.user.id
+            })
+            .eq('employee_id', employee_id)
+            .eq('year', year)
+            .eq('month', month);
+        
+        if (error) throw error;
+        
+        await logFinancialOperation('adjust_final_payment', {
+            employee_id, year, month, card_remainder, cash_payout
+        }, req.user.id);
+        
+        res.json({ success: true, message: 'Корректировка сохранена' });
+        
+    } catch (error) {
+        console.error('Ошибка корректировки финальных выплат:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
+// Получение недостач
+app.get('/get-shortages', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, year, month } = req.query;
+    
+    try {
+        const { data: shortages, error } = await supabase
+            .from('employee_shortages')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('year', year)
+            .eq('month', month)
+            .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        res.json({ success: true, shortages: shortages || [] });
+        
+    } catch (error) {
+        console.error('Ошибка получения недостач:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Добавление недостачи
+app.post('/add-shortage', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, year, month, amount, description, deduction_from } = req.body;
+    
+    if (!amount || amount <= 0) {
+        return res.status(400).json({ success: false, error: 'Некорректная сумма' });
+    }
+    
+    try {
+        // Добавляем запись о недостаче
+        const { data: shortage, error: insertError } = await supabase
+            .from('employee_shortages')
+            .insert({
+                employee_id,
+                year,
+                month,
+                amount,
+                description,
+                deduction_from,
+                created_by: req.user.id
+            })
+            .select()
+            .single();
+        
+        if (insertError) throw insertError;
+        
+        // Обновляем общую сумму недостач в monthly_adjustments
+        const { data: currentAdj } = await supabase
+            .from('monthly_adjustments')
+            .select('shortage')
+            .eq('employee_id', employee_id)
+            .eq('year', year)
+            .eq('month', month)
+            .single();
+        
+        const currentShortage = currentAdj?.shortage || 0;
+        const newTotalShortage = currentShortage + amount;
+        
+        await supabase
+            .from('monthly_adjustments')
+            .upsert({
+                employee_id,
+                year,
+                month,
+                shortage: newTotalShortage
+            }, { onConflict: 'employee_id,month,year' });
+        
+        await logFinancialOperation('add_shortage', {
+            employee_id, year, month, amount, description, deduction_from
+        }, req.user.id);
+        
+        res.json({ success: true, shortage });
+        
+    } catch (error) {
+        console.error('Ошибка добавления недостачи:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Удаление недостачи
+app.delete('/remove-shortage/:id', checkAuth, canManagePayroll, async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        // Получаем информацию о недостаче
+        const { data: shortage, error: fetchError } = await supabase
+            .from('employee_shortages')
+            .select('*')
+            .eq('id', id)
+            .single();
+        
+        if (fetchError) throw fetchError;
+        if (!shortage) {
+            return res.status(404).json({ success: false, error: 'Недостача не найдена' });
+        }
+        
+        // Удаляем недостачу
+        const { error: deleteError } = await supabase
+            .from('employee_shortages')
+            .delete()
+            .eq('id', id);
+        
+        if (deleteError) throw deleteError;
+        
+        // Обновляем общую сумму в monthly_adjustments
+        const { data: allShortages } = await supabase
+            .from('employee_shortages')
+            .select('amount')
+            .eq('employee_id', shortage.employee_id)
+            .eq('year', shortage.year)
+            .eq('month', shortage.month);
+        
+        const newTotal = (allShortages || []).reduce((sum, s) => sum + s.amount, 0);
+        
+        await supabase
+            .from('monthly_adjustments')
+            .update({ shortage: newTotal })
+            .eq('employee_id', shortage.employee_id)
+            .eq('year', shortage.year)
+            .eq('month', shortage.month);
+        
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('Ошибка удаления недостачи:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 // ====== ХЕЛПЕР: собираем ФОТ с группировкой по магазинам (ИСПРАВЛЕННАЯ ВЕРСИЯ) ======
 async function buildFotReport({ startDate, endDate }) {
