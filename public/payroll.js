@@ -3703,8 +3703,49 @@ async function removeShortage(shortageId) {
 }
 
 function closeShortagesModal() {
+    // Удаляем модальное окно
     const modal = document.getElementById('shortagesModal');
     if (modal) modal.remove();
-    const overlay = modal?.nextElementSibling;
-    if (overlay) overlay.remove();
+    
+    // Удаляем ВСЕ оверлеи (затемнения) - на случай если их несколько
+    const overlays = document.querySelectorAll('div[style*="position: fixed"][style*="z-index: 9999"]');
+    overlays.forEach(overlay => overlay.remove());
+    
+    // Дополнительная проверка - удаляем любые затемняющие элементы
+    const allOverlays = document.querySelectorAll('div[onclick*="closeShortagesModal"]');
+    allOverlays.forEach(overlay => overlay.remove());
+}
+
+// Универсальная функция для безопасного закрытия модальных окон
+function closeModalSafely(modalId) {
+    // Удаляем конкретное модальное окно
+    const modal = document.getElementById(modalId);
+    if (modal) modal.remove();
+    
+    // Удаляем все оверлеи/затемнения
+    const overlays = document.querySelectorAll(`
+        div[style*="position: fixed"][style*="background: rgba"],
+        div[style*="position: fixed"][style*="z-index: 9999"],
+        .modal-overlay,
+        .modal-backdrop
+    `);
+    overlays.forEach(overlay => {
+        // Проверяем что это действительно оверлей (не содержит контент)
+        if (!overlay.querySelector('button, input, table, h1, h2, h3')) {
+            overlay.remove();
+        }
+    });
+}
+
+// Обновляем все функции закрытия
+function closeShortagesModal() {
+    closeModalSafely('shortagesModal');
+}
+
+function closeAdjustmentModal() {
+    closeModalSafely('adjustmentModal');
+}
+
+function cancelNewEmployeesDialog() {
+    closeModalSafely('newEmployeesModal');
 }

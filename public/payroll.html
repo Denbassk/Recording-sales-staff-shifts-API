@@ -594,7 +594,7 @@
             color: #007bff;
         }
 
-/* Закрепление первого столбца с фамилиями - ОКОНЧАТЕЛЬНАЯ ВЕРСИЯ */
+/* Закрепление первых ДВУХ столбцов - Сотрудник и Магазин */
 #monthlyReportTable {
     position: relative;
 }
@@ -604,14 +604,13 @@
     background-color: white;
 }
 
-/* Устанавливаем минимальную ширину для первого столбца */
+/* ПЕРВЫЙ СТОЛБЕЦ - Сотрудник */
 #monthlyReportTable th:first-child,
 #monthlyReportTable td:first-child {
-    min-width: 200px !important; /* Достаточная ширина для имен */
+    min-width: 200px !important;
     max-width: 250px !important;
 }
 
-/* Закрепленный первый столбец - ПОЛНОСТЬЮ НЕПРОЗРАЧНЫЙ */
 #monthlyReportTable tbody td:first-child {
     position: sticky;
     left: 0;
@@ -623,96 +622,84 @@
     box-shadow: 2px 0 5px rgba(0,0,0,0.1);
 }
 
-/* Заголовок первого столбца с rowspan=2 */
+/* ВТОРОЙ СТОЛБЕЦ - Магазин (НОВОЕ!) */
+#monthlyReportTable th:nth-child(2),
+#monthlyReportTable td:nth-child(2) {
+    min-width: 150px !important;
+    max-width: 200px !important;
+}
+
+#monthlyReportTable tbody td:nth-child(2) {
+    position: sticky;
+    left: 200px; /* Сдвиг на ширину первого столбца */
+    z-index: 4;
+    background-color: white !important;
+    background-image: none !important;
+    opacity: 1 !important;
+    border-right: 2px solid #dee2e6;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+}
+
+/* ЗАГОЛОВКИ - первый столбец */
 #monthlyReportTable thead tr:first-child th:first-child {
     position: sticky;
     left: 0;
-    z-index: 25 !important; /* Максимальный z-index */
+    z-index: 26 !important;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
     opacity: 1 !important;
     box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-    min-width: 200px !important;
-    max-width: 250px !important;
 }
 
-/* Добавляем отступ для второго столбца, чтобы избежать наложения */
-#monthlyReportTable th:nth-child(2),
-#monthlyReportTable td:nth-child(2) {
-    padding-left: 20px !important;
+/* ЗАГОЛОВКИ - второй столбец (НОВОЕ!) */
+#monthlyReportTable thead tr:first-child th:nth-child(2) {
+    position: sticky;
+    left: 200px; /* Сдвиг на ширину первого столбца */
+    z-index: 25 !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    opacity: 1 !important;
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
 }
 
-/* При наведении - тоже непрозрачный фон */
-#monthlyReportTable tbody tr:hover td:first-child {
+/* Для второго ряда заголовков (где есть подзаголовки) */
+#monthlyReportTable thead tr:last-child th:first-child {
+    position: sticky;
+    left: 200px;
+    z-index: 24 !important;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+}
+
+/* При наведении на строку - оба столбца */
+#monthlyReportTable tbody tr:hover td:first-child,
+#monthlyReportTable tbody tr:hover td:nth-child(2) {
     background-color: #f0f2f5 !important;
     opacity: 1 !important;
 }
 
-/* Для строк с финальными расчетами - непрозрачный зеленоватый */
-#monthlyReportTable tbody tr.has-final-calc td:first-child {
+/* Для строк с финальными расчетами - оба столбца */
+#monthlyReportTable tbody tr.has-final-calc td:first-child,
+#monthlyReportTable tbody tr.has-final-calc td:nth-child(2) {
     background-color: #e8f5e9 !important;
     opacity: 1 !important;
 }
 
-#monthlyReportTable tbody tr.has-final-calc:hover td:first-child {
+#monthlyReportTable tbody tr.has-final-calc:hover td:first-child,
+#monthlyReportTable tbody tr.has-final-calc:hover td:nth-child(2) {
     background-color: #c8e6c9 !important;
     opacity: 1 !important;
+}
+
+/* Отступ для третьего столбца, чтобы не наезжал */
+#monthlyReportTable th:nth-child(3),
+#monthlyReportTable td:nth-child(3) {
+    padding-left: 25px !important;
 }
 
 /* Исправляем позиционирование заголовков с colspan */
 #monthlyReportTable thead tr:first-child th[colspan] {
     position: relative;
-    z-index: 10; /* Ниже чем первый столбец */
+    z-index: 10;
 }
 
-    /* ВСЕ ОСНОВНЫЕ СТИЛИ */
-    * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-    }
-
-    /* ... весь ваш код стилей ... */
-
-    /* Заголовок первого столбца с rowspan=2 */
-    #monthlyReportTable thead tr:first-child th:first-child {
-        position: sticky;
-        left: 0;
-        z-index: 25 !important;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        opacity: 1 !important;
-        box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-        min-width: 200px !important;
-        max-width: 250px !important;
-    }
-
-    /* Добавляем отступ для второго столбца, чтобы избежать наложения */
-    #monthlyReportTable th:nth-child(2),
-    #monthlyReportTable td:nth-child(2) {
-        padding-left: 20px !important;
-    }
-
-    /* При наведении - тоже непрозрачный фон */
-    #monthlyReportTable tbody tr:hover td:first-child {
-        background-color: #f0f2f5 !important;
-        opacity: 1 !important;
-    }
-
-    /* Для строк с финальными расчетами - непрозрачный зеленоватый */
-    #monthlyReportTable tbody tr.has-final-calc td:first-child {
-        background-color: #e8f5e9 !important;
-        opacity: 1 !important;
-    }
-
-    #monthlyReportTable tbody tr.has-final-calc:hover td:first-child {
-        background-color: #c8e6c9 !important;
-        opacity: 1 !important;
-    }
-
-    /* Исправляем позиционирование заголовков с colspan */
-    #monthlyReportTable thead tr:first-child th[colspan] {
-        position: relative;
-        z-index: 10;
-    }
 
     /* ========== СТИЛИ ДЛЯ LOADER И BADGE ========== */
     .loader {
