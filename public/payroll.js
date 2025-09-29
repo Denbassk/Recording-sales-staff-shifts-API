@@ -185,12 +185,101 @@ function formatNumber(num) {
 }
 
 function showStatus(elementId, message, type) {
+    // Старый способ для обратной совместимости
     const statusEl = document.getElementById(elementId);
-    if (!statusEl) return;
-    statusEl.className = `status ${type}`;
-    statusEl.textContent = message;
-    statusEl.style.display = 'flex';
+    if (statusEl) {
+        statusEl.className = `status ${type}`;
+        statusEl.textContent = message;
+        statusEl.style.display = 'flex';
+    }
+    
+    // Новое модальное уведомление в центре экрана
+    showModalNotification(message, type);
 }
+
+// Новая функция для модальных уведомлений
+function showModalNotification(message, type = 'info', duration = 3000) {
+    // Удаляем предыдущее уведомление если есть
+    const existingNotification = document.getElementById('modal-notification');
+    if (existingNotification) {
+        existingNotification.remove();
+    }
+    
+    // Определяем иконку и цвет по типу
+    let icon = 'ℹ️';
+    let bgColor = '#d1ecf1';
+    let textColor = '#0c5460';
+    let borderColor = '#bee5eb';
+    
+    switch(type) {
+        case 'success':
+            icon = '✅';
+            bgColor = '#d4edda';
+            textColor = '#155724';
+            borderColor = '#c3e6cb';
+            break;
+        case 'error':
+            icon = '❌';
+            bgColor = '#f8d7da';
+            textColor = '#721c24';
+            borderColor = '#f5c6cb';
+            break;
+        case 'warning':
+            icon = '⚠️';
+            bgColor = '#fff3cd';
+            textColor = '#856404';
+            borderColor = '#ffeaa7';
+            break;
+    }
+    
+    // Создаем HTML уведомления
+    const notificationHTML = `
+        <div id="modal-notification" style="
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: ${bgColor};
+            color: ${textColor};
+            border: 2px solid ${borderColor};
+            border-radius: 10px;
+            padding: 20px 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            z-index: 100000;
+            min-width: 300px;
+            max-width: 500px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: 500;
+            animation: slideIn 0.3s ease;
+        ">
+            <div style="display: flex; align-items: center; gap: 15px; justify-content: center;">
+                <span style="font-size: 24px;">${icon}</span>
+                <span>${message}</span>
+            </div>
+        </div>
+    `;
+    
+    // Добавляем в body
+    document.body.insertAdjacentHTML('beforeend', notificationHTML);
+    
+    // Автоматически скрываем через duration миллисекунд
+    if (duration > 0) {
+        setTimeout(() => {
+            const notification = document.getElementById('modal-notification');
+            if (notification) {
+                notification.style.animation = 'fadeOut 0.3s ease';
+                setTimeout(() => notification.remove(), 300);
+            }
+        }, duration);
+    }
+    
+    // Закрытие по клику
+    document.getElementById('modal-notification').addEventListener('click', function() {
+        this.remove();
+    });
+}
+
 
 
 function hideStatus(elementId) {
@@ -409,7 +498,7 @@ function exportDailyPayrollToExcel() {
     XLSX.writeFile(wb, fileName);
 }
 
-function exportMonthlyReportToExcel() {
+async function exportMonthlyReportToExcel() {
     const monthEl = document.getElementById('reportMonth');
     const yearEl = document.getElementById('reportYear');
     const month = monthEl ? monthEl.value : '';
@@ -431,15 +520,39 @@ function exportMonthlyReportToExcel() {
 
     const exportData = [];
 
+    // Функция для получения деталей недостач
+    async function getShortageDetails(employeeId, month, year) {
+        try {
+            const response = await fetch(
+                `${API_BASE}/get-shortages?employee_id=${employeeId}&year=${year}&month=${month}`,
+                { credentials: 'include' }
+            );
+            const result = await response.json();
+            
+            if (result.shortages && result.shortages.length > 0) {
+                return result.shortages
+                    .map(s => `${s.description || 'Недостача'} (${formatNumber(s.amount)} грн)`)
+                    .join('; ');
+            }
+            return '';
+        } catch (error) {
+            console.error('Ошибка получения деталей недостач:', error);
+            return '';
+        }
+    }
+
     // Собираем данные из таблицы
-    tableRows.forEach(row => {
-        if (row.classList.contains('summary-row')) return;
+    for (const row of tableRows) {
+        if (row.classList.contains('summary-row')) continue;
         
         // Получаем все значения из строки таблицы
         const basePay = parseFloat(row.dataset.basePay) || 0;
         const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
         const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
         const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+        
+        // Получаем детали недостач
+        const shortageDetails = await getShortageDetails(row.dataset.employeeId, month, year);
         
         // Расчеты
         const totalGross = basePay + manualBonus;
@@ -453,7 +566,7 @@ function exportMonthlyReportToExcel() {
         let advanceCardAmount = 0;
         let advanceCashAmount = 0;
         let isManualAdjustment = false;
-        let isTermination = false; // НОВОЕ
+        let isTermination = false;
         
         // Аванс на карту
         if (advanceCardCell) {
@@ -463,7 +576,7 @@ function exportMonthlyReportToExcel() {
             if (cardHTML.includes('✏️')) {
                 isManualAdjustment = true;
             }
-            if (cardHTML.includes('🚪')) { // НОВОЕ: проверка на увольнение
+            if (cardHTML.includes('🚪')) {
                 isTermination = true;
             }
         }
@@ -476,7 +589,7 @@ function exportMonthlyReportToExcel() {
             if (cashHTML.includes('✏️')) {
                 isManualAdjustment = true;
             }
-            if (cashHTML.includes('🚪')) { // НОВОЕ: проверка на увольнение
+            if (cashHTML.includes('🚪')) {
                 isTermination = true;
             }
         }
@@ -504,7 +617,7 @@ function exportMonthlyReportToExcel() {
             }
         }
         
-        // НОВОЕ: Определяем статус сотрудника
+        // Определяем статус сотрудника
         let employeeStatus = 'Работает';
         let paymentType = 'Стандартная';
         
@@ -518,7 +631,7 @@ function exportMonthlyReportToExcel() {
         // Создаем объект с данными для экспорта
         const rowData = {
             'Сотрудник': row.dataset.employeeName || '',
-            'Статус': employeeStatus, // НОВОЕ
+            'Статус': employeeStatus,
             'Магазин': row.dataset.storeAddress || '',
             'Месяц': `${monthNames[month - 1]} ${year}`,
             'База начислений': basePay,
@@ -528,14 +641,15 @@ function exportMonthlyReportToExcel() {
             'Депремирование': penalty,
             'Причина депремирования': row.querySelector('[name="penalty_reason"]')?.value || '',
             'Вычет за недостачу': shortage,
+            'Детали недостачи': shortageDetails, // НОВОЕ ПОЛЕ
             'Всего вычетов': totalDeductions,
             'К выплате после вычетов': totalAfterDeductions,
-            'Тип выплаты': paymentType, // НОВОЕ
+            'Тип выплаты': paymentType,
             'Аванс (на карту)': advanceCardAmount,
             'Аванс (наличные)': advanceCashAmount,
             'Способ выплаты аванса': advancePaymentMethod === 'cash' ? 'Наличные' : advancePaymentMethod === 'mixed' ? 'Карта + Наличные' : 'Карта',
             'Ручная корректировка': isManualAdjustment ? 'Да' : 'Нет',
-            'Увольнение': isTermination ? 'ДА' : 'Нет', // НОВОЕ
+            'Увольнение': isTermination ? 'ДА' : 'Нет',
             'Остаток (на карту)': cardRemainder,
             'Зарплата (наличными)': cashAmount,
             'ИТОГО к выплате': totalAfterDeductions,
@@ -543,7 +657,7 @@ function exportMonthlyReportToExcel() {
         };
         
         exportData.push(rowData);
-    });
+    }
 
     // Проверяем, что есть данные для экспорта
     if (exportData.length === 0) {
@@ -560,7 +674,7 @@ function exportMonthlyReportToExcel() {
     // Настраиваем ширину колонок
     ws['!cols'] = [
         { wch: 25 }, // Сотрудник
-        { wch: 10 }, // Статус (НОВОЕ)
+        { wch: 10 }, // Статус
         { wch: 20 }, // Магазин
         { wch: 15 }, // Месяц
         { wch: 12 }, // База
@@ -570,31 +684,31 @@ function exportMonthlyReportToExcel() {
         { wch: 14 }, // Депремирование
         { wch: 20 }, // Причина депремирования
         { wch: 14 }, // Вычет за недостачу
+        { wch: 30 }, // Детали недостачи (НОВОЕ)
         { wch: 12 }, // Всего вычетов
         { wch: 18 }, // К выплате после вычетов
-        { wch: 25 }, // Тип выплаты (НОВОЕ)
+        { wch: 25 }, // Тип выплаты
         { wch: 14 }, // Аванс на карту
         { wch: 14 }, // Аванс наличные
         { wch: 18 }, // Способ выплаты
         { wch: 14 }, // Ручная корректировка
-        { wch: 10 }, // Увольнение (НОВОЕ)
+        { wch: 10 }, // Увольнение
         { wch: 14 }, // Остаток на карту
         { wch: 15 }, // Наличными
         { wch: 15 }, // ИТОГО к выплате
         { wch: 20 }  // Рабочие дни
     ];
     
-    // НОВОЕ: Применяем условное форматирование для уволенных (подсветка строк)
+    // Применяем условное форматирование для уволенных
     const range = XLSX.utils.decode_range(ws['!ref']);
-    for (let R = range.s.r + 1; R <= range.e.r; ++R) { // Начинаем с 1, чтобы пропустить заголовок
-        const statusCell = ws[XLSX.utils.encode_cell({r: R, c: 1})]; // Колонка "Статус"
+    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+        const statusCell = ws[XLSX.utils.encode_cell({r: R, c: 1})];
         if (statusCell && statusCell.v === 'УВОЛЕН') {
-            // Применяем стиль ко всей строке
             for (let C = range.s.c; C <= range.e.c; ++C) {
                 const cell_address = XLSX.utils.encode_cell({r: R, c: C});
                 if (ws[cell_address]) {
                     ws[cell_address].s = {
-                        fill: { fgColor: { rgb: "FFE6E6" } }, // Светло-красный фон
+                        fill: { fgColor: { rgb: "FFE6E6" } },
                         font: { bold: true }
                     };
                 }
@@ -604,15 +718,15 @@ function exportMonthlyReportToExcel() {
     
     XLSX.utils.book_append_sheet(wb, ws, "Детальный отчет");
     
-    // ЛИСТ 2: Сводка по выплатам (с учетом увольнений)
+    // ЛИСТ 2: Сводка по выплатам
     const paymentSummary = [];
     let totalAdvanceCard = 0;
     let totalAdvanceCash = 0;
     let totalCardRemainder = 0;
     let totalCash = 0;
     let totalCardPayments = 0;
-    let terminatedCount = 0; // НОВОЕ
-    let terminatedAmount = 0; // НОВОЕ
+    let terminatedCount = 0;
+    let terminatedAmount = 0;
     
     exportData.forEach(row => {
         totalAdvanceCard += row['Аванс (на карту)'];
@@ -621,7 +735,7 @@ function exportMonthlyReportToExcel() {
         totalCash += row['Зарплата (наличными)'];
         totalCardPayments = totalAdvanceCard + totalCardRemainder;
         
-        if (row['Увольнение'] === 'ДА') { // НОВОЕ
+        if (row['Увольнение'] === 'ДА') {
             terminatedCount++;
             terminatedAmount += row['ИТОГО к выплате'];
         }
@@ -632,17 +746,23 @@ function exportMonthlyReportToExcel() {
     paymentSummary.push(
         { 'Показатель': 'Период', 'Значение': `${monthNames[month - 1]} ${year}` },
         { 'Показатель': 'Всего сотрудников', 'Значение': exportData.length },
-        { 'Показатель': 'Из них УВОЛЕНО', 'Значение': terminatedCount }, // НОВОЕ
-        { 'Показатель': 'Сумма выплат уволенным', 'Значение': terminatedAmount.toFixed(2) + ' грн' }, // НОВОЕ
+        { 'Показатель': 'Из них УВОЛЕНО', 'Значение': terminatedCount },
+        { 'Показатель': 'Сумма выплат уволенным', 'Значение': terminatedAmount.toFixed(2) + ' грн' },
         { 'Показатель': '═══════════════════════', 'Значение': '═══════════════════════' },
-        // ... остальные показатели
+        { 'Показатель': 'Аванс на карту (всего)', 'Значение': totalAdvanceCard.toFixed(2) + ' грн' },
+        { 'Показатель': 'Аванс наличными (всего)', 'Значение': totalAdvanceCash.toFixed(2) + ' грн' },
+        { 'Показатель': 'Остаток на карту (всего)', 'Значение': totalCardRemainder.toFixed(2) + ' грн' },
+        { 'Показатель': 'Зарплата наличными (всего)', 'Значение': totalCash.toFixed(2) + ' грн' },
+        { 'Показатель': '═══════════════════════', 'Значение': '═══════════════════════' },
+        { 'Показатель': 'ИТОГО на карты', 'Значение': totalCardPayments.toFixed(2) + ' грн' },
+        { 'Показатель': 'ИТОГО наличными', 'Значение': (totalAdvanceCash + totalCash).toFixed(2) + ' грн' }
     );
     
     const ws2 = XLSX.utils.json_to_sheet(paymentSummary);
     ws2['!cols'] = [{ wch: 45 }, { wch: 25 }];
     XLSX.utils.book_append_sheet(wb, ws2, "Сводка по выплатам");
     
-    // НОВОЕ: ЛИСТ 3 - Отдельный список уволенных
+    // ЛИСТ 3: Отдельный список уволенных
     const terminatedEmployees = exportData.filter(row => row['Увольнение'] === 'ДА');
     if (terminatedEmployees.length > 0) {
         const terminatedData = terminatedEmployees.map(row => ({
@@ -671,6 +791,7 @@ function exportMonthlyReportToExcel() {
     
     showStatus('reportStatus', `✅ Экспорт выполнен: ${fileName}`, 'success');
 }
+
 
 async function uploadRevenueFile() {
             const fileInput = document.getElementById('revenueFile');
@@ -2862,7 +2983,7 @@ async function fixManualAdvances() {
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
     }
 
-    function printAllPayslips() {
+    async function printAllPayslips() {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
     if (tableRows.length === 0) { 
         return showStatus('reportStatus', 'Нет данных для печати', 'error'); 
@@ -2873,9 +2994,32 @@ async function fixManualAdvances() {
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
                         "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
     
+    // Функция для получения деталей недостач
+    async function getShortageDetailsForPrint(employeeId, month, year) {
+        try {
+            const response = await fetch(
+                `${API_BASE}/get-shortages?employee_id=${employeeId}&year=${year}&month=${month}`,
+                { credentials: 'include' }
+            );
+            const result = await response.json();
+            
+            if (result.shortages && result.shortages.length > 0) {
+                return result.shortages
+                    .map(s => `${s.description || ''} - ${formatNumber(s.amount)} грн`)
+                    .join('<br>');
+            }
+            return '';
+        } catch (error) {
+            console.error('Ошибка получения деталей недостач:', error);
+            return '';
+        }
+    }
+    
     let allPayslipsHTML = '';
     
-    tableRows.forEach(row => {
+    // Собираем все данные включая недостачи
+    for (const row of tableRows) {
+        const employeeId = row.dataset.employeeId;
         const employeeName = row.dataset.employeeName;
         const storeAddress = row.dataset.storeAddress;
         const basePay = parseFloat(row.dataset.basePay) || 0;
@@ -2884,6 +3028,10 @@ async function fixManualAdvances() {
         const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
         const bonus_reason = row.querySelector('[name="bonus_reason"]')?.value || '';
         const penalty_reason = row.querySelector('[name="penalty_reason"]')?.value || '';
+        
+        // Получаем детали недостач
+        const shortageDetails = shortage > 0 ? await getShortageDetailsForPrint(employeeId, month, year) : '';
+        
         const totalGross = basePay + manualBonus;
         const totalDeductions = penalty + shortage;
         const totalToPay = totalGross - totalDeductions;
@@ -2917,7 +3065,10 @@ async function fixManualAdvances() {
             <h4 style="margin: 10px 0 5px 0;">Удержания:</h4>
             <table>
                 ${penalty > 0 ? `<tr><td>Депремирование${penalty_reason ? ` (${penalty_reason})` : ''}:</td><td align="right" style="color: red;">-${formatNumber(penalty)} грн</td></tr>` : ''}
-                ${shortage > 0 ? `<tr><td>Вычет за недостачу:</td><td align="right" style="color: red;">-${formatNumber(shortage)} грн</td></tr>` : ''}
+                ${shortage > 0 ? `
+                    <tr><td>Вычет за недостачу:</td><td align="right" style="color: red;">-${formatNumber(shortage)} грн</td></tr>
+                    ${shortageDetails ? `<tr><td colspan="2" style="padding-left: 20px; font-size: 9pt; color: #666;"><em>Детали: ${shortageDetails}</em></td></tr>` : ''}
+                ` : ''}
                 <tr style="font-weight: bold;"><td>ВСЕГО УДЕРЖАНО:</td><td align="right" style="color: red;">-${formatNumber(totalDeductions)} грн</td></tr>
             </table>
             ` : ''}
@@ -2939,7 +3090,7 @@ async function fixManualAdvances() {
             <p style="margin-top: 20px;">С расчетом ознакомлен(а): _________________________</p>
             <p style="font-size: 9pt; margin-top: 5px;">Дата: _______________ Подпись: _______________</p>
         </div>`;
-    });
+    }
     
     // Создаем окно предпросмотра
     const printWindow = window.open('', '_blank');
@@ -3044,6 +3195,7 @@ async function fixManualAdvances() {
     `);
     printWindow.document.close();
 }
+
 
 // ========== ФУНКЦИИ ДЛЯ ВКЛАДКИ "ФОНД ОПЛАТЫ ТРУДА" ==========
 
@@ -3748,4 +3900,26 @@ function closeAdjustmentModal() {
 
 function cancelNewEmployeesDialog() {
     closeModalSafely('newEmployeesModal');
+}
+
+// Функция для получения деталей недостач
+async function getShortageDetails(employeeId, month, year) {
+    try {
+        const response = await fetch(
+            `${API_BASE}/get-shortages?employee_id=${employeeId}&year=${year}&month=${month}`,
+            { credentials: 'include' }
+        );
+        const result = await response.json();
+        
+        if (result.shortages && result.shortages.length > 0) {
+            // Форматируем все недостачи в одну строку
+            return result.shortages
+                .map(s => `${s.description || 'Недостача'} (${formatNumber(s.amount)} грн)`)
+                .join('; ');
+        }
+        return '';
+    } catch (error) {
+        console.error('Ошибка получения деталей недостач:', error);
+        return '';
+    }
 }
