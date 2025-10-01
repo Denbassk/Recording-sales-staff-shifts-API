@@ -724,7 +724,7 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
     }
 });
 
-// --- НОВЫЙ ЭНДПОИНТ: Фиксация выплаты аванса ---
+// ЗАМЕНИТЕ функцию app.post('/fix-advance-payment'...) примерно на строке 1850
 app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, advanceEndDate, paymentDate } = req.body;
     
@@ -732,8 +732,50 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
         return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
     }
     
+    // НОВОЕ: Блокировка для предотвращения race conditions
+    const lockKey = `fix_advance_${year}_${month}`;
+    if (operationLocks.get(lockKey)) {
+        return res.status(409).json({ 
+            success: false, 
+            error: 'Операция уже выполняется. Подождите.' 
+        });
+    }
+    operationLocks.set(lockKey, true);
+    
     try {
         const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        
+        // НОВОЕ: Создаем резервную копию ПЕРЕД любыми изменениями
+        const { data: backupData } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year);
+        
+        if (backupData && backupData.length > 0) {
+            await supabase
+                .from('final_payroll_calculations_backup')
+                .insert(backupData.map(row => ({
+                    ...row,
+                    backup_date: new Date().toISOString(),
+                    backup_reason: 'before_fix_advance'
+                })));
+        }
+        
+        // ВАЖНО: Сохраняем существующие ручные корректировки
+        const { data: existingManualAdjustments } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year)
+            .eq('is_manual_adjustment', true);
+        
+        const manualAdjustmentsMap = new Map();
+        if (existingManualAdjustments) {
+            existingManualAdjustments.forEach(adj => {
+                manualAdjustmentsMap.set(adj.employee_id, adj);
+            });
+        }
         
         // Получаем текущие расчеты аванса
         const { data: calculations, error: calcError } = await supabase
@@ -769,18 +811,9 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
             });
         }
         
-        // Получаем ручные корректировки если есть (включая увольнения)
-        const { data: manualAdjustments } = await supabase
-            .from('final_payroll_calculations')
-            .select('employee_id, advance_payment, advance_card, advance_cash, advance_payment_method, is_termination')
-            .eq('month', month)
-            .eq('year', year)
-            .eq('is_manual_adjustment', true);
-        
-        const manualMap = new Map(manualAdjustments?.map(m => [m.employee_id, m]) || []);
-        
         // Подготавливаем данные для сохранения
         const paymentsToInsert = [];
+        const finalCalculationsToUpdate = [];
         let totalAmount = 0;
         let employeesCount = 0;
         
@@ -790,24 +823,29 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
             let advanceCash = 0;
             let paymentMethod = 'card';
             let isTermination = false;
+            let isManual = false;
+            let adjustmentReason = '';
             
-            // Проверяем ручные корректировки
-            if (manualMap.has(employeeId)) {
-                const manual = manualMap.get(employeeId);
+            // ВАЖНО: Проверяем и сохраняем ручные корректировки
+            if (manualAdjustmentsMap.has(employeeId)) {
+                const manual = manualAdjustmentsMap.get(employeeId);
                 advanceAmount = manual.advance_payment || 0;
                 advanceCard = manual.advance_card || 0;
                 advanceCash = manual.advance_cash || 0;
                 paymentMethod = manual.advance_payment_method || 'card';
                 isTermination = manual.is_termination || false;
+                isManual = true;
+                adjustmentReason = manual.adjustment_reason || '';
             } else {
                 // Автоматический расчет
                 let calculatedAdvance = totalEarned * 0.9;
                 let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
                 advanceAmount = Math.min(roundedAdvance, 7900);
-                advanceCard = advanceAmount; // По умолчанию на карту
+                advanceCard = advanceAmount;
             }
             
-            if (advanceAmount > 0) {
+            if (advanceAmount > 0 || isManual) {
+                // Добавляем в payroll_payments
                 paymentsToInsert.push({
                     employee_id: employeeId,
                     payment_type: 'advance',
@@ -823,41 +861,96 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
                     is_cancelled: false
                 });
                 
+                // Обновляем final_payroll_calculations
+                finalCalculationsToUpdate.push({
+                    employee_id: employeeId,
+                    month: parseInt(month),
+                    year: parseInt(year),
+                    advance_payment: advanceAmount,
+                    advance_card: advanceCard,
+                    advance_cash: advanceCash,
+                    advance_payment_method: paymentMethod,
+                    is_fixed: true,
+                    is_manual_adjustment: isManual,
+                    is_termination: isTermination,
+                    adjustment_reason: adjustmentReason,
+                    fixed_at: new Date().toISOString(),
+                    fixed_by: req.user.id
+                });
+                
                 totalAmount += advanceAmount;
                 employeesCount++;
             }
         }
         
-        // Сохраняем в базу
+        // Сохраняем в базу с транзакцией
         if (paymentsToInsert.length > 0) {
+            // Вставляем в payroll_payments
             const { error: insertError } = await supabase
                 .from('payroll_payments')
                 .insert(paymentsToInsert);
             
             if (insertError) throw insertError;
+            
+            // Обновляем final_payroll_calculations
+            for (const update of finalCalculationsToUpdate) {
+                const { error: updateError } = await supabase
+                    .from('final_payroll_calculations')
+                    .upsert(update, { 
+                        onConflict: 'employee_id,month,year',
+                        ignoreDuplicates: false 
+                    });
+                
+                if (updateError) {
+                    console.error(`Ошибка обновления для ${update.employee_id}:`, updateError);
+                }
+            }
         }
         
         await logFinancialOperation('fix_advance_payment', {
             year, month, advanceEndDate, paymentDate,
-            employeesCount, totalAmount
+            employeesCount, totalAmount,
+            manualAdjustmentsPreserved: manualAdjustmentsMap.size
         }, req.user.id);
         
         res.json({
             success: true,
-            message: `Аванс зафиксирован для ${employeesCount} сотрудников`,
+            message: `Аванс зафиксирован для ${employeesCount} сотрудников. Ручные корректировки сохранены: ${manualAdjustmentsMap.size}`,
             employeesCount,
-            totalAmount
+            totalAmount,
+            manualAdjustmentsPreserved: manualAdjustmentsMap.size
         });
         
     } catch (error) {
         console.error('Ошибка фиксации аванса:', error);
+        
+        // НОВОЕ: Попытка восстановления из резервной копии при ошибке
+        try {
+            const { data: backup } = await supabase
+                .from('final_payroll_calculations_backup')
+                .select('*')
+                .eq('month', month)
+                .eq('year', year)
+                .eq('backup_reason', 'before_fix_advance')
+                .order('backup_date', { ascending: false })
+                .limit(1);
+            
+            if (backup && backup.length > 0) {
+                console.log('Пытаемся восстановить из резервной копии...');
+                // Здесь можно добавить автоматическое восстановление
+            }
+        } catch (backupError) {
+            console.error('Ошибка при попытке восстановления:', backupError);
+        }
+        
         res.status(500).json({ success: false, error: error.message });
+    } finally {
+        operationLocks.delete(lockKey);
     }
 });
 
 
-// --- НОВЫЙ ЭНДПОИНТ: Отмена зафиксированного аванса ---
-// Обновленная функция отмены фиксации аванса в server.cjs (с обнулением)
+// --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ОТМЕНЫ ФИКСАЦИИ АВАНСА ---
 app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, cancellationReason } = req.body;
     
@@ -866,7 +959,46 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
     }
 
     try {
-        // 1. Получаем список зафиксированных авансов
+        // НОВОЕ: Создаем резервную копию перед отменой
+        const { data: currentData } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year);
+        
+        if (currentData && currentData.length > 0) {
+            // Проверяем существование таблицы backup
+            const { error: tableCheckError } = await supabase
+                .from('final_payroll_calculations_backup')
+                .select('id')
+                .limit(1);
+            
+            // Если таблица существует, сохраняем backup
+            if (!tableCheckError || tableCheckError.code !== '42P01') {
+                const backupData = currentData.map(row => {
+                    // Удаляем id чтобы избежать конфликтов
+                    const { id, ...rowWithoutId } = row;
+                    return {
+                        ...rowWithoutId,
+                        original_id: id,
+                        backup_date: new Date().toISOString(),
+                        backup_reason: 'before_cancel_advance',
+                        backup_by: req.user.id
+                    };
+                });
+                
+                const { error: backupError } = await supabase
+                    .from('final_payroll_calculations_backup')
+                    .insert(backupData);
+                
+                if (backupError) {
+                    console.error('Ошибка создания резервной копии:', backupError);
+                    // Продолжаем выполнение даже если backup не удался
+                }
+            }
+        }
+        
+        // Получаем список зафиксированных авансов
         const { data: advances, error: fetchError } = await supabase
             .from('payroll_payments')
             .select('id, employee_id')
@@ -884,7 +1016,7 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
             });
         }
 
-        // 2. Отмечаем все авансы как отмененные в payroll_payments
+        // Отмечаем все авансы как отмененные в payroll_payments
         const { error: updateError } = await supabase
             .from('payroll_payments')
             .update({
@@ -900,55 +1032,52 @@ app.post('/cancel-advance-payment', checkAuth, canManagePayroll, async (req, res
         
         if (updateError) throw updateError;
 
-        // 3. ОБНУЛЯЕМ финальные расчеты (вместо удаления)
+        // ВАЖНО: НЕ обнуляем данные, а только снимаем флаг фиксации
         const employeeIds = advances.map(a => a.employee_id);
-        let finalCalcsReset = 0;
         
-        // Проверяем существование таблицы
-        const { data: tableExists } = await supabase
+        // Проверяем наличие полей fixed_at и fixed_by в таблице
+        const { data: testRow } = await supabase
             .from('final_payroll_calculations')
-            .select('id')
-            .limit(1);
+            .select('*')
+            .limit(1)
+            .single();
         
-        if (tableExists !== null) {
-            // Обнуляем поля в финальных расчетах
-            const { data: resetData, error: resetError } = await supabase
-                .from('final_payroll_calculations')
-                .update({
-                    advance_payment: 0,
-                    card_remainder: 0,
-                    cash_payout: 0,
-                    total_card_payment: 0,
-                    // Оставляем total_gross, total_deductions и total_after_deductions
-                    // чтобы сохранить информацию о базовых начислениях
-                    updated_at: new Date().toISOString()
-                })
-                .eq('month', month)
-                .eq('year', year)
-                .in('employee_id', employeeIds)
-                .select('id');
-            
-            if (resetError) {
-                console.error('Ошибка обнуления финальных расчетов:', resetError);
-            } else {
-                finalCalcsReset = resetData ? resetData.length : 0;
-                console.log(`Обнулено ${finalCalcsReset} финальных расчетов`);
-            }
+        let updateData = {
+            is_fixed: false,
+            updated_at: new Date().toISOString()
+        };
+        
+        // Добавляем поля только если они существуют в таблице
+        if (testRow && 'fixed_at' in testRow) {
+            updateData.fixed_at = null;
+        }
+        if (testRow && 'fixed_by' in testRow) {
+            updateData.fixed_by = null;
+        }
+        
+        const { error: unfixError } = await supabase
+            .from('final_payroll_calculations')
+            .update(updateData)
+            .eq('month', month)
+            .eq('year', year)
+            .in('employee_id', employeeIds);
+        
+        if (unfixError) {
+            console.error('Ошибка снятия фиксации:', unfixError);
+            // Не прерываем выполнение, продолжаем
         }
 
         await logFinancialOperation('cancel_advance_payment', {
             year, 
             month, 
             cancellationReason,
-            cancelledCount: advances.length,
-            finalCalcsReset: finalCalcsReset
+            cancelledCount: advances.length
         }, req.user.id);
 
         res.json({ 
             success: true, 
-            message: `Фиксация аванса за ${month}/${year} успешно отменена. Обнулено расчетов: ${finalCalcsReset}`,
-            cancelledCount: advances.length,
-            finalCalcsReset: finalCalcsReset
+            message: `Фиксация аванса за ${month}/${year} успешно отменена. Данные сохранены.`,
+            cancelledCount: advances.length
         });
 
     } catch (error) {
@@ -1931,4 +2060,193 @@ process.on('SIGINT', () => {
     console.log('HTTP server closed');
     process.exit(0);
   });
+});
+
+// Создание резервной копии
+app.post('/backup-payroll-state', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month } = req.body;
+    
+    try {
+        // Создаем резервную копию в новой таблице
+        const { error: createError } = await supabase.rpc('backup_payroll_data', {
+            p_year: year,
+            p_month: month
+        });
+        
+        if (createError) throw createError;
+        
+        res.json({ success: true, message: 'Резервная копия создана' });
+    } catch (error) {
+        console.error('Ошибка создания резервной копии:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Восстановление из резервной копии
+app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month } = req.body;
+    
+    try {
+        // Восстанавливаем из резервной копии
+        const { error: restoreError } = await supabase.rpc('restore_payroll_data', {
+            p_year: year,
+            p_month: month
+        });
+        
+        if (restoreError) throw restoreError;
+        
+        res.json({ success: true, message: 'Данные восстановлены из резервной копии' });
+    } catch (error) {
+        console.error('Ошибка восстановления:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Автосохранение состояния таблицы
+app.post('/autosave-table-state', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, tableData } = req.body;
+    
+    try {
+        // Сохраняем снимок состояния
+        const { error } = await supabase
+            .from('table_state_snapshots')
+            .insert({
+                year: year,
+                month: month,
+                snapshot_data: tableData,
+                created_by: req.user.id,
+                created_at: new Date().toISOString()
+            });
+        
+        if (error) throw error;
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Ошибка автосохранения:', error);
+        res.status(500).json({ success: false });
+    }
+});
+
+// НОВАЯ ФУНКЦИЯ: Создание резервной копии перед критическими операциями
+app.post('/create-backup', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, reason } = req.body;
+    
+    try {
+        // Получаем текущие данные
+        const { data: currentData, error: fetchError } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year);
+        
+        if (fetchError) throw fetchError;
+        
+        if (!currentData || currentData.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Нет данных для резервного копирования' 
+            });
+        }
+        
+        // Сохраняем в таблицу резервных копий
+        const backupData = currentData.map(row => ({
+            ...row,
+            original_id: row.id,
+            backup_date: new Date().toISOString(),
+            backup_reason: reason || 'manual_backup',
+            backup_by: req.user.id
+        }));
+        
+        const { error: insertError } = await supabase
+            .from('final_payroll_calculations_backup')
+            .insert(backupData);
+        
+        if (insertError) throw insertError;
+        
+        await logFinancialOperation('create_backup', {
+            year, month, reason,
+            recordsCount: backupData.length
+        }, req.user.id);
+        
+        res.json({
+            success: true,
+            message: `Резервная копия создана: ${backupData.length} записей`,
+            backupId: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Ошибка создания резервной копии:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// НОВАЯ ФУНКЦИЯ: Восстановление из резервной копии
+app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, backupDate } = req.body;
+    
+    try {
+        // Получаем данные из резервной копии
+        const { data: backupData, error: fetchError } = await supabase
+            .from('final_payroll_calculations_backup')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year)
+            .eq('backup_date', backupDate);
+        
+        if (fetchError) throw fetchError;
+        
+        if (!backupData || backupData.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Резервная копия не найдена' 
+            });
+        }
+        
+        // Сначала создаем копию текущего состояния
+        const { data: currentData } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year);
+        
+        if (currentData && currentData.length > 0) {
+            await supabase
+                .from('final_payroll_calculations_backup')
+                .insert(currentData.map(row => ({
+                    ...row,
+                    backup_date: new Date().toISOString(),
+                    backup_reason: 'before_restore',
+                    backup_by: req.user.id
+                })));
+        }
+        
+        // Восстанавливаем данные
+        for (const record of backupData) {
+            const { original_id, backup_date, backup_reason, backup_by, ...dataToRestore } = record;
+            
+            const { error: upsertError } = await supabase
+                .from('final_payroll_calculations')
+                .upsert(dataToRestore, { 
+                    onConflict: 'employee_id,month,year' 
+                });
+            
+            if (upsertError) {
+                console.error(`Ошибка восстановления записи:`, upsertError);
+            }
+        }
+        
+        await logFinancialOperation('restore_from_backup', {
+            year, month, backupDate,
+            recordsRestored: backupData.length
+        }, req.user.id);
+        
+        res.json({
+            success: true,
+            message: `Восстановлено ${backupData.length} записей из резервной копии от ${backupDate}`
+        });
+        
+    } catch (error) {
+        console.error('Ошибка восстановления:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });

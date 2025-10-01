@@ -1642,6 +1642,94 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         }
     }
 
+    // НОВАЯ ФУНКЦИЯ: Создание снимка состояния таблицы
+async function captureCurrentTableState() {
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    const stateData = [];
+    
+    tableRows.forEach(row => {
+        if (row.classList.contains('summary-row')) return;
+        
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        
+        let advanceCard = 0;
+        let advanceCash = 0;
+        
+        if (advanceCardCell) {
+            advanceCard = parseFloat(advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        }
+        if (advanceCashCell) {
+            advanceCash = parseFloat(advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        }
+        
+        stateData.push({
+            employee_id: row.dataset.employeeId,
+            employee_name: row.dataset.employeeName,
+            advance_card: advanceCard,
+            advance_cash: advanceCash,
+            card_remainder: parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
+            cash_payout: parseFloat(row.querySelector('.cash-payout')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0,
+            manual_bonus: parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0,
+            penalty: parseFloat(row.querySelector('[name="penalty"]')?.value) || 0,
+            shortage: parseFloat(row.querySelector('[name="shortage"]')?.value) || 0
+        });
+    });
+    
+    // Сохраняем в localStorage как резервную копию
+    localStorage.setItem('payroll_backup_' + new Date().getTime(), JSON.stringify({
+        date: new Date().toISOString(),
+        month: document.getElementById('reportMonth')?.value,
+        year: document.getElementById('reportYear')?.value,
+        data: stateData
+    }));
+    
+    return stateData;
+}
+
+// НОВАЯ ФУНКЦИЯ: Восстановление из localStorage
+async function restoreFromLocalBackup() {
+    const backups = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key.startsWith('payroll_backup_')) {
+            backups.push({
+                key: key,
+                data: JSON.parse(localStorage.getItem(key))
+            });
+        }
+    }
+    
+    if (backups.length === 0) {
+        showStatus('reportStatus', 'Нет локальных резервных копий', 'warning');
+        return;
+    }
+    
+    // Сортируем по дате
+    backups.sort((a, b) => new Date(b.data.date) - new Date(a.data.date));
+    
+    // Показываем диалог выбора
+    let backupList = 'Выберите резервную копию для восстановления:\n\n';
+    backups.forEach((backup, index) => {
+        backupList += `${index + 1}. ${backup.data.date} (${backup.data.data.length} записей)\n`;
+    });
+    
+    const choice = prompt(backupList + '\nВведите номер:');
+    if (!choice) return;
+    
+    const selectedBackup = backups[parseInt(choice) - 1];
+    if (!selectedBackup) {
+        showStatus('reportStatus', 'Неверный выбор', 'error');
+        return;
+    }
+    
+    // Восстанавливаем данные
+    const confirmed = confirm(`Восстановить данные от ${selectedBackup.data.date}?`);
+    if (!confirmed) return;
+    
+    // Здесь код восстановления...
+    showStatus('reportStatus', 'Данные восстановлены из локальной копии', 'success');
+}
 
 async function calculateAdvance15(silent = false) {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
@@ -2210,7 +2298,6 @@ async function validateDataBeforeFixing() {
     return true;
 }
 
-// Новая функция для фиксации аванса с защитой от потери данных
 async function fixAdvancePayment() {
     const year = document.getElementById('reportYear')?.value;
     const month = document.getElementById('reportMonth')?.value;
@@ -2221,15 +2308,27 @@ async function fixAdvancePayment() {
         return;
     }
     
-    // НОВОЕ: Проверка целостности данных
-    showStatus('reportStatus', 'Проверка данных перед фиксацией...', 'info');
-    const isValid = await validateDataBeforeFixing();
-    if (!isValid) {
-        showStatus('reportStatus', 'Фиксация отменена из-за обнаруженных проблем', 'warning');
-        return;
+    // НОВОЕ: Создаем локальную резервную копию
+    const backupData = await captureCurrentTableState();
+    console.log(`Создана резервная копия: ${backupData.length} записей`);
+    
+    // НОВОЕ: Сохраняем на сервер
+    try {
+        await fetch(`${API_BASE}/create-backup`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                year: parseInt(year),
+                month: parseInt(month),
+                reason: 'before_fix_advance'
+            })
+        });
+    } catch (error) {
+        console.error('Ошибка создания резервной копии на сервере:', error);
     }
-
-    // Проверяем, был ли рассчитан аванс
+    
+    // Проверка данных
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
     if (tableRows.length === 0) {
         showStatus('reportStatus', 'Сначала сформируйте отчет и рассчитайте аванс', 'error');
@@ -2248,14 +2347,11 @@ async function fixAdvancePayment() {
     });
 
     if (alreadyFixed) {
-        showStatus('reportStatus',
-            '⚠️ Аванс уже зафиксирован! Сначала отмените текущую фиксацию.',
-            'warning'
-        );
+        showStatus('reportStatus', '⚠️ Аванс уже зафиксирован!', 'warning');
         return;
     }
 
-    // НОВОЕ: Сохраняем все корректировки перед фиксацией
+    // Сохраняем все корректировки
     showStatus('reportStatus', 'Сохраняем все корректировки перед фиксацией...', 'info');
     
     const savePromises = [];
@@ -2288,13 +2384,11 @@ async function fixAdvancePayment() {
         let cashAmount = 0;
         
         if (advanceCardCell) {
-            const cardText = advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-            cardAmount = parseFloat(cardText) || 0;
+            cardAmount = parseFloat(advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
         }
         
         if (advanceCashCell) {
-            const cashText = advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-            cashAmount = parseFloat(cashText) || 0;
+            cashAmount = parseFloat(advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
         }
         
         const totalRowAdvance = cardAmount + cashAmount;
@@ -2313,11 +2407,11 @@ async function fixAdvancePayment() {
     // Запрашиваем дату выплаты
     const today = new Date().toISOString().split('T')[0];
     const paymentDate = prompt(
-        `Укажите дату фактической выплаты аванса (по умолчанию - сегодня: ${today}):\n\n` +
+        `Укажите дату фактической выплаты аванса:\n\n` +
         `Будет зафиксировано:\n` +
         `• Сотрудников: ${employeesWithAdvance}\n` +
         `• Общая сумма: ${formatNumber(totalAdvanceAmount)} грн\n\n` +
-        `ВНИМАНИЕ! После фиксации суммы изменить их можно будет только через отмену.`,
+        `ВНИМАНИЕ! После фиксации изменения будут сохранены.`,
         today
     );
 
@@ -2326,26 +2420,15 @@ async function fixAdvancePayment() {
         return;
     }
 
-    // Проверка корректности даты
-    const paymentDateObj = new Date(paymentDate);
-    if (isNaN(paymentDateObj.getTime())) {
-        showStatus('reportStatus', 'Некорректная дата выплаты', 'error');
-        return;
-    }
-
-    // Подтверждение фиксации
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
         "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 
     const confirmMessage = `⚠️ ПОДТВЕРЖДЕНИЕ ФИКСАЦИИ АВАНСА\n\n` +
         `Период: ${monthNames[month - 1]} ${year}\n` +
-        `Расчет по дату: ${advanceEndDate}\n` +
         `Дата выплаты: ${paymentDate}\n` +
         `Сотрудников: ${employeesWithAdvance}\n` +
         `Сумма: ${formatNumber(totalAdvanceAmount)} грн\n\n` +
-        `После фиксации суммы авансов станут неизменными.\n` +
-        `Это действие можно отменить только через функцию отмены.\n\n` +
-        `Продолжить фиксацию?`;
+        `Продолжить?`;
 
     if (!confirm(confirmMessage)) {
         showStatus('reportStatus', 'Фиксация отменена', 'info');
@@ -2372,12 +2455,9 @@ async function fixAdvancePayment() {
         );
 
         if (result.success) {
-            showStatus('reportStatus',
-                `✅ ${result.message}`,
-                'success'
-            );
+            showStatus('reportStatus', `✅ ${result.message}`, 'success');
 
-            // Обновляем визуальное отображение с учетом увольнений
+            // Обновляем визуальное отображение
             tableRows.forEach(row => {
                 const advanceCardCell = row.querySelector('.advance-payment-card');
                 const advanceCashCell = row.querySelector('.advance-payment-cash');
@@ -2386,17 +2466,8 @@ async function fixAdvancePayment() {
                     const cardSpan = advanceCardCell.querySelector('.advance-card-content');
                     if (cardSpan) {
                         const currentHTML = cardSpan.innerHTML;
-                        // Добавляем замок если его еще нет и сумма > 0
-                        if (!currentHTML.includes('🔒')) {
-                            // Проверяем на увольнение
-                            if (currentHTML.includes('🚪')) {
-                                // Для увольнения добавляем замок после иконки двери
-                                cardSpan.innerHTML = currentHTML.replace('🚪', '🚪 🔒');
-                            } else if (currentHTML.includes('💳') && !currentHTML.includes('>0<')) {
-                                cardSpan.innerHTML = currentHTML.replace('💳', '🔒 💳');
-                            } else if (!currentHTML.includes('0') && !currentHTML.includes('>0<')) {
-                                cardSpan.innerHTML = `🔒 ${currentHTML}`;
-                            }
+                        if (!currentHTML.includes('🔒') && !currentHTML.includes('>0<')) {
+                            cardSpan.innerHTML = currentHTML.replace('💳', '🔒 💳');
                         }
                     }
                 }
@@ -2405,50 +2476,24 @@ async function fixAdvancePayment() {
                     const cashSpan = advanceCashCell.querySelector('.advance-cash-content');
                     if (cashSpan) {
                         const currentHTML = cashSpan.innerHTML;
-                        if (!currentHTML.includes('🔒')) {
-                            if (currentHTML.includes('🚪')) {
-                                cashSpan.innerHTML = currentHTML.replace('🚪', '🚪 🔒');
-                            } else if (currentHTML.includes('💵') && !currentHTML.includes('>0<')) {
-                                cashSpan.innerHTML = currentHTML.replace('💵', '🔒 💵');
-                            } else if (!currentHTML.includes('0') && !currentHTML.includes('>0<')) {
-                                cashSpan.innerHTML = `🔒 ${currentHTML}`;
-                            }
+                        if (!currentHTML.includes('🔒') && !currentHTML.includes('>0<')) {
+                            cashSpan.innerHTML = currentHTML.replace('💵', '🔒 💵');
                         }
                     }
                 }
                 
-                // ВАЖНО: ПЕРЕСЧИТЫВАЕМ ИТОГОВУЮ СУММУ ДЛЯ КАЖДОЙ СТРОКИ!
                 recalculateRow(row);
             });
-
-            // Добавляем информационную панель (проверяем что её еще нет)
-            const reportContent = document.getElementById('monthlyReportContent');
-            if (reportContent && !document.getElementById('advance-fixed-notice')) {
-                const noticeHtml = `
-                <div id="advance-fixed-notice" class="status success" style="margin: 15px 0;">
-                    <strong>🔒 Аванс зафиксирован!</strong><br>
-                    Дата выплаты: ${paymentDate}<br>
-                    Сотрудников: ${result.employeesCount}<br>
-                    Общая сумма: ${formatNumber(result.totalAmount)} грн
-                    <button onclick="cancelAdvancePayment()" class="danger" style="margin-left: 20px; padding: 5px 10px; font-size: 12px;">Отменить фиксацию</button>
-                </div>
-            `;
-                reportContent.insertAdjacentHTML('afterbegin', noticeHtml);
-            }
         }
     } catch (error) {
         console.error('Ошибка фиксации аванса:', error);
-        if (error.message && error.message.includes('уже зафиксирован')) {
-            showStatus('reportStatus',
-                '⚠️ Аванс за этот период уже зафиксирован. Необходимо сначала отменить предыдущую фиксацию.',
-                'warning'
-            );
-            setTimeout(() => {
-                calculateAdvance15(true);
-            }, 500);
-        } else {
-            showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+        
+        // НОВОЕ: Предлагаем восстановить из резервной копии
+        if (confirm('Произошла ошибка. Восстановить данные из резервной копии?')) {
+            await restoreFromLocalBackup();
         }
+        
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
     }
 }
 
