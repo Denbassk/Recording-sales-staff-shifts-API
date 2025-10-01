@@ -2957,7 +2957,28 @@ async function fixManualAdvances() {
         showStatus('reportStatus', 'Сначала сформируйте отчет за месяц', 'error');
         return;
     }
-    showStatus('reportStatus', 'Выполняем окончательный расчет...', 'info');
+    
+    // НОВОЕ: Предупреждение о ручных корректировках
+    const hasManualAdjustments = Array.from(tableRows).some(row => {
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        return (advanceCardCell && advanceCardCell.innerHTML.includes('✏️')) || 
+               (advanceCashCell && advanceCashCell.innerHTML.includes('✏️')) ||
+               (advanceCardCell && advanceCardCell.innerHTML.includes('🚪')) || 
+               (advanceCashCell && advanceCashCell.innerHTML.includes('🚪'));
+    });
+    
+    if (hasManualAdjustments) {
+        const confirmed = confirm(
+            '⚠️ ВНИМАНИЕ!\n\n' +
+            'Обнаружены ручные корректировки авансов или увольнения.\n' +
+            'Итоговый расчет СОХРАНИТ все ручные корректировки.\n\n' +
+            'Продолжить?'
+        );
+        if (!confirmed) return;
+    }
+    
+    showStatus('reportStatus', 'Выполняем окончательный расчет с сохранением корректировок...', 'info');
 
     const year = document.getElementById('reportYear')?.value;
     const month = document.getElementById('reportMonth')?.value;
@@ -2967,7 +2988,11 @@ async function fixManualAdvances() {
     try {
         // Сохраняем все корректировки перед расчетом
         const savePromises = [];
-        tableRows.forEach(row => savePromises.push(saveAdjustments(row)));
+        tableRows.forEach(row => {
+            if (!row.classList.contains('summary-row')) {
+                savePromises.push(saveAdjustments(row));
+            }
+        });
         await Promise.all(savePromises);
 
         // Отправляем запрос на сервер для финального расчета
@@ -2983,11 +3008,25 @@ async function fixManualAdvances() {
         );
 
         if (data.success) {
+            // Подсчет сохраненных корректировок
+            let preservedCount = 0;
+            
             tableRows.forEach(row => {
                 const employeeId = row.dataset.employeeId;
                 const result = data.results[employeeId];
 
                 if (result) {
+                    // Проверяем были ли сохранены ручные корректировки
+                    const advanceCardCell = row.querySelector('.advance-payment-card');
+                    const advanceCashCell = row.querySelector('.advance-payment-cash');
+                    
+                    if ((advanceCardCell && advanceCardCell.innerHTML.includes('✏️')) || 
+                        (advanceCashCell && advanceCashCell.innerHTML.includes('✏️')) ||
+                        (advanceCardCell && advanceCardCell.innerHTML.includes('🚪')) || 
+                        (advanceCashCell && advanceCashCell.innerHTML.includes('🚪'))) {
+                        preservedCount++;
+                    }
+                    
                     // Обновляем отображение всех полей
                     const totalGrossCell = row.querySelector('.total-gross');
                     if (totalGrossCell) {
@@ -3069,30 +3108,56 @@ async function fixManualAdvances() {
             let employeesWithCash = 0;
 
             tableRows.forEach(row => {
-                const advance = parseFloat(row.dataset.finalAdvance) || 0;
-                const cardRemainder = parseFloat(row.dataset.finalCardRemainder) || 0;
-                const cash = parseFloat(row.dataset.finalCash) || 0;
+                if (!row.classList.contains('summary-row')) {
+                    const advance = parseFloat(row.dataset.finalAdvance) || 0;
+                    const cardRemainder = parseFloat(row.dataset.finalCardRemainder) || 0;
+                    const cash = parseFloat(row.dataset.finalCash) || 0;
 
-                totalAdvance += advance;
-                totalCardRemainder += cardRemainder;
-                totalCash += cash;
-                totalRemaining += (cardRemainder + cash);
+                    totalAdvance += advance;
+                    totalCardRemainder += cardRemainder;
+                    totalCash += cash;
+                    totalRemaining += (cardRemainder + cash);
 
-                if (cardRemainder > 0) employeesWithCardRemainder++;
-                if (cash > 0) employeesWithCash++;
+                    if (cardRemainder > 0) employeesWithCardRemainder++;
+                    if (cash > 0) employeesWithCash++;
+                }
             });
 
-            const summaryMessage = `✅ Расчет выполнен для ${totalEmployees} сотрудников.\n` +
-                `💳 Уже выплачено авансом: ${formatNumber(totalAdvance)} грн\n` +
+            let summaryMessage = `✅ Расчет выполнен для ${totalEmployees} сотрудников.\n`;
+            
+            if (preservedCount > 0) {
+                summaryMessage += `✅ Сохранено ручных корректировок: ${preservedCount}\n`;
+            }
+            
+            summaryMessage += `💳 Уже выплачено авансом: ${formatNumber(totalAdvance)} грн\n` +
                 `💳 Остаток на карту у ${employeesWithCardRemainder} человек: ${formatNumber(totalCardRemainder)} грн\n` +
                 `💵 Зарплата наличными у ${employeesWithCash} человек: ${formatNumber(totalCash)} грн\n` +
                 `📊 ИТОГО к доплате: ${formatNumber(totalRemaining)} грн`;
+            
+            // Если есть сообщение от сервера о сохраненных корректировках
+            if (data.message) {
+                summaryMessage += `\n\n${data.message}`;
+            }
 
             showStatus('reportStatus', summaryMessage, 'success');
+            
+            // НОВОЕ: Показываем модальное уведомление о сохраненных корректировках
+            if (preservedCount > 0) {
+                showModalNotification(
+                    `✅ Итоговый расчет выполнен. Все ${preservedCount} ручных корректировок сохранены!`,
+                    'success',
+                    5000
+                );
+            }
         }
     } catch (error) {
         console.error('Ошибка при окончательном расчете:', error);
         showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+        
+        // НОВОЕ: Предложение восстановить из резервной копии при ошибке
+        if (confirm('Произошла ошибка при расчете. Восстановить предыдущее состояние?')) {
+            await restoreFromLocalBackup();
+        }
     }
 }
 
