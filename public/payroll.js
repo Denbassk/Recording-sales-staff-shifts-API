@@ -3224,7 +3224,7 @@ async function fixManualAdvances() {
             if (result.shortages && result.shortages.length > 0) {
                 return result.shortages
                     .map(s => `${s.description || ''} - ${formatNumber(s.amount)} грн`)
-                    .join(', '); // Изменено с <br> на запятую
+                    .join(', ');
             }
             return '';
         } catch (error) {
@@ -3234,6 +3234,7 @@ async function fixManualAdvances() {
     }
     
     let allPayslipsHTML = '';
+    let payslipCount = 0;
     
     // Собираем все данные включая недостачи
     for (const row of tableRows) {
@@ -3263,6 +3264,11 @@ async function fixManualAdvances() {
         
         const cardRemainderAmount = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
         const cashAmount = parseFloat(row.querySelector('.cash-payout')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        
+        // Добавляем класс для группировки по 4
+        if (payslipCount % 4 === 0 && payslipCount > 0) {
+            allPayslipsHTML += '<div class="page-break"></div>';
+        }
         
         allPayslipsHTML += `<div class="payslip-compact">
             <div class="payslip-header">
@@ -3339,9 +3345,9 @@ async function fixManualAdvances() {
                         <td class="amount">${formatNumber(advanceCard)} грн</td>
                     </tr>` : ''}
                     ${advanceCash > 0 ? `
-                    <tr>
-                        <td class="description">Аванс (наличными):</td>
-                        <td class="amount">${formatNumber(advanceCash)} грн</td>
+                    <tr class="cash-payment-row">
+                        <td class="description"><strong>Аванс (НАЛИЧНЫМИ):</strong></td>
+                        <td class="amount cash-amount"><strong>${formatNumber(advanceCash)} грн</strong></td>
                     </tr>` : ''}
                     ${cardRemainderAmount > 0 ? `
                     <tr>
@@ -3349,9 +3355,9 @@ async function fixManualAdvances() {
                         <td class="amount">${formatNumber(cardRemainderAmount)} грн</td>
                     </tr>` : ''}
                     ${cashAmount > 0 ? `
-                    <tr>
-                        <td class="description">Остаток зарплаты (наличными):</td>
-                        <td class="amount">${formatNumber(cashAmount)} грн</td>
+                    <tr class="cash-payment-row">
+                        <td class="description"><strong>Остаток зарплаты (НАЛИЧНЫМИ):</strong></td>
+                        <td class="amount cash-amount"><strong>${formatNumber(cashAmount)} грн</strong></td>
                     </tr>` : ''}
                 </table>
             </div>
@@ -3364,9 +3370,11 @@ async function fixManualAdvances() {
                 </div>
             </div>
         </div>`;
+        
+        payslipCount++;
     }
     
-    // Создаем окно предпросмотра с улучшенными стилями
+    // Создаем окно предпросмотра с улучшенными стилями для 4 расчеток на лист
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
         <!DOCTYPE html>
@@ -3383,52 +3391,68 @@ async function fixManualAdvances() {
                 body { 
                     font-family: Arial, sans-serif; 
                     margin: 0;
-                    padding: 10mm;
-                    line-height: 1.4;
+                    padding: 0;
+                    line-height: 1.3;
                 }
                 
+                /* Контейнер для 4 расчеток на странице */
                 .payslip-compact { 
-                    font-size: 10pt; 
-                    min-height: 90mm;
-                    max-height: 100mm;
-                    padding: 8px 12px;
-                    margin-bottom: 10mm; 
+                    font-size: 9pt; 
+                    width: 49%;
+                    height: 49%;
+                    padding: 8px 10px;
+                    margin: 0;
                     border: 1px solid #333;
+                    float: left;
                     page-break-inside: avoid;
                     overflow: hidden;
+                    position: relative;
                 }
                 
-                .payslip-compact:nth-child(3n) {
+                /* Каждая нечетная расчетка имеет правый отступ */
+                .payslip-compact:nth-child(odd) {
+                    margin-right: 2%;
+                }
+                
+                /* Первые две расчетки имеют нижний отступ */
+                .payslip-compact:nth-child(1),
+                .payslip-compact:nth-child(2) {
+                    margin-bottom: 2%;
+                }
+                
+                /* Разрыв страницы после каждых 4 расчеток */
+                .page-break {
+                    clear: both;
                     page-break-after: always;
                 }
                 
                 .payslip-header {
-                    margin-bottom: 8px;
+                    margin-bottom: 6px;
                 }
                 
                 .payslip-compact h3 { 
                     text-align: center; 
-                    font-size: 11pt; 
-                    margin-bottom: 6px;
+                    font-size: 10pt; 
+                    margin-bottom: 4px;
                     text-decoration: underline;
                 }
                 
                 .employee-info {
-                    margin-bottom: 8px;
-                }
-                
-                .employee-info p {
-                    margin: 2px 0;
-                    font-size: 9pt;
-                }
-                
-                .payslip-section {
                     margin-bottom: 6px;
                 }
                 
+                .employee-info p {
+                    margin: 1px 0;
+                    font-size: 8pt;
+                }
+                
+                .payslip-section {
+                    margin-bottom: 4px;
+                }
+                
                 .payslip-compact h4 { 
-                    font-size: 9pt; 
-                    margin: 4px 0 2px 0;
+                    font-size: 8pt; 
+                    margin: 3px 0 2px 0;
                     text-decoration: underline;
                 }
                 
@@ -3439,27 +3463,50 @@ async function fixManualAdvances() {
                 
                 .payslip-table td { 
                     padding: 1px 0; 
-                    font-size: 9pt;
+                    font-size: 8pt;
                     vertical-align: top;
                 }
                 
                 .payslip-table .description {
-                    width: 70%;
-                    padding-right: 10px;
+                    width: 65%;
+                    padding-right: 5px;
                 }
                 
                 .payslip-table .amount {
-                    width: 30%;
+                    width: 35%;
                     text-align: right;
                     white-space: nowrap;
                 }
                 
+                /* ВЫДЕЛЕНИЕ НАЛИЧНЫХ ВЫПЛАТ */
+                .cash-payment-row {
+                    background-color: #fffacd;
+                    border: 1px solid #ffd700;
+                }
+                
+                .cash-payment-row td {
+                    padding: 2px 3px !important;
+                }
+                
+                .cash-payment-row .description {
+                    font-size: 10pt !important;
+                    font-weight: bold !important;
+                    color: #d4380d !important;
+                }
+                
+                .cash-payment-row .cash-amount {
+                    font-size: 11pt !important;
+                    font-weight: bold !important;
+                    color: #d4380d !important;
+                    text-decoration: underline;
+                }
+                
                 .payslip-table .details {
-                    padding-left: 20px;
-                    font-size: 8pt;
+                    padding-left: 15px;
+                    font-size: 7pt;
                     color: #555;
                     font-style: italic;
-                    padding-top: 2px;
+                    padding-top: 1px;
                 }
                 
                 .total-row {
@@ -3470,18 +3517,19 @@ async function fixManualAdvances() {
                 .total-row td {
                     padding-top: 2px;
                     font-weight: bold;
+                    font-size: 8pt;
                 }
                 
                 .final-total td {
-                    font-size: 10pt;
+                    font-size: 9pt;
                     font-weight: bold;
-                    padding: 3px 0;
+                    padding: 2px 0;
                 }
                 
                 .highlighted {
                     background-color: #f0f0f0;
-                    padding: 3px;
-                    margin: 6px 0;
+                    padding: 2px;
+                    margin: 4px 0;
                 }
                 
                 .positive {
@@ -3493,21 +3541,21 @@ async function fixManualAdvances() {
                 }
                 
                 .signature-section {
-                    margin-top: 10px;
-                    padding-top: 5px;
+                    margin-top: 6px;
+                    padding-top: 4px;
                     border-top: 1px solid #999;
                 }
                 
                 .signature-section p {
-                    margin: 3px 0;
-                    font-size: 9pt;
+                    margin: 2px 0;
+                    font-size: 7pt;
                 }
                 
                 .signature-line {
                     display: flex;
                     justify-content: space-between;
-                    margin-top: 5px;
-                    font-size: 8pt;
+                    margin-top: 3px;
+                    font-size: 7pt;
                 }
                 
                 @media print {
@@ -3515,10 +3563,36 @@ async function fixManualAdvances() {
                         size: A4; 
                         margin: 10mm; 
                     }
+                    
                     body {
                         margin: 0;
                         padding: 0;
                     }
+                    
+                    .payslip-compact {
+                        width: 48%;
+                        height: 48%;
+                        margin: 0;
+                        padding: 8px;
+                        float: left;
+                    }
+                    
+                    .payslip-compact:nth-child(odd) {
+                        margin-right: 4%;
+                    }
+                    
+                    .payslip-compact:nth-child(1),
+                    .payslip-compact:nth-child(2) {
+                        margin-bottom: 4%;
+                    }
+                    
+                    .payslip-compact:nth-child(4n)::after {
+                        content: "";
+                        display: block;
+                        clear: both;
+                        page-break-after: always;
+                    }
+                    
                     .no-print {
                         display: none;
                     }
@@ -3530,6 +3604,7 @@ async function fixManualAdvances() {
                     padding: 20px;
                     background: #f0f0f0;
                     border-radius: 10px;
+                    clear: both;
                 }
                 
                 button {
@@ -3554,16 +3629,24 @@ async function fixManualAdvances() {
                 button.close:hover {
                     background: #c82333;
                 }
+                
+                /* Очистка float после каждых 4 элементов */
+                .payslip-compact:nth-child(4n)::after {
+                    content: "";
+                    display: table;
+                    clear: both;
+                }
             </style>
         </head>
         <body>
             <div class="no-print">
                 <h2>Предварительный просмотр расчетных листов</h2>
-                <p>Всего листов: ${tableRows.length}</p>
+                <p>Всего листов: ${tableRows.length} (${Math.ceil(tableRows.length / 4)} страниц A4)</p>
                 <button onclick="window.print()">🖨️ Печать</button>
                 <button class="close" onclick="window.close()">❌ Закрыть</button>
             </div>
             <div id="print-area">${allPayslipsHTML}</div>
+            <div style="clear: both;"></div>
         </body>
         </html>
     `);
