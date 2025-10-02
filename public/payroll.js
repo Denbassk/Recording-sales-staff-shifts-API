@@ -3233,7 +3233,7 @@ async function fixManualAdvances() {
         }
     }
     
-    let allPayslipsHTML = '';
+    let allPayslipsHTML = '<div class="page-container">';
     let payslipCount = 0;
     
     // Собираем все данные включая недостачи
@@ -3265,108 +3265,104 @@ async function fixManualAdvances() {
         const cardRemainderAmount = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
         const cashAmount = parseFloat(row.querySelector('.cash-payout')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
         
-        // Добавляем класс для группировки по 4
-        if (payslipCount % 4 === 0 && payslipCount > 0) {
-            allPayslipsHTML += '<div class="page-break"></div>';
+        // Начинаем новую страницу после каждых 4 расчеток
+        if (payslipCount > 0 && payslipCount % 4 === 0) {
+            allPayslipsHTML += '</div><div class="page-container">';
         }
         
         allPayslipsHTML += `<div class="payslip-compact">
-            <div class="payslip-header">
-                <h3>РАСЧЕТНЫЙ ЛИСТ</h3>
-                <div class="employee-info">
-                    <p><strong>Сотрудник:</strong> ${employeeName}</p>
-                    ${storeAddress !== 'Старший продавец' && storeAddress !== 'Не определен' ? 
-                        `<p><strong>Магазин:</strong> ${storeAddress}</p>` : ''}
-                    <p><strong>Период:</strong> ${monthNames[month - 1]} ${year}</p>
+            <div class="payslip-inner">
+                <div class="payslip-header">
+                    <h3>РАСЧЕТНЫЙ ЛИСТ</h3>
+                    <div class="employee-info">
+                        <p><strong>Сотрудник:</strong> ${employeeName}</p>
+                        <p><strong>Магазин:</strong> ${storeAddress !== 'Старший продавец' ? storeAddress : 'Астрономічна 44Г'}</p>
+                        <p><strong>Период:</strong> ${monthNames[month - 1]} ${year}</p>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="payslip-section">
-                <h4>Начисления:</h4>
-                <table class="payslip-table">
-                    <tr>
-                        <td class="description">База (ставка + бонусы за смены):</td>
-                        <td class="amount">${formatNumber(basePay)} грн</td>
-                    </tr>
-                    ${manualBonus > 0 ? `
-                    <tr>
-                        <td class="description">Премирование${bonus_reason ? ` (${bonus_reason})` : ''}:</td>
-                        <td class="amount positive">+${formatNumber(manualBonus)} грн</td>
-                    </tr>` : ''}
-                    <tr class="total-row">
-                        <td class="description"><strong>ВСЕГО НАЧИСЛЕНО:</strong></td>
-                        <td class="amount"><strong>${formatNumber(totalGross)} грн</strong></td>
-                    </tr>
-                </table>
-            </div>
-            
-            ${totalDeductions > 0 ? `
-            <div class="payslip-section">
-                <h4>Удержания:</h4>
-                <table class="payslip-table">
-                    ${penalty > 0 ? `
-                    <tr>
-                        <td class="description">Депремирование${penalty_reason ? ` (${penalty_reason})` : ''}:</td>
-                        <td class="amount negative">-${formatNumber(penalty)} грн</td>
-                    </tr>` : ''}
-                    ${shortage > 0 ? `
-                    <tr>
-                        <td class="description">Вычет за недостачу:</td>
-                        <td class="amount negative">-${formatNumber(shortage)} грн</td>
-                    </tr>
-                    ${shortageDetails ? `
-                    <tr>
-                        <td colspan="2" class="details">Детали: ${shortageDetails}</td>
-                    </tr>` : ''}
-                    ` : ''}
-                    <tr class="total-row">
-                        <td class="description"><strong>ВСЕГО УДЕРЖАНО:</strong></td>
-                        <td class="amount negative"><strong>-${formatNumber(totalDeductions)} грн</strong></td>
-                    </tr>
-                </table>
-            </div>
-            ` : ''}
-            
-            <div class="payslip-section highlighted">
-                <table class="payslip-table">
-                    <tr class="final-total">
-                        <td class="description"><strong>К ВЫПЛАТЕ ПОСЛЕ ВЫЧЕТОВ:</strong></td>
-                        <td class="amount"><strong>${formatNumber(totalToPay)} грн</strong></td>
-                    </tr>
-                </table>
-            </div>
-            
-            <div class="payslip-section">
-                <h4>Выплаты:</h4>
-                <table class="payslip-table">
-                    ${advanceCard > 0 ? `
-                    <tr>
-                        <td class="description">Аванс (на карту):</td>
-                        <td class="amount">${formatNumber(advanceCard)} грн</td>
-                    </tr>` : ''}
-                    ${advanceCash > 0 ? `
-                    <tr class="cash-payment-row">
-                        <td class="description"><strong>Аванс (НАЛИЧНЫМИ):</strong></td>
-                        <td class="amount cash-amount"><strong>${formatNumber(advanceCash)} грн</strong></td>
-                    </tr>` : ''}
-                    ${cardRemainderAmount > 0 ? `
-                    <tr>
-                        <td class="description">Остаток зарплаты (на карту):</td>
-                        <td class="amount">${formatNumber(cardRemainderAmount)} грн</td>
-                    </tr>` : ''}
-                    ${cashAmount > 0 ? `
-                    <tr class="cash-payment-row">
-                        <td class="description"><strong>Остаток зарплаты (НАЛИЧНЫМИ):</strong></td>
-                        <td class="amount cash-amount"><strong>${formatNumber(cashAmount)} грн</strong></td>
-                    </tr>` : ''}
-                </table>
-            </div>
-            
-            <div class="signature-section">
-                <p>С расчетом ознакомлен(а): _________________________</p>
-                <div class="signature-line">
-                    <span>Дата: _______________</span>
-                    <span>Подпись: _______________</span>
+                
+                <div class="payslip-section">
+                    <h4>Начисления:</h4>
+                    <table class="payslip-table">
+                        <tr>
+                            <td class="description">База (ставка + бонусы за смены):</td>
+                            <td class="amount">${formatNumber(basePay)} грн</td>
+                        </tr>
+                        ${manualBonus > 0 ? `
+                        <tr>
+                            <td class="description">Премирование:</td>
+                            <td class="amount positive">+${formatNumber(manualBonus)} грн</td>
+                        </tr>` : ''}
+                        <tr class="total-row">
+                            <td class="description"><strong>ВСЕГО НАЧИСЛЕНО:</strong></td>
+                            <td class="amount"><strong>${formatNumber(totalGross)} грн</strong></td>
+                        </tr>
+                    </table>
+                </div>
+                
+                ${totalDeductions > 0 ? `
+                <div class="payslip-section">
+                    <h4>Удержания:</h4>
+                    <table class="payslip-table">
+                        ${penalty > 0 ? `
+                        <tr>
+                            <td class="description">Вычет за недостачу:</td>
+                            <td class="amount negative">-${formatNumber(penalty)} грн</td>
+                        </tr>` : ''}
+                        ${shortage > 0 ? `
+                        <tr>
+                            <td class="description">Вычет за недостачу:</td>
+                            <td class="amount negative">-${formatNumber(shortage)} грн</td>
+                        </tr>` : ''}
+                        <tr class="total-row">
+                            <td class="description"><strong>ВСЕГО УДЕРЖАНО:</strong></td>
+                            <td class="amount negative"><strong>-${formatNumber(totalDeductions)} грн</strong></td>
+                        </tr>
+                    </table>
+                </div>
+                ` : ''}
+                
+                <div class="payslip-section highlighted">
+                    <table class="payslip-table">
+                        <tr class="final-total">
+                            <td class="description"><strong>К ВЫПЛАТЕ ПОСЛЕ ВЫЧЕТОВ:</strong></td>
+                            <td class="amount"><strong>${formatNumber(totalToPay)} грн</strong></td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <div class="payslip-section">
+                    <h4>Выплаты:</h4>
+                    <table class="payslip-table">
+                        ${advanceCard > 0 ? `
+                        <tr>
+                            <td class="description">Аванс (на карту):</td>
+                            <td class="amount">${formatNumber(advanceCard)} грн</td>
+                        </tr>` : ''}
+                        ${cardRemainderAmount > 0 ? `
+                        <tr>
+                            <td class="description">Остаток зарплаты (на карту):</td>
+                            <td class="amount">${formatNumber(cardRemainderAmount)} грн</td>
+                        </tr>` : ''}
+                        ${advanceCash > 0 ? `
+                        <tr class="cash-highlight">
+                            <td class="description"><strong>Аванс (НАЛИЧНЫМИ):</strong></td>
+                            <td class="amount"><strong class="cash-amount">${formatNumber(advanceCash)} грн</strong></td>
+                        </tr>` : ''}
+                        ${cashAmount > 0 ? `
+                        <tr class="cash-highlight">
+                            <td class="description"><strong>Остаток зарплаты (НАЛИЧНЫМИ):</strong></td>
+                            <td class="amount"><strong class="cash-amount">${formatNumber(cashAmount)} грн</strong></td>
+                        </tr>` : ''}
+                    </table>
+                </div>
+                
+                <div class="signature-section">
+                    <p>С расчетом ознакомлен(а): _________________________</p>
+                    <div class="signature-line">
+                        <span>Дата: _______________</span>
+                        <span style="margin-left: 20px;">Подпись: _______________</span>
+                    </div>
                 </div>
             </div>
         </div>`;
@@ -3374,7 +3370,9 @@ async function fixManualAdvances() {
         payslipCount++;
     }
     
-    // Создаем окно предпросмотра с улучшенными стилями для 4 расчеток на лист
+    allPayslipsHTML += '</div>';
+    
+    // Создаем окно предпросмотра с правильными стилями
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
         <!DOCTYPE html>
@@ -3382,6 +3380,11 @@ async function fixManualAdvances() {
         <head>
             <title>Расчетные листы - ${monthNames[month - 1]} ${year}</title>
             <style>
+                @page { 
+                    size: A4 portrait;
+                    margin: 5mm;
+                }
+                
                 * {
                     margin: 0;
                     padding: 0;
@@ -3392,68 +3395,65 @@ async function fixManualAdvances() {
                     font-family: Arial, sans-serif; 
                     margin: 0;
                     padding: 0;
-                    line-height: 1.3;
+                    background: white;
                 }
                 
-                /* Контейнер для 4 расчеток на странице */
-                .payslip-compact { 
-                    font-size: 9pt; 
-                    width: 49%;
-                    height: 49%;
-                    padding: 8px 10px;
-                    margin: 0;
-                    border: 1px solid #333;
-                    float: left;
+                .page-container {
+                    width: 210mm;
+                    height: 297mm;
+                    margin: 0 auto;
+                    padding: 5mm;
+                    page-break-after: always;
                     page-break-inside: avoid;
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    grid-template-rows: 1fr 1fr;
+                    gap: 5mm;
+                }
+                
+                .payslip-compact { 
+                    width: 100%;
+                    height: 100%;
+                    border: 1px solid #000;
                     overflow: hidden;
                     position: relative;
+                    background: white;
                 }
                 
-                /* Каждая нечетная расчетка имеет правый отступ */
-                .payslip-compact:nth-child(odd) {
-                    margin-right: 2%;
-                }
-                
-                /* Первые две расчетки имеют нижний отступ */
-                .payslip-compact:nth-child(1),
-                .payslip-compact:nth-child(2) {
-                    margin-bottom: 2%;
-                }
-                
-                /* Разрыв страницы после каждых 4 расчеток */
-                .page-break {
-                    clear: both;
-                    page-break-after: always;
+                .payslip-inner {
+                    padding: 5mm;
+                    height: 100%;
+                    display: flex;
+                    flex-direction: column;
                 }
                 
                 .payslip-header {
-                    margin-bottom: 6px;
+                    margin-bottom: 3mm;
                 }
                 
                 .payslip-compact h3 { 
                     text-align: center; 
-                    font-size: 10pt; 
-                    margin-bottom: 4px;
+                    font-size: 11pt; 
+                    margin-bottom: 2mm;
+                    font-weight: bold;
                     text-decoration: underline;
-                }
-                
-                .employee-info {
-                    margin-bottom: 6px;
                 }
                 
                 .employee-info p {
-                    margin: 1px 0;
-                    font-size: 8pt;
+                    margin: 1mm 0;
+                    font-size: 9pt;
+                    line-height: 1.2;
                 }
                 
                 .payslip-section {
-                    margin-bottom: 4px;
+                    margin-bottom: 2mm;
                 }
                 
                 .payslip-compact h4 { 
-                    font-size: 8pt; 
-                    margin: 3px 0 2px 0;
+                    font-size: 9pt; 
+                    margin: 2mm 0 1mm 0;
                     text-decoration: underline;
+                    font-weight: bold;
                 }
                 
                 .payslip-table { 
@@ -3462,74 +3462,62 @@ async function fixManualAdvances() {
                 }
                 
                 .payslip-table td { 
-                    padding: 1px 0; 
-                    font-size: 8pt;
+                    padding: 0.5mm 0; 
+                    font-size: 9pt;
                     vertical-align: top;
+                    line-height: 1.2;
                 }
                 
                 .payslip-table .description {
                     width: 65%;
-                    padding-right: 5px;
+                    padding-right: 2mm;
                 }
                 
                 .payslip-table .amount {
                     width: 35%;
                     text-align: right;
                     white-space: nowrap;
+                    font-weight: 600;
                 }
                 
-                /* ВЫДЕЛЕНИЕ НАЛИЧНЫХ ВЫПЛАТ */
-                .cash-payment-row {
-                    background-color: #fffacd;
-                    border: 1px solid #ffd700;
+                /* Выделение наличных */
+                .cash-highlight {
+                    background-color: #fffacd !important;
+                    border: 1px solid #ffd700 !important;
                 }
                 
-                .cash-payment-row td {
-                    padding: 2px 3px !important;
-                }
-                
-                .cash-payment-row .description {
-                    font-size: 10pt !important;
-                    font-weight: bold !important;
-                    color: #d4380d !important;
-                }
-                
-                .cash-payment-row .cash-amount {
+                .cash-highlight td {
+                    padding: 1mm 2mm !important;
                     font-size: 11pt !important;
                     font-weight: bold !important;
+                }
+                
+                .cash-amount {
                     color: #d4380d !important;
+                    font-size: 12pt !important;
                     text-decoration: underline;
                 }
                 
-                .payslip-table .details {
-                    padding-left: 15px;
-                    font-size: 7pt;
-                    color: #555;
-                    font-style: italic;
-                    padding-top: 1px;
-                }
-                
                 .total-row {
-                    border-top: 1px solid #999;
-                    margin-top: 2px;
+                    border-top: 1px solid #000;
+                    margin-top: 1mm;
                 }
                 
                 .total-row td {
-                    padding-top: 2px;
+                    padding-top: 1mm !important;
                     font-weight: bold;
-                    font-size: 8pt;
-                }
-                
-                .final-total td {
-                    font-size: 9pt;
-                    font-weight: bold;
-                    padding: 2px 0;
                 }
                 
                 .highlighted {
                     background-color: #f0f0f0;
-                    padding: 2px;
-                    margin: 4px 0;
+                    padding: 1mm;
+                    margin: 2mm 0;
+                }
+                
+                .final-total td {
+                    font-size: 10pt;
+                    font-weight: bold;
+                    padding: 1mm 0;
                 }
                 
                 .positive {
@@ -3541,70 +3529,48 @@ async function fixManualAdvances() {
                 }
                 
                 .signature-section {
-                    margin-top: 6px;
-                    padding-top: 4px;
+                    margin-top: auto;
+                    padding-top: 2mm;
                     border-top: 1px solid #999;
                 }
                 
                 .signature-section p {
-                    margin: 2px 0;
-                    font-size: 7pt;
+                    margin: 1mm 0;
+                    font-size: 8pt;
                 }
                 
                 .signature-line {
                     display: flex;
                     justify-content: space-between;
-                    margin-top: 3px;
-                    font-size: 7pt;
+                    margin-top: 2mm;
+                    font-size: 8pt;
                 }
                 
                 @media print {
-                    @page { 
-                        size: A4; 
-                        margin: 10mm; 
-                    }
-                    
                     body {
                         margin: 0;
                         padding: 0;
                     }
                     
-                    .payslip-compact {
-                        width: 48%;
-                        height: 48%;
-                        margin: 0;
-                        padding: 8px;
-                        float: left;
+                    .no-print {
+                        display: none !important;
                     }
                     
-                    .payslip-compact:nth-child(odd) {
-                        margin-right: 4%;
-                    }
-                    
-                    .payslip-compact:nth-child(1),
-                    .payslip-compact:nth-child(2) {
-                        margin-bottom: 4%;
-                    }
-                    
-                    .payslip-compact:nth-child(4n)::after {
-                        content: "";
-                        display: block;
-                        clear: both;
+                    .page-container {
                         page-break-after: always;
                     }
                     
-                    .no-print {
-                        display: none;
+                    .page-container:last-child {
+                        page-break-after: auto;
                     }
                 }
                 
                 .no-print {
-                    margin: 20px 0;
+                    margin: 20px;
                     text-align: center;
                     padding: 20px;
                     background: #f0f0f0;
                     border-radius: 10px;
-                    clear: both;
                 }
                 
                 button {
@@ -3629,13 +3595,6 @@ async function fixManualAdvances() {
                 button.close:hover {
                     background: #c82333;
                 }
-                
-                /* Очистка float после каждых 4 элементов */
-                .payslip-compact:nth-child(4n)::after {
-                    content: "";
-                    display: table;
-                    clear: both;
-                }
             </style>
         </head>
         <body>
@@ -3645,8 +3604,7 @@ async function fixManualAdvances() {
                 <button onclick="window.print()">🖨️ Печать</button>
                 <button class="close" onclick="window.close()">❌ Закрыть</button>
             </div>
-            <div id="print-area">${allPayslipsHTML}</div>
-            <div style="clear: both;"></div>
+            ${allPayslipsHTML}
         </body>
         </html>
     `);
