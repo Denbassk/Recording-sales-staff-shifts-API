@@ -1058,13 +1058,15 @@ function handleAdjustmentInput(e) {
 
 function recalculateRow(row) {
     if (!row) return;
+    
     const basePay = parseFloat(row.dataset.basePay) || 0;
     const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
     const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
     const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
 
     const totalGross = basePay + manualBonus;
-    const totalAfterDeductions = totalGross - penalty - shortage;
+    const totalDeductions = penalty + shortage;
+    const totalAfterDeductions = totalGross - totalDeductions;
 
     // Получаем текущий аванс из обеих колонок
     const advanceCardCell = row.querySelector('.advance-payment-card');
@@ -1080,21 +1082,54 @@ function recalculateRow(row) {
         totalAdvance += parseFloat(cashText) || 0;
     }
 
-    // ИСПРАВЛЕНИЕ: Остаток к выплате = Всего после вычетов - Аванс
+    // Остаток к выплате после вычета аванса
     const remainingToPay = totalAfterDeductions - totalAdvance;
+    
+    // ВАЖНО: Пересчитываем распределение остатка между картой и наличными
+    const advanceCard = parseFloat(advanceCardCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+    const maxCardTotal = 8600; // Лимит на карту
+    const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+    
+    // Новые значения для остатка на карту и наличные
+    const newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+    const newCashPayout = Math.max(0, remainingToPay - newCardRemainder);
 
+    // Обновляем ВСЕ ячейки с суммами
     const totalGrossCell = row.querySelector('.total-gross');
     if (totalGrossCell) {
         totalGrossCell.textContent = formatNumber(totalGross);
     }
 
+    // НОВОЕ: Обновляем остаток на карту
+    const cardRemainderCell = row.querySelector('.card-remainder');
+    if (cardRemainderCell) {
+        cardRemainderCell.textContent = formatNumber(newCardRemainder);
+        if (newCardRemainder > 0) {
+            cardRemainderCell.style.color = '#28a745';
+            cardRemainderCell.style.fontWeight = 'bold';
+        } else {
+            cardRemainderCell.style.color = '';
+            cardRemainderCell.style.fontWeight = 'normal';
+        }
+    }
+
+    // НОВОЕ: Обновляем зарплату наличными
+    const cashPayoutCell = row.querySelector('.cash-payout');
+    if (cashPayoutCell) {
+        if (newCashPayout > 0) {
+            cashPayoutCell.innerHTML = `<strong style="color: #007bff;">${formatNumber(newCashPayout)}</strong>`;
+        } else {
+            cashPayoutCell.innerHTML = formatNumber(newCashPayout);
+        }
+    }
+
+    // Обновляем итоговую сумму к выплате
     const totalPayoutCell = row.querySelector('.total-payout strong');
     if (totalPayoutCell) {
         totalPayoutCell.textContent = formatNumber(remainingToPay);
         totalPayoutCell.title = `После вычета аванса ${formatNumber(totalAdvance)} грн`;
     }
 }
-
 async function saveAdjustments(row) {
     if (!row) return;
     const payload = {
@@ -1534,10 +1569,22 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         });
     }
 
-    // Привязываем обработчики событий
-    document.querySelectorAll('.adjustment-input').forEach(input => {
-        input.addEventListener('input', handleAdjustmentInput);
+  // Привязываем обработчики событий
+document.querySelectorAll('.adjustment-input').forEach(input => {
+    input.addEventListener('input', handleAdjustmentInput);
+    
+    // Добавляем обработчик blur для гарантированного пересчета при потере фокуса
+    input.addEventListener('blur', function(e) {
+        const row = e.target.closest('tr');
+        if (row) {
+            // Форсируем пересчет всех сумм
+            recalculateRow(row);
+            // Сохраняем изменения
+            saveAdjustments(row);
+        }
     });
+});
+
 
     // ИСПРАВЛЕНИЕ: Добавляем кнопки корректировки для админов с правильными обработчиками
     setTimeout(async () => {
@@ -1575,45 +1622,96 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
     }
 }
 
-
-    function recalculateRow(row) {
+function recalculateRow(row) {
     if (!row) return;
+    
     const basePay = parseFloat(row.dataset.basePay) || 0;
     const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
     const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
     const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
 
     const totalGross = basePay + manualBonus;
-    const totalAfterDeductions = totalGross - penalty - shortage;
+    const totalDeductions = penalty + shortage;
+    const totalAfterDeductions = totalGross - totalDeductions;
 
     // Получаем текущий аванс из обеих колонок
     const advanceCardCell = row.querySelector('.advance-payment-card');
     const advanceCashCell = row.querySelector('.advance-payment-cash');
     
-    let totalAdvance = 0;
+    let advanceCard = 0;
+    let advanceCash = 0;
+    
     if (advanceCardCell) {
         const cardText = advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-        totalAdvance += parseFloat(cardText) || 0;
+        advanceCard = parseFloat(cardText) || 0;
     }
     if (advanceCashCell) {
         const cashText = advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-        totalAdvance += parseFloat(cashText) || 0;
+        advanceCash = parseFloat(cashText) || 0;
     }
+    
+    const totalAdvance = advanceCard + advanceCash;
 
-    // ИСПРАВЛЕНИЕ: Остаток к выплате = Всего после вычетов - Аванс
-    const remainingToPay = totalAfterDeductions - totalAdvance;
+    // Остаток к выплате после вычета аванса
+    const remainingToPay = Math.max(0, totalAfterDeductions - totalAdvance);
+    
+    // Пересчитываем распределение остатка между картой и наличными
+    const maxCardTotal = 8600;
+    const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+    
+    const newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+    const newCashPayout = Math.max(0, remainingToPay - newCardRemainder);
 
+    // 1. Обновляем "Всего начислено"
     const totalGrossCell = row.querySelector('.total-gross');
     if (totalGrossCell) {
         totalGrossCell.textContent = formatNumber(totalGross);
     }
 
-    const totalPayoutCell = row.querySelector('.total-payout strong');
-    if (totalPayoutCell) {
-        totalPayoutCell.textContent = formatNumber(remainingToPay);
-        totalPayoutCell.title = `После вычета аванса ${formatNumber(totalAdvance)} грн`;
+    // 2. Обновляем остаток на карту
+    const cardRemainderCell = row.querySelector('.card-remainder');
+    if (cardRemainderCell) {
+        const hasButton = cardRemainderCell.innerHTML.includes('button');
+        cardRemainderCell.textContent = formatNumber(newCardRemainder);
+        
+        if (newCardRemainder > 0) {
+            cardRemainderCell.style.color = '#28a745';
+            cardRemainderCell.style.fontWeight = 'bold';
+        } else {
+            cardRemainderCell.style.color = '';
+            cardRemainderCell.style.fontWeight = 'normal';
+        }
+        
+        // Восстанавливаем кнопку если она была
+        if (hasButton) {
+            const button = document.createElement('button');
+            button.onclick = () => adjustCardRemainder(row.dataset.employeeId, row.dataset.employeeName);
+            button.style.cssText = 'margin-left: 5px; padding: 2px 6px; font-size: 10px;';
+            button.title = 'Корректировать остаток';
+            button.innerHTML = '✏️';
+            cardRemainderCell.appendChild(button);
+        }
     }
+
+    // 3. Обновляем зарплату наличными
+    const cashPayoutCell = row.querySelector('.cash-payout');
+    if (cashPayoutCell) {
+        if (newCashPayout > 0) {
+            cashPayoutCell.innerHTML = `<strong style="color: #007bff;">${formatNumber(newCashPayout)}</strong>`;
+        } else {
+            cashPayoutCell.innerHTML = `<strong>${formatNumber(newCashPayout)}</strong>`;
+        }
+    }
+
+    // 4. Обновляем итоговую сумму к выплате
+    const totalPayoutCell = row.querySelector('.total-payout');
+    if (totalPayoutCell) {
+        totalPayoutCell.innerHTML = `<strong title="Остаток к выплате">${formatNumber(remainingToPay)}</strong>`;
+    }
+    
+    console.log(`Пересчет для ${row.dataset.employeeName}: депремирование=${penalty}, недостача=${shortage}, к выплате=${remainingToPay}`);
 }
+
 
     async function saveAdjustments(row) {
         if (!row) return;
