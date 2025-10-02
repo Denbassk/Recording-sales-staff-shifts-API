@@ -503,117 +503,111 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     });
 });
 
-function recalculateRow(row) {
-    if (!row) return;
-    
-    const basePay = parseFloat(row.dataset.basePay) || 0;
-    const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
-    const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-    const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
 
-    const totalGross = basePay + manualBonus;
-    const totalDeductions = penalty + shortage;
-    const totalAfterDeductions = totalGross - totalDeductions;
-
-    // Получаем текущий аванс из обеих колонок
-    const advanceCardCell = row.querySelector('.advance-payment-card');
-    const advanceCashCell = row.querySelector('.advance-payment-cash');
+app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;
     
-    let advanceCard = 0;
-    let advanceCash = 0;
+    const bonusValidation = validateAmount(manual_bonus, MAX_MANUAL_BONUS, 'Премия');
+    if (!bonusValidation.valid) return res.status(400).json({ success: false, error: bonusValidation.error });
     
-    if (advanceCardCell) {
-        const cardText = advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-        advanceCard = parseFloat(cardText) || 0;
+    const penaltyValidation = validateAmount(penalty, MAX_PENALTY, 'Штраф');
+    if (!penaltyValidation.valid) return res.status(400).json({ success: false, error: penaltyValidation.error });
+    
+    const shortageValidation = validateAmount(shortage, MAX_SHORTAGE, 'Недостача');
+    if (!shortageValidation.valid) return res.status(400).json({ success: false, error: shortageValidation.error });
+  
+    try {
+        const payload = { 
+            employee_id, month, year, 
+            manual_bonus: bonusValidation.value, penalty: penaltyValidation.value, 
+            shortage: shortageValidation.value, bonus_reason, penalty_reason
+        };
+        await supabase.from('monthly_adjustments').upsert(payload, { onConflict: 'employee_id,month,year' });
+        await logFinancialOperation('payroll_adjustment', payload, req.user.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
-    if (advanceCashCell) {
-        const cashText = advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-        advanceCash = parseFloat(cashText) || 0;
-    }
-    
-    const totalAdvance = advanceCard + advanceCash;
+});
 
-    // Остаток к выплате после вычета аванса
-    const remainingToPay = Math.max(0, totalAfterDeductions - totalAdvance);
+app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, reportEndDate } = req.body;
     
-    // ВАЖНО: Пересчитываем распределение остатка между картой и наличными
-    const maxCardTotal = 8600; // Лимит на карту
-    const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+    if (!year || !month || !reportEndDate) return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    if (month < 1 || month > 12) return res.status(400).json({ success: false, error: 'Некорректный месяц' });
+    const dateValidation = validateDate(reportEndDate);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
     
-    // Новые значения для остатка на карту и наличные
-    const newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-    const newCashPayout = Math.max(0, remainingToPay - newCardRemainder);
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
-    // Обновляем ВСЕ ячейки с суммами
-    
-    // 1. Обновляем "Всего начислено" (это правильно работает)
-    const totalGrossCell = row.querySelector('.total-gross');
-    if (totalGrossCell) {
-        totalGrossCell.textContent = formatNumber(totalGross);
-    }
+    try {
+        const { data: employees, error: empError } = await supabase.from('employees').select('id, fullname');
+        if (empError) throw empError;
+        const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
 
-    // 2. ВАЖНО: Обновляем остаток на карту
-    const cardRemainderCell = row.querySelector('.card-remainder');
-    if (cardRemainderCell) {
-        // Проверяем, не было ли ручной корректировки остатка
-        const hasManualAdjustment = cardRemainderCell.querySelector('button');
+        // ИСПРАВЛЕНИЕ: получаем ВСЕ расчеты за период от startDate до reportEndDate
+        const { data: dailyData, error: dailyError } = await supabase.from('payroll_calculations')
+            .select('*')
+            .gte('work_date', startDate)
+            .lte('work_date', reportEndDate)
+            .order('work_date', { ascending: true });
+        if (dailyError) throw dailyError;
+
+        // Обогащаем данные именами сотрудников
+        const enrichedDailyData = dailyData.map(calc => ({ 
+            ...calc, 
+            employee_name: employeeMap.get(calc.employee_id) || 'Неизвестный' 
+        }));
         
-        if (!hasManualAdjustment || !cardRemainderCell.dataset.manuallyAdjusted) {
-            // Обновляем только если не было ручной корректировки
-            cardRemainderCell.innerHTML = formatNumber(newCardRemainder);
+        // Логируем для отладки
+        console.log(`Получено расчетов за период ${startDate} - ${reportEndDate}: ${enrichedDailyData.length}`);
+        
+        // Получаем корректировки
+        const { data: adjustments, error: adjError } = await supabase.from('monthly_adjustments')
+            .select('*').eq('year', year).eq('month', month);
+        if (adjError) throw adjError;
+
+        // НОВОЕ: Получаем финальные расчеты из таблицы final_payroll_calculations
+        let finalCalculations = [];
+        
+        // Проверяем, существует ли таблица final_payroll_calculations
+        const { data: tableExists } = await supabase
+            .from('final_payroll_calculations')
+            .select('id')
+            .limit(1);
+        
+        if (tableExists !== null) {
+            // Таблица существует, получаем данные
+            const { data: finalCalcs, error: finalError } = await supabase
+                .from('final_payroll_calculations')
+                .select('*')
+                .eq('year', year)
+                .eq('month', month);
             
-            if (newCardRemainder > 0) {
-                cardRemainderCell.style.color = '#28a745';
-                cardRemainderCell.style.fontWeight = 'bold';
+            if (finalError) {
+                console.error('Ошибка получения финальных расчетов:', finalError);
+                // Не прерываем выполнение, просто логируем ошибку
             } else {
-                cardRemainderCell.style.color = '';
-                cardRemainderCell.style.fontWeight = 'normal';
+                finalCalculations = finalCalcs || [];
+                console.log(`Получено финальных расчетов: ${finalCalculations.length}`);
             }
-            
-            // Добавляем кнопку корректировки обратно, если она была
-            if (hasManualAdjustment) {
-                cardRemainderCell.innerHTML += ` <button onclick="adjustCardRemainder('${row.dataset.employeeId}', '${row.dataset.employeeName}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Корректировать остаток">✏️</button>`;
-            }
-        }
-    }
-
-    // 3. ВАЖНО: Обновляем зарплату наличными
-    const cashPayoutCell = row.querySelector('.cash-payout');
-    if (cashPayoutCell) {
-        if (newCashPayout > 0) {
-            cashPayoutCell.innerHTML = `<strong style="color: #007bff;">${formatNumber(newCashPayout)}</strong>`;
         } else {
-            cashPayoutCell.innerHTML = formatNumber(newCashPayout);
+            console.log('Таблица final_payroll_calculations не найдена, пропускаем загрузку финальных расчетов');
         }
-    }
 
-    // 4. Обновляем итоговую сумму к выплате (остаток после аванса)
-    const totalPayoutCell = row.querySelector('.total-payout');
-    if (totalPayoutCell) {
-        const strongEl = totalPayoutCell.querySelector('strong');
-        if (strongEl) {
-            strongEl.textContent = formatNumber(remainingToPay);
-            strongEl.title = `Остаток к выплате: на карту ${formatNumber(newCardRemainder)} + наличные ${formatNumber(newCashPayout)}`;
-        } else {
-            totalPayoutCell.innerHTML = `<strong title="Остаток к выплате">${formatNumber(remainingToPay)}</strong>`;
-        }
+        // Возвращаем все данные включая финальные расчеты
+        res.json({ 
+            success: true, 
+            dailyData: enrichedDailyData, 
+            adjustments,
+            finalCalculations // Добавляем финальные расчеты в ответ
+        });
+        
+    } catch (error) {
+        console.error('Ошибка получения данных за месяц:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
-    
-    // Логируем для отладки
-    console.log(`Пересчет для ${row.dataset.employeeName}:`, {
-        basePay,
-        manualBonus,
-        penalty,
-        shortage,
-        totalGross,
-        totalDeductions,
-        totalAfterDeductions,
-        totalAdvance,
-        remainingToPay,
-        newCardRemainder,
-        newCashPayout
-    });
-}
+});
 
 
 app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
