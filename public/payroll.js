@@ -1303,13 +1303,14 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 <th rowspan="2" style="vertical-align: middle;">Остаток<br/>(на карту)</th>
                 <th rowspan="2" style="vertical-align: middle;">Зарплата<br/>(наличными)</th>
                 <th rowspan="2" style="vertical-align: middle;">Итого<br/>к выплате</th>
+                <th rowspan="2" style="vertical-align: middle;">Действия</th>
             </tr>
             <tr><th>Сумма</th><th>Причина</th><th>Сумма</th><th>Причина</th></tr>
         </thead>
         <tbody>`;
 
     if (sortedEmployees.length === 0) {
-        tableHtml += '<tr><td colspan="13" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
+        tableHtml += '<tr><td colspan="14" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
     } else {
         for (const [id, data] of sortedEmployees) {
             const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
@@ -1493,6 +1494,17 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             <td class="total-payout" style="padding: 5px;">
                 <strong title="${hasCompleteCalculation ? 'Итоговый расчет выполнен' : 'Предварительный расчет'}">${formatNumber(remainingToPay)}</strong>
             </td>
+            <td style="padding: 5px;">
+                <button onclick="ucModal.open('${id}', '${data.name}', ${month}, ${year})" 
+                        style="padding: 5px 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                               color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;
+                               box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.3s;"
+                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.3)';"
+                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.2)';"
+                        title="Открыть универсальное окно корректировок">
+                    ⚙️ Все корректировки
+                </button>
+            </td>
         </tr>`;
         }
     }
@@ -1621,6 +1633,7 @@ document.querySelectorAll('.adjustment-input').forEach(input => {
         console.log('Финальные расчеты загружены, пропускаем автоматический расчет аванса');
     }
 }
+
 
 function recalculateRow(row) {
     if (!row) return;

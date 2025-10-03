@@ -1823,6 +1823,148 @@ app.delete('/remove-shortage/:id', checkAuth, canManagePayroll, async (req, res)
     }
 });
 
+// Получение полных данных сотрудника для универсального модального окна
+app.post('/get-employee-full-data', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year } = req.body;
+    
+    try {
+        // Получаем все данные о сотруднике за месяц
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+        
+        // Базовые начисления
+        const { data: calculations } = await supabase
+            .from('payroll_calculations')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .gte('work_date', startDate)
+            .lte('work_date', endDate);
+        
+        const basePay = calculations?.reduce((sum, c) => sum + c.total_pay, 0) || 0;
+        
+        // Корректировки
+        const { data: adjustments } = await supabase
+            .from('monthly_adjustments')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year)
+            .single();
+        
+        // Финальные расчеты
+        const { data: finalCalc } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year)
+            .single();
+        
+        // Недостачи
+        const { data: shortages } = await supabase
+            .from('employee_shortages')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year);
+        
+        // Формируем полный объект данных
+        const fullData = {
+            basePay: basePay,
+            bonuses: adjustments?.manual_bonus || 0,
+            penalties: adjustments?.penalty || 0,
+            shortages: adjustments?.shortage || 0,
+            bonusReason: adjustments?.bonus_reason || '',
+            penaltyReason: adjustments?.penalty_reason || '',
+            totalGross: basePay + (adjustments?.manual_bonus || 0),
+            totalDeductions: (adjustments?.penalty || 0) + (adjustments?.shortage || 0),
+            totalToPay: 0, // Будет рассчитано
+            advanceCard: finalCalc?.advance_card || 0,
+            advanceCash: finalCalc?.advance_cash || 0,
+            salaryCard: finalCalc?.card_remainder || 0,
+            salaryCash: finalCalc?.cash_payout || 0,
+            advanceTotal: 0, // Будет рассчитано
+            salaryTotal: 0, // Будет рассчитано
+            shortagesList: shortages || [],
+            isTermination: finalCalc?.is_termination || false,
+            isFixed: finalCalc?.is_fixed || false
+        };
+        
+        // Рассчитываем итоговые суммы
+        fullData.totalToPay = fullData.totalGross - fullData.totalDeductions;
+        fullData.advanceTotal = fullData.advanceCard + fullData.advanceCash;
+        fullData.salaryTotal = fullData.salaryCard + fullData.salaryCash;
+        
+        res.json(fullData);
+        
+    } catch (error) {
+        console.error('Ошибка получения данных сотрудника:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Сохранение универсальных корректировок
+app.post('/save-universal-corrections', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, corrections, changes } = req.body;
+    
+    try {
+        // Начинаем транзакцию
+        
+        // 1. Обновляем monthly_adjustments
+        await supabase
+            .from('monthly_adjustments')
+            .upsert({
+                employee_id: employee_id,
+                month: month,
+                year: year,
+                manual_bonus: corrections.bonus || 0,
+                penalty: corrections.penalty || 0,
+                shortage: corrections.shortages || 0,
+                bonus_reason: corrections.bonusReason || '',
+                penalty_reason: corrections.penaltyReason || ''
+            }, { onConflict: 'employee_id,month,year' });
+        
+        // 2. Обновляем final_payroll_calculations
+        await supabase
+            .from('final_payroll_calculations')
+            .upsert({
+                employee_id: employee_id,
+                month: month,
+                year: year,
+                advance_card: corrections.advanceCard || 0,
+                advance_cash: corrections.advanceCash || 0,
+                advance_payment: corrections.advanceTotal || 0,
+                card_remainder: corrections.salaryCard || 0,
+                cash_payout: corrections.salaryCash || 0,
+                total_gross: corrections.totalGross || 0,
+                total_deductions: corrections.totalDeductions || 0,
+                total_after_deductions: corrections.totalToPay || 0,
+                is_termination: corrections.isTermination || false,
+                is_manual_adjustment: true,
+                adjustment_reason: corrections.adjustmentReason || 'Универсальная корректировка',
+                adjusted_by: req.user.id,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'employee_id,month,year' });
+        
+        // 3. Логируем изменения
+        await logFinancialOperation('universal_correction', {
+            employee_id,
+            month,
+            year,
+            changes
+        }, req.user.id);
+        
+        res.json({ 
+            success: true, 
+            message: 'Все изменения успешно сохранены' 
+        });
+        
+    } catch (error) {
+        console.error('Ошибка сохранения корректировок:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ====== ХЕЛПЕР: собираем ФОТ с группировкой по магазинам (ИСПРАВЛЕННАЯ ВЕРСИЯ) ======
 async function buildFotReport({ startDate, endDate }) {
     // ШАГ 1: Определяем дни, за которые была ФАКТИЧЕСКИ загружена выручка
