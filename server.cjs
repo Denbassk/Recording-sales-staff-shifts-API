@@ -88,6 +88,103 @@ function validateAmount(amount, max, fieldName) {
     if (num > max) return { valid: false, error: `${fieldName} не может быть больше ${max}` };
     return { valid: true, value: num };
 }
+// Функция валидации расчетов
+function validatePayrollCalculation(data) {
+    const errors = [];
+    
+    // Проверка математики
+    const expectedRemainder = data.total_after_deductions - data.advance_payment;
+    const actualRemainder = data.card_remainder + data.cash_payout;
+    
+    if (Math.abs(expectedRemainder - actualRemainder) > 0.01 && !data.is_termination) {
+        errors.push(`Расхождение в остатках: ожидается ${expectedRemainder}, получено ${actualRemainder}`);
+    }
+    
+    // Проверка лимита карты
+    const totalOnCard = (data.advance_card || 0) + (data.card_remainder || 0);
+    if (totalOnCard > 8600) {
+        errors.push(`Превышен лимит карты: ${totalOnCard} > 8600`);
+    }
+    
+    // Проверка отрицательных значений
+    if (data.card_remainder < 0 || data.cash_payout < 0) {
+        errors.push('Остатки не могут быть отрицательными');
+    }
+    
+    return errors;
+}
+
+// Добавьте этот эндпоинт в server.cjs
+app.post('/validate-all-calculations', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, autoFix = false } = req.body;
+    
+    try {
+        const { data: records, error } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year);
+        
+        if (error) throw error;
+        
+        const validationResults = [];
+        const fixedRecords = [];
+        
+        for (const record of records) {
+            const validation = validatePayrollCalculation(record);
+            
+            if (!validation.valid) {
+                validationResults.push({
+                    employee_id: record.employee_id,
+                    errors: validation.errors,
+                    original: {
+                        advance: record.advance_payment,
+                        card_remainder: record.card_remainder,
+                        cash_payout: record.cash_payout
+                    }
+                });
+                
+                if (autoFix) {
+                    const fixed = autoFixPayrollCalculation(record);
+                    
+                    const { error: updateError } = await supabase
+                        .from('final_payroll_calculations')
+                        .update({
+                            card_remainder: fixed.card_remainder,
+                            cash_payout: fixed.cash_payout,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('employee_id', record.employee_id)
+                        .eq('month', month)
+                        .eq('year', year);
+                    
+                    if (!updateError) {
+                        fixedRecords.push({
+                            employee_id: record.employee_id,
+                            fixed: {
+                                card_remainder: fixed.card_remainder,
+                                cash_payout: fixed.cash_payout
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        
+        res.json({
+            success: true,
+            total_checked: records.length,
+            errors_found: validationResults.length,
+            fixed_count: fixedRecords.length,
+            validation_errors: validationResults,
+            fixed_records: fixedRecords
+        });
+        
+    } catch (error) {
+        console.error('Ошибка валидации:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 // --- ЛОГИРОВАНИЕ ФИНАНСОВЫХ ОПЕРАЦИЙ ---
 async function logFinancialOperation(operation, data, userId) {
@@ -691,7 +788,6 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
             }
             // Рассчитываем автоматически с ПРАВИЛЬНЫМ округлением
             else {
-    // ИСПРАВЛЕННЫЙ РАСЧЕТ:
     // 1. Берем 90% от НАЧИСЛЕНИЙ (не от лимита карты!)
     let calculatedAdvance = totalEarned * 0.9; 
     
@@ -1440,7 +1536,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 .eq('month', month)
                 .eq('year', year);
             
-            if (existingError) throw existingError;
+            if (existingError && existingError.code !== '42P01') throw existingError;
             
             // Создаем мапу существующих данных
             const existingMap = new Map();
@@ -1520,18 +1616,32 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     isTermination = existing.is_termination || false;
                     isFixed = existing.is_fixed || false;
                     
-                    // Если есть корректировка остатков - сохраняем
+                    // ИСПРАВЛЕНИЕ: Правильный расчет остатков
                     if (existing.is_remainder_adjusted) {
+                        // Если были ручные корректировки остатков - сохраняем их
                         cardRemainder = existing.card_remainder || 0;
                         cashPayout = existing.cash_payout || 0;
+                    } else if (isTermination) {
+                        // При увольнении остатки всегда 0
+                        cardRemainder = 0;
+                        cashPayout = 0;
                     } else {
-                        // Пересчитываем только если не было ручной корректировки
-                        const remainingToPay = Math.max(0, totalAfterDeductions - advancePayment);
-                        const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT;
-                        const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+                        // ИСПРАВЛЕННЫЙ РАСЧЕТ ОСТАТКОВ
+                        const remainingToPay = totalAfterDeductions - advancePayment;
                         
-                        cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-                        cashPayout = remainingToPay - cardRemainder;
+                        if (remainingToPay > 0) {
+                            // Есть остаток к выплате
+                            const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT; // 8600
+                            const alreadyOnCard = advanceCard; // Уже выплачено на карту
+                            const remainingCardCapacity = Math.max(0, maxCardTotal - alreadyOnCard);
+                            
+                            cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+                            cashPayout = remainingToPay - cardRemainder;
+                        } else {
+                            // Аванс покрывает все или переплата
+                            cardRemainder = 0;
+                            cashPayout = 0;
+                        }
                     }
                 } else {
                     // Новая запись - расчет по умолчанию
@@ -1541,18 +1651,25 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     advanceCard = advancePayment;
                     advanceCash = 0;
                     
-                    const remainingToPay = Math.max(0, totalAfterDeductions - advancePayment);
-                    const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT;
-                    const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+                    // ИСПРАВЛЕННЫЙ РАСЧЕТ ДЛЯ НОВЫХ ЗАПИСЕЙ
+                    const remainingToPay = totalAfterDeductions - advancePayment;
                     
-                    cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-                    cashPayout = remainingToPay - cardRemainder;
+                    if (remainingToPay > 0) {
+                        const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT;
+                        const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+                        
+                        cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+                        cashPayout = remainingToPay - cardRemainder;
+                    } else {
+                        cardRemainder = 0;
+                        cashPayout = 0;
+                    }
                 }
                 
-                // Если увольнение - остатки должны быть 0
-                if (isTermination) {
-                    cardRemainder = 0;
-                    cashPayout = 0;
+                // ПРОВЕРКА МАТЕМАТИКИ ПЕРЕД СОХРАНЕНИЕМ
+                const checkSum = (cardRemainder + cashPayout) - (totalAfterDeductions - advancePayment);
+                if (Math.abs(checkSum) > 0.01 && !isTermination) {
+                    console.warn(`Расхождение для ${employeeId}: ${checkSum}`);
                 }
                 
                 finalResults[employeeId] = { 
@@ -1592,11 +1709,35 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     remainder_adjusted_by: existing?.remainder_adjusted_by || null,
                     updated_at: new Date().toISOString()
                 });
+                // НОВОЕ: Валидация перед сохранением
+const validation = validatePayrollCalculation(recordToSave);
+if (!validation.valid) {
+    console.warn(`Ошибки валидации для ${employeeId}:`, validation.errors);
+    
+    // Пытаемся автоматически исправить
+    const fixedRecord = autoFixPayrollCalculation(recordToSave);
+    const revalidation = validatePayrollCalculation(fixedRecord);
+    
+    if (revalidation.valid) {
+        console.log(`Автоматически исправлено для ${employeeId}`);
+        dataToSave.push(fixedRecord);
+    } else {
+        console.error(`Не удалось исправить для ${employeeId}:`, revalidation.errors);
+        // Сохраняем как есть, но логируем проблему
+        await logFinancialOperation('validation_error', {
+            employee_id: employeeId,
+            errors: revalidation.errors,
+            data: fixedRecord
+        }, req.user.id);
+        dataToSave.push(fixedRecord);
+    }
+} else {
+    dataToSave.push(recordToSave);
+}
             }
 
             // Сохраняем финальные расчеты в базу данных
             if (dataToSave.length > 0) {
-                // ВАЖНО: Используем upsert с сохранением критичных полей
                 for (const record of dataToSave) {
                     const { error: saveError } = await supabase
                         .from('final_payroll_calculations')
@@ -1625,7 +1766,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             res.json({ 
                 success: true, 
                 results: finalResults,
-                message: `Расчет выполнен. Сохранены данные по ${existingMap.size} сотрудникам.`
+                message: `Расчет выполнен. Обработано ${dataToSave.length} сотрудников.`
             });
 
         } catch (error) {
@@ -1634,7 +1775,6 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
         }
     });
 });
-
 
 // Корректировка финальных выплат (остаток на карту/наличные)
 app.post('/adjust-final-payment', checkAuth, canManagePayroll, async (req, res) => {
@@ -1824,6 +1964,7 @@ app.delete('/remove-shortage/:id', checkAuth, canManagePayroll, async (req, res)
 });
 
 // Получение полных данных сотрудника для универсального модального окна
+// Получение полных данных сотрудника для универсального модального окна
 app.post('/get-employee-full-data', checkAuth, canManagePayroll, async (req, res) => {
     const { employee_id, month, year } = req.body;
     
@@ -1908,8 +2049,6 @@ app.post('/save-universal-corrections', checkAuth, canManagePayroll, async (req,
     const { employee_id, month, year, corrections, changes } = req.body;
     
     try {
-        // Начинаем транзакцию
-        
         // 1. Обновляем monthly_adjustments
         await supabase
             .from('monthly_adjustments')
@@ -1961,6 +2100,197 @@ app.post('/save-universal-corrections', checkAuth, canManagePayroll, async (req,
         
     } catch (error) {
         console.error('Ошибка сохранения корректировок:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/save-universal-corrections', async (req, res) => {
+    const { employee_id, month, year, corrections, changes, validation } = req.body;
+    
+    // Валидация на сервере
+    const errors = [];
+    
+    // Проверка математики
+    const totalGross = (corrections.basePay || 0) + (corrections.bonus || 0);
+    const totalDeductions = (corrections.penalty || 0) + (corrections.shortage || 0);
+    const expectedTotal = totalGross - totalDeductions;
+    
+    // Проверяем если corrections.totalToPay существует
+    if (corrections.totalToPay !== undefined) {
+        if (Math.abs(corrections.totalToPay - expectedTotal) > 0.01) {
+            errors.push('Ошибка в расчетах');
+        }
+    }
+    
+    // Проверка лимитов
+    const totalCard = (corrections.advanceCard || 0) + (corrections.salaryCard || 0);
+    if (totalCard > 8600) {
+        errors.push('Превышен лимит карты');
+    }
+    
+    if (errors.length > 0) {
+        return res.status(400).json({ 
+            success: false, 
+            errors: errors 
+        });
+    }
+    
+    // Транзакция для атомарности операции
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+        // Сохраняем корректировки в payroll_adjustments
+        await connection.query(
+            `INSERT INTO payroll_adjustments 
+            (employee_id, year, month, manual_bonus, penalty, shortage, bonus_reason, penalty_reason, updated_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE
+            manual_bonus = VALUES(manual_bonus),
+            penalty = VALUES(penalty),
+            shortage = VALUES(shortage),
+            bonus_reason = VALUES(bonus_reason),
+            penalty_reason = VALUES(penalty_reason),
+            updated_at = NOW()`,
+            [
+                employee_id,
+                year,
+                month,
+                corrections.bonus || 0,
+                corrections.penalty || 0,
+                corrections.shortage || 0,
+                corrections.bonusReason || '',
+                corrections.penaltyReason || ''
+            ]
+        );
+        
+        // Если есть таблица для логов (создайте если нет)
+        const checkTableExists = await connection.query(
+            "SHOW TABLES LIKE 'correction_logs'"
+        );
+        
+        if (checkTableExists[0].length === 0) {
+            // Создаем таблицу логов если её нет
+            await connection.query(`
+                CREATE TABLE correction_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    employee_id INT,
+                    month INT,
+                    year INT,
+                    changes TEXT,
+                    checksum VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_employee_date (employee_id, year, month)
+                )
+            `);
+        }
+        
+        // Логируем изменения
+        if (validation && validation.checksum) {
+            await connection.query(
+                'INSERT INTO correction_logs (employee_id, month, year, changes, checksum, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
+                [employee_id, month, year, JSON.stringify(changes), validation.checksum]
+            );
+        }
+        
+        await connection.commit();
+        
+        res.json({ 
+            success: true, 
+            message: 'Изменения сохранены и проверены' 
+        });
+        
+    } catch (error) {
+        await connection.rollback();
+        console.error('Ошибка сохранения корректировок:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Ошибка сохранения: ' + error.message 
+        });
+    } finally {
+        connection.release();
+    }
+});
+
+// Фиксация универсальных расчетов
+app.post('/fix-universal-calculations', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, calculations } = req.body;
+    
+    try {
+        // Подготавливаем данные для обновления БЕЗ перезаписи всех полей
+        const updateData = {
+            employee_id: employee_id,
+            month: parseInt(month),
+            year: parseInt(year),
+            // Обновляем только нужные поля из calculations
+            advance_card: calculations.advanceCard || 0,
+            advance_cash: calculations.advanceCash || 0,
+            advance_payment: calculations.advanceTotal || 0,
+            card_remainder: calculations.salaryCard || 0,
+            cash_payout: calculations.salaryCash || 0,
+            total_gross: calculations.totalGross || 0,
+            total_deductions: calculations.totalDeductions || 0,
+            total_after_deductions: calculations.totalToPay || 0,
+            // Флаги фиксации
+            is_fixed: true,
+            fixed_at: new Date().toISOString(),
+            fixed_by: req.user.id,
+            // Сохраняем информацию о специальных случаях если есть
+            is_termination: calculations.isTermination || false,
+            is_manual_adjustment: true,
+            adjustment_reason: calculations.terminationReason || calculations.loanReason || calculations.suspensionReason || 'Зафиксировано через универсальные корректировки'
+        };
+        
+        // Если есть информация о займе
+        if (calculations.loanAmount) {
+            updateData.loan_amount = calculations.loanAmount;
+            updateData.loan_reason = calculations.loanReason || 'Займ в счет зарплаты';
+        }
+        
+        // Если есть информация об отпускных
+        if (calculations.vacationAmount) {
+            updateData.vacation_amount = calculations.vacationAmount;
+            updateData.vacation_days = calculations.vacationDays || 0;
+        }
+        
+        // Если выплаты приостановлены
+        if (calculations.paymentsSuspended) {
+            updateData.payments_suspended = true;
+            updateData.suspension_reason = calculations.suspensionReason || 'Приостановка выплат';
+        }
+        
+        // Обновляем запись в БД
+        const { error: updateError } = await supabase
+            .from('final_payroll_calculations')
+            .upsert(updateData, { onConflict: 'employee_id,month,year' });
+        
+        if (updateError) throw updateError;
+        
+        // Логируем операцию
+        await logFinancialOperation('fix_universal_calculations', {
+            employee_id,
+            month,
+            year,
+            fixed_data: {
+                advance_total: updateData.advance_payment,
+                card_remainder: updateData.card_remainder,
+                cash_payout: updateData.cash_payout,
+                total_to_pay: updateData.total_after_deductions,
+                special_case: calculations.isTermination ? 'termination' : 
+                              calculations.loanAmount ? 'loan' :
+                              calculations.vacationAmount ? 'vacation' :
+                              calculations.paymentsSuspended ? 'suspended' : 'standard'
+            }
+        }, req.user.id);
+        
+        res.json({ 
+            success: true,
+            message: 'Расчеты успешно зафиксированы',
+            fixedAt: updateData.fixed_at
+        });
+        
+    } catch (error) {
+        console.error('Ошибка фиксации расчетов:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -2150,6 +2480,7 @@ app.post('/clear-transactional-data', checkAuth, canManageFot, async (req, res) 
   }
 });
 
+
 // --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0'; // Явно указываем хост
@@ -2207,23 +2538,83 @@ app.post('/backup-payroll-state', checkAuth, canManagePayroll, async (req, res) 
 
 // Восстановление из резервной копии
 app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) => {
-    const { year, month } = req.body;
+    const { year, month, backupDate } = req.body;
     
     try {
-        // Восстанавливаем из резервной копии
-        const { error: restoreError } = await supabase.rpc('restore_payroll_data', {
-            p_year: year,
-            p_month: month
+        // Получаем данные из резервной копии с правильным преобразованием типов
+        const { data: backupData, error: fetchError } = await supabase
+            .from('final_payroll_calculations_backup')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year)
+            .eq('backup_date', backupDate);
+        
+        if (fetchError) throw fetchError;
+        
+        if (!backupData || backupData.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Резервная копия не найдена' 
+            });
+        }
+        
+        // Восстанавливаем данные с правильным преобразованием
+        for (const record of backupData) {
+            // Извлекаем только нужные поля, исключая метаданные бэкапа
+            const dataToRestore = {
+                employee_id: record.employee_id,
+                month: parseInt(record.month),
+                year: parseInt(record.year),
+                total_gross: parseFloat(record.total_gross) || 0,
+                total_deductions: parseFloat(record.total_deductions) || 0,
+                total_after_deductions: parseFloat(record.total_after_deductions) || 0,
+                advance_payment: parseFloat(record.advance_payment) || 0,
+                advance_card: parseFloat(record.advance_card) || 0,
+                advance_cash: parseFloat(record.advance_cash) || 0,
+                card_remainder: parseFloat(record.card_remainder) || 0,
+                cash_payout: parseFloat(record.cash_payout) || 0,
+                total_card_payment: parseFloat(record.total_card_payment) || 0,
+                is_manual_adjustment: record.is_manual_adjustment || false,
+                is_termination: record.is_termination || false,
+                is_fixed: record.is_fixed || false,
+                adjustment_reason: record.adjustment_reason,
+                advance_payment_method: record.advance_payment_method
+            };
+            
+            // Проверяем математику перед сохранением
+            const calculatedRemainder = dataToRestore.total_after_deductions - dataToRestore.advance_payment;
+            const actualRemainder = dataToRestore.card_remainder + dataToRestore.cash_payout;
+            
+            if (Math.abs(calculatedRemainder - actualRemainder) > 0.01) {
+                console.warn(`Расхождение для ${record.employee_id}: должно быть ${calculatedRemainder}, есть ${actualRemainder}`);
+                // Исправляем
+                const cardCapacity = Math.max(0, 8600 - dataToRestore.advance_card);
+                dataToRestore.card_remainder = Math.min(cardCapacity, calculatedRemainder);
+                dataToRestore.cash_payout = Math.max(0, calculatedRemainder - dataToRestore.card_remainder);
+            }
+            
+            const { error: upsertError } = await supabase
+                .from('final_payroll_calculations')
+                .upsert(dataToRestore, { 
+                    onConflict: 'employee_id,month,year' 
+                });
+            
+            if (upsertError) {
+                console.error(`Ошибка восстановления записи ${record.employee_id}:`, upsertError);
+            }
+        }
+        
+        res.json({
+            success: true,
+            message: `Восстановлено ${backupData.length} записей`
         });
         
-        if (restoreError) throw restoreError;
-        
-        res.json({ success: true, message: 'Данные восстановлены из резервной копии' });
     } catch (error) {
         console.error('Ошибка восстановления:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 // Автосохранение состояния таблицы
 app.post('/autosave-table-state', checkAuth, canManagePayroll, async (req, res) => {
@@ -2373,3 +2764,80 @@ app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) =
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// Автоматический backup дважды в день
+async function createAutoBackup() {
+    try {
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        const year = now.getFullYear();
+        
+        // Получаем данные текущего месяца
+        const { data: currentData } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year);
+        
+        if (currentData && currentData.length > 0) {
+            // Подготавливаем данные для backup
+            const backupData = currentData.map(row => ({
+                employee_id: row.employee_id,
+                month: row.month,
+                year: row.year,
+                total_gross: row.total_gross,
+                total_deductions: row.total_deductions,
+                total_after_deductions: row.total_after_deductions,
+                advance_payment: row.advance_payment,
+                advance_card: row.advance_card,
+                advance_cash: row.advance_cash,
+                card_remainder: row.card_remainder,
+                cash_payout: row.cash_payout,
+                total_card_payment: row.total_card_payment,
+                is_manual_adjustment: row.is_manual_adjustment,
+                adjustment_reason: row.adjustment_reason,
+                is_termination: row.is_termination,
+                is_fixed: row.is_fixed,
+                advance_payment_method: row.advance_payment_method,
+                original_id: row.id,
+                backup_date: now.toISOString(),
+                backup_reason: 'auto_backup_daily',
+                backup_by: 'SYSTEM'
+            }));
+            
+            // Сохраняем backup
+            const { error } = await supabase
+                .from('final_payroll_calculations_backup')
+                .insert(backupData);
+            
+            if (!error) {
+                console.log(`[${now.toISOString()}] Auto backup created: ${backupData.length} records`);
+                
+                // Удаляем старые auto backup (старше 7 дней)
+                const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+                await supabase
+                    .from('final_payroll_calculations_backup')
+                    .delete()
+                    .eq('backup_reason', 'auto_backup_daily')
+                    .lt('backup_date', sevenDaysAgo.toISOString());
+            }
+        }
+    } catch (error) {
+        console.error('Auto backup error:', error);
+    }
+}
+
+// Запускаем backup каждый час и проверяем время
+setInterval(async () => {
+    const hour = new Date().getHours();
+    // Backup в 11:00 и 23:00
+    if (hour === 11 || hour === 23) {
+        const minute = new Date().getMinutes();
+        if (minute < 5) { // В первые 5 минут часа
+            await createAutoBackup();
+        }
+    }
+}, 5 * 60 * 1000); // Проверяем каждые 5 минут
+
+// Также делаем backup при старте сервера
+setTimeout(createAutoBackup, 30000); // Через 30 секунд после старта
