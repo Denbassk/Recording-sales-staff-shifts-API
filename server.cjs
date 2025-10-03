@@ -114,6 +114,50 @@ function validatePayrollCalculation(data) {
     return errors;
 }
 
+// --- ЛОГИРОВАНИЕ ФИНАНСОВЫХ ОПЕРАЦИЙ ---
+async function logFinancialOperation(operation, data, userId) {
+    try {
+        await supabase.from('financial_logs').insert({
+            operation_type: operation,
+            data: JSON.stringify(data),
+            user_id: userId,
+        });
+    } catch (error) {
+        console.error('Ошибка логирования операции:', error);
+    }
+}
+
+// --- MIDDLEWARE ДЛЯ ПРОВЕРКИ АВТОРИЗАЦИИ И РОЛЕЙ ---
+const checkAuth = (req, res, next) => {
+  const token = req.cookies.token;
+  if (!token) return res.status(401).json({ success: false, message: "Нет токена." });
+  
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    
+    supabase.from('sessions').upsert({
+        token: token.substring(0, 50),
+        employee_id: decoded.id,
+        employee_role: decoded.role,
+        last_activity: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()
+    }, { onConflict: 'employee_id' }).then();
+    
+    next();
+  } catch (err) {
+    return res.status(401).json({ success: false, message: "Невалидный токен." });
+  }
+};
+
+const checkRole = (roles) => {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ success: false, message: "Недостаточно прав." });
+    }
+    next();
+  };
+};
 // Добавьте этот эндпоинт в server.cjs
 app.post('/validate-all-calculations', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, autoFix = false } = req.body;
@@ -185,51 +229,6 @@ app.post('/validate-all-calculations', checkAuth, canManagePayroll, async (req, 
         res.status(500).json({ success: false, error: error.message });
     }
 });
-
-// --- ЛОГИРОВАНИЕ ФИНАНСОВЫХ ОПЕРАЦИЙ ---
-async function logFinancialOperation(operation, data, userId) {
-    try {
-        await supabase.from('financial_logs').insert({
-            operation_type: operation,
-            data: JSON.stringify(data),
-            user_id: userId,
-        });
-    } catch (error) {
-        console.error('Ошибка логирования операции:', error);
-    }
-}
-
-// --- MIDDLEWARE ДЛЯ ПРОВЕРКИ АВТОРИЗАЦИИ И РОЛЕЙ ---
-const checkAuth = (req, res, next) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ success: false, message: "Нет токена." });
-  
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    
-    supabase.from('sessions').upsert({
-        token: token.substring(0, 50),
-        employee_id: decoded.id,
-        employee_role: decoded.role,
-        last_activity: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()
-    }, { onConflict: 'employee_id' }).then();
-    
-    next();
-  } catch (err) {
-    return res.status(401).json({ success: false, message: "Невалидный токен." });
-  }
-};
-
-const checkRole = (roles) => {
-  return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return res.status(403).json({ success: false, message: "Недостаточно прав." });
-    }
-    next();
-  };
-};
 
 // --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ РАСЧЕТА ДНЕВНОЙ ЗАРПЛАТЫ ---
 function calculateDailyPay(revenue, numSellers, isSenior = false) {
