@@ -158,77 +158,6 @@ const checkRole = (roles) => {
     next();
   };
 };
-// Добавьте этот эндпоинт в server.cjs
-app.post('/validate-all-calculations', checkAuth, canManagePayroll, async (req, res) => {
-    const { year, month, autoFix = false } = req.body;
-    
-    try {
-        const { data: records, error } = await supabase
-            .from('final_payroll_calculations')
-            .select('*')
-            .eq('month', month)
-            .eq('year', year);
-        
-        if (error) throw error;
-        
-        const validationResults = [];
-        const fixedRecords = [];
-        
-        for (const record of records) {
-            const validation = validatePayrollCalculation(record);
-            
-            if (!validation.valid) {
-                validationResults.push({
-                    employee_id: record.employee_id,
-                    errors: validation.errors,
-                    original: {
-                        advance: record.advance_payment,
-                        card_remainder: record.card_remainder,
-                        cash_payout: record.cash_payout
-                    }
-                });
-                
-                if (autoFix) {
-                    const fixed = autoFixPayrollCalculation(record);
-                    
-                    const { error: updateError } = await supabase
-                        .from('final_payroll_calculations')
-                        .update({
-                            card_remainder: fixed.card_remainder,
-                            cash_payout: fixed.cash_payout,
-                            updated_at: new Date().toISOString()
-                        })
-                        .eq('employee_id', record.employee_id)
-                        .eq('month', month)
-                        .eq('year', year);
-                    
-                    if (!updateError) {
-                        fixedRecords.push({
-                            employee_id: record.employee_id,
-                            fixed: {
-                                card_remainder: fixed.card_remainder,
-                                cash_payout: fixed.cash_payout
-                            }
-                        });
-                    }
-                }
-            }
-        }
-        
-        res.json({
-            success: true,
-            total_checked: records.length,
-            errors_found: validationResults.length,
-            fixed_count: fixedRecords.length,
-            validation_errors: validationResults,
-            fixed_records: fixedRecords
-        });
-        
-    } catch (error) {
-        console.error('Ошибка валидации:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
 
 // --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ РАСЧЕТА ДНЕВНОЙ ЗАРПЛАТЫ ---
 function calculateDailyPay(revenue, numSellers, isSenior = false) {
@@ -2477,6 +2406,78 @@ app.post('/clear-transactional-data', checkAuth, canManageFot, async (req, res) 
     console.error('Ошибка при очистке данных:', error);
     res.status(500).json({ success: false, error: 'Произошла ошибка на сервере при удалении данных.' });
   }
+});
+
+// Добавьте этот эндпоинт в server.cjs
+app.post('/validate-all-calculations', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, autoFix = false } = req.body;
+    
+    try {
+        const { data: records, error } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('month', month)
+            .eq('year', year);
+        
+        if (error) throw error;
+        
+        const validationResults = [];
+        const fixedRecords = [];
+        
+        for (const record of records) {
+            const validation = validatePayrollCalculation(record);
+            
+            if (!validation.valid) {
+                validationResults.push({
+                    employee_id: record.employee_id,
+                    errors: validation.errors,
+                    original: {
+                        advance: record.advance_payment,
+                        card_remainder: record.card_remainder,
+                        cash_payout: record.cash_payout
+                    }
+                });
+                
+                if (autoFix) {
+                    const fixed = autoFixPayrollCalculation(record);
+                    
+                    const { error: updateError } = await supabase
+                        .from('final_payroll_calculations')
+                        .update({
+                            card_remainder: fixed.card_remainder,
+                            cash_payout: fixed.cash_payout,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('employee_id', record.employee_id)
+                        .eq('month', month)
+                        .eq('year', year);
+                    
+                    if (!updateError) {
+                        fixedRecords.push({
+                            employee_id: record.employee_id,
+                            fixed: {
+                                card_remainder: fixed.card_remainder,
+                                cash_payout: fixed.cash_payout
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        
+        res.json({
+            success: true,
+            total_checked: records.length,
+            errors_found: validationResults.length,
+            fixed_count: fixedRecords.length,
+            validation_errors: validationResults,
+            fixed_records: fixedRecords
+        });
+        
+    } catch (error) {
+        console.error('Ошибка валидации:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 
