@@ -908,41 +908,55 @@ function displayRevenuePreview(revenues, matched, unmatched, totalRevenue) {
             }
         }
 
-// --- УНИВЕРСАЛЬНАЯ ФУНКЦИЯ ДЛЯ FETCH-ЗАПРОСОВ ---
 async function fetchData(url, options, statusId) {
+    try {
+        // Добавляем таймаут 30 секунд для предотвращения ERR_CONNECTION_RESET
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            let errorText = `Ошибка HTTP: ${response.status}`;
+            const responseClone = response.clone();
+
             try {
-                const response = await fetch(url, options);
-
-                if (!response.ok) {
-                    let errorText = `Ошибка HTTP: ${response.status}`;
-                    const responseClone = response.clone();
-
-                    try {
-                        const errorResult = await responseClone.json();
-                        errorText = errorResult.error || errorResult.message || JSON.stringify(errorResult);
-                    } catch (e) {
-                        try {
-                            const textError = await response.text();
-                            if (textError.includes('<!DOCTYPE') || textError.includes('<html')) {
-                                errorText = `Ошибка ${response.status}: Эндпоинт не найден`;
-                            } else {
-                                errorText = textError || errorText;
-                            }
-                        } catch (textError) {
-                            errorText = `Ошибка HTTP: ${response.status} - ${response.statusText}`;
-                        }
+                const errorResult = await responseClone.json();
+                errorText = errorResult.error || errorResult.message || JSON.stringify(errorResult);
+            } catch (e) {
+                try {
+                    const textError = await response.text();
+                    if (textError.includes('<!DOCTYPE') || textError.includes('<html')) {
+                        errorText = `Ошибка ${response.status}: Эндпоинт не найден`;
+                    } else {
+                        errorText = textError || errorText;
                     }
-                    throw new Error(errorText);
+                } catch (textError) {
+                    errorText = `Ошибка HTTP: ${response.status} - ${response.statusText}`;
                 }
-
-                return await response.json();
-
-            } catch (error) {
-                console.error(`Ошибка при запросе к ${url}:`, error);
-                showStatus(statusId, `Ошибка: ${error.message}`, 'error');
-                throw error;
             }
+            throw new Error(errorText);
         }
+
+        return await response.json();
+
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            console.error('Превышено время ожидания запроса (30 сек)');
+            showStatus(statusId, '⏱️ Превышено время ожидания. Попробуйте еще раз или выберите меньший период.', 'warning');
+        } else {
+            console.error(`Ошибка при запросе к ${url}:`, error);
+            showStatus(statusId, `Ошибка: ${error.message}`, 'error');
+        }
+        throw error;
+    }
+}
+
 
 
 // --- ВКЛАДКА "РАСЧЕТ ЗАРПЛАТЫ" ---
