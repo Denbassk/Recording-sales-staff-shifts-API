@@ -5,7 +5,7 @@ const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:30
 let fotReportDataCache = [];
 
 // --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
-const FIXED_CARD_PAYMENT = 8600;      // Лимит на карту за месяц
+const FIXED_CARD_PAYMENT = 8700;      // Лимит на карту за месяц
 const ADVANCE_PERCENTAGE = 0.9;       // 90% для расчета аванса
 const MAX_ADVANCE = 7900;              // Максимальный аванс (ИМЕННО 7900!)
 const ADVANCE_PERIOD_DAYS = 15;       // Период для аванса
@@ -1087,7 +1087,7 @@ function recalculateRow(row) {
     
     // ВАЖНО: Пересчитываем распределение остатка между картой и наличными
     const advanceCard = parseFloat(advanceCardCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-    const maxCardTotal = 8600; // Лимит на карту
+    const maxCardTotal = 8700; // Лимит на карту
     const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
     
     // Новые значения для остатка на карту и наличные
@@ -1674,7 +1674,7 @@ function recalculateRow(row) {
     
     if (remainingToPay > 0) {
         // Есть остаток к выплате
-        const maxCardTotal = 8600;
+        const maxCardTotal = 8700;
         const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
         
         newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
@@ -2149,7 +2149,7 @@ async function calculateAdvance15(silent = false) {
             advanceCash = totalAdvance;
         } else if (paymentChoice === '3') {
             // Разделение суммы
-            let defaultCardAmount = Math.min(totalAdvance, 8600); // Предлагаем максимум карты
+            let defaultCardAmount = Math.min(totalAdvance, 8700); // Предлагаем максимум карты
             if (isTermination) {
                 // При увольнении предлагаем разумное разделение
                 defaultCardAmount = Math.min(totalAdvance, 6000); // Или другая логика
@@ -2159,8 +2159,8 @@ async function calculateAdvance15(silent = false) {
                 `Разделение суммы ${formatNumber(totalAdvance)} грн\n\n` +
                 `Сколько выплатить НА КАРТУ?\n` +
                 `(остальное будет выплачено наличными)\n\n` +
-                `Максимум на карту: ${Math.min(totalAdvance, 8600)} грн\n` +
-                `Остаток наличными: ${formatNumber(totalAdvance - Math.min(totalAdvance, 8600))} грн\n\n` +
+                `Максимум на карту: ${Math.min(totalAdvance, 8700)} грн\n` +
+                `Остаток наличными: ${formatNumber(totalAdvance - Math.min(totalAdvance, 8700))} грн\n\n` +
                 `Введите сумму для карты:`,
                 defaultCardAmount
             );
@@ -2173,9 +2173,9 @@ async function calculateAdvance15(silent = false) {
                 return;
             }
             
-            // При увольнении проверяем лимит карты 8600
-            if (advanceCard > 8600) {
-                showStatus('reportStatus', 'На карту нельзя выплатить больше 8600 грн даже при увольнении', 'error');
+            // При увольнении проверяем лимит карты 8700
+            if (advanceCard > 8700) {
+                showStatus('reportStatus', 'На карту нельзя выплатить больше 8700 грн даже при увольнении', 'error');
                 return;
             }
             
@@ -2475,10 +2475,10 @@ async function validatePayrollCalculations() {
         
         // Проверяем лимит карты
         const totalOnCard = advanceCard + cardRemainder;
-        if (totalOnCard > 8600) {
+        if (totalOnCard > 8700) {
             errors.push({
                 employee: employeeName,
-                error: `Превышен лимит карты: ${totalOnCard} > 8600`
+                error: `Превышен лимит карты: ${totalOnCard} > 8700`
             });
         }
     });
@@ -2960,7 +2960,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                                 <input type="number" 
                                     class="advance-card-input" 
                                     min="0" 
-                                    max="${Math.min(emp.earned_amount, 8600)}"
+                                    max="${Math.min(emp.earned_amount, 8700)}"
                                     value="0"
                                     style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
                             </div>
@@ -4153,7 +4153,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
     const currentCashPayout = parseFloat(row.querySelector('.cash-payout')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
     
     // Максимум на карту (лимит минус аванс)
-    const maxCard = Math.max(0, 8600 - advanceCard);
+    const maxCard = Math.max(0, 8700 - advanceCard);
     
     // Создаем диалоговое окно
     const dialogHTML = `
@@ -4202,7 +4202,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
                     style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 16px; background: #f8f9fa;">
                 
                 <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px;">
-                    <small>⚠️ Лимит на карту за месяц: 8600 грн<br>
+                    <small>⚠️ Лимит на карту за месяц: 8700 грн<br>
                     Уже на карте (аванс): ${formatNumber(advanceCard)} грн<br>
                     Доступно для остатка: ${formatNumber(maxCard)} грн</small>
                 </div>

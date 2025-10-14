@@ -942,7 +942,7 @@ document.head.appendChild(improvedStyle);
                 
                 // Проверка лимитов карты
                 const totalCard = (this.adjustedData.advanceCard || 0) + (this.adjustedData.salaryCard || 0);
-                if (totalCard > 8600) {
+                if (totalCard > 8700) {
                     console.warn('Превышен лимит карты:', totalCard);
                 }
             }
@@ -1054,7 +1054,7 @@ renderAdvanceTab() {
         
         <div class="ucm-form-row">
             <div class="ucm-form-group">
-                <label>💳 На карту (макс. 8600):</label>
+                <label>💳 На карту (макс. 8700):</label>
                 <input type="number" id="ucm-advance-card" 
                        value="${this.adjustedData.advanceCard || 0}"
                        onchange="ucModal.updateCalculations()">
@@ -1072,7 +1072,7 @@ renderAdvanceTab() {
 
     // Рендер вкладки Зарплата - упрощенная
 renderSalaryTab() {
-    const maxCard = 8600 - (this.adjustedData.advanceCard || 0);
+    const maxCard = 8700 - (this.adjustedData.advanceCard || 0);
     return `
     <div class="ucm-form-compact">
         <h4>Корректировка зарплаты</h4>
@@ -1503,10 +1503,10 @@ togglePreview() {
                 const customAmount = prompt('Введите сумму аванса:', '5000');
                 if (customAmount) {
                     const amount = parseFloat(customAmount) || 0;
-                    if (amount > 8600) {
-                        alert('Сумма превышает лимит карты (8600 грн)');
-                        advanceCardInput.value = 8600;
-                        advanceCashInput.value = amount - 8600;
+                    if (amount > 8700) {
+                        alert('Сумма превышает лимит карты (8700 грн)');
+                        advanceCardInput.value = 8700;
+                        advanceCashInput.value = amount - 8700;
                     } else {
                         advanceCardInput.value = amount;
                         advanceCashInput.value = 0;
@@ -1537,7 +1537,7 @@ togglePreview() {
             return;
         }
         
-        const maxCard = 8600 - (this.adjustedData.advanceCard || 0);
+        const maxCard = 8700 - (this.adjustedData.advanceCard || 0);
         const cardAmount = Math.min(remaining, maxCard);
         const cashAmount = remaining - cardAmount;
         
@@ -1610,8 +1610,8 @@ togglePreview() {
         
         const total = this.adjustedData.totalToPay;
         
-        document.getElementById('ucm-advance-card').value = Math.min(total, 8600);
-        document.getElementById('ucm-advance-cash').value = Math.max(0, total - 8600);
+        document.getElementById('ucm-advance-card').value = Math.min(total, 8700);
+        document.getElementById('ucm-advance-cash').value = Math.max(0, total - 8700);
         document.getElementById('ucm-salary-card').value = 0;
         document.getElementById('ucm-salary-cash').value = 0;
         
@@ -1631,7 +1631,7 @@ togglePreview() {
             return;
         }
         
-        const maxCard = 8600;
+        const maxCard = 8700;
         document.getElementById('ucm-advance-card').value = Math.min(amount, maxCard);
         document.getElementById('ucm-advance-cash').value = Math.max(0, amount - maxCard);
         
@@ -1658,8 +1658,8 @@ togglePreview() {
         const dailyRate = this.originalData.basePay / 22;
         const vacationAmount = Math.round(dailyRate * days);
         
-        document.getElementById('ucm-advance-card').value = Math.min(vacationAmount, 8600);
-        document.getElementById('ucm-advance-cash').value = Math.max(0, vacationAmount - 8600);
+        document.getElementById('ucm-advance-card').value = Math.min(vacationAmount, 8700);
+        document.getElementById('ucm-advance-cash').value = Math.max(0, vacationAmount - 8700);
         
         this.adjustedData.vacationDays = days;
         this.adjustedData.vacationAmount = vacationAmount;
@@ -1707,8 +1707,8 @@ togglePreview() {
         const salaryCard = this.adjustedData.salaryCard || 0;
         const totalCard = advanceCard + salaryCard;
         
-        if (totalCard > 8600) {
-            errors.push(`Превышен лимит карты: ${totalCard} > 8600`);
+        if (totalCard > 8700) {
+            errors.push(`Превышен лимит карты: ${totalCard} > 8700`);
         }
         
         // Проверка авансов

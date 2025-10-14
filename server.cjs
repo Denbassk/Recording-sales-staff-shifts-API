@@ -43,11 +43,11 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
 // --- КОНСТАНТЫ ДЛЯ РАСЧЕТОВ И ВАЛИДАЦИИ ---
-const FIXED_CARD_PAYMENT = 8600; 
+const FIXED_CARD_PAYMENT = 8700; 
 const ADVANCE_PERCENTAGE = 0.9;  // 90% от лимита карты
 const MAX_ADVANCE_AMOUNT = 7900; // Именно 7900, не 7740!
 const COMPANY_TAX_RATE = 0.22; 
-const FIXED_CARD_PAYMENT_FOR_REPORT = 8600;
+const FIXED_CARD_PAYMENT_FOR_REPORT = 8700;
 
 const MAX_MANUAL_BONUS = 10000;
 const MAX_PENALTY = 5000;
@@ -102,8 +102,8 @@ function validatePayrollCalculation(data) {
     
     // Проверка лимита карты
     const totalOnCard = (data.advance_card || 0) + (data.card_remainder || 0);
-    if (totalOnCard > 8600) {
-        errors.push(`Превышен лимит карты: ${totalOnCard} > 8600`);
+    if (totalOnCard > 8700) {
+        errors.push(`Превышен лимит карты: ${totalOnCard} > 8700`);
     }
     
     // Проверка отрицательных значений
@@ -1559,7 +1559,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                         
                         if (remainingToPay > 0) {
                             // Есть остаток к выплате
-                            const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT; // 8600
+                            const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT; // 8700
                             const alreadyOnCard = advanceCard; // Уже выплачено на карту
                             const remainingCardCapacity = Math.max(0, maxCardTotal - alreadyOnCard);
                             
@@ -1722,7 +1722,7 @@ app.post('/adjust-final-payment', checkAuth, canManagePayroll, async (req, res) 
             return res.status(404).json({ success: false, error: 'Расчет не найден' });
         }
         
-        const maxCard = Math.max(0, FIXED_CARD_PAYMENT_FOR_REPORT - (currentData.advance_card || 0));
+        const maxCard = Math.max(0, FIXED_CARD_PAYMENT_FOR_REPORT - (currentData.advance_card || 0)); // Использует константу
         if (card_remainder > maxCard) {
             return res.status(400).json({ 
                 success: false, 
@@ -2052,7 +2052,7 @@ app.post('/save-universal-corrections', async (req, res) => {
     
     // Проверка лимитов
     const totalCard = (corrections.advanceCard || 0) + (corrections.salaryCard || 0);
-    if (totalCard > 8600) {
+    if (totalCard > 8700) {
         errors.push('Превышен лимит карты');
     }
     
@@ -2266,7 +2266,7 @@ async function buildFotReport({ startDate, endDate }) {
     // ШАГ 4: Считаем ФОТ по магазинам, как и раньше
     const fotByStore = {};
     const TAX = 0.22;
-    const cardLimit = 8600;
+    const cardLimit = 8700;
     const employeeCardTracker = {}; 
   
     for (const c of calcs) {
@@ -2588,7 +2588,7 @@ app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) =
             if (Math.abs(calculatedRemainder - actualRemainder) > 0.01) {
                 console.warn(`Расхождение для ${record.employee_id}: должно быть ${calculatedRemainder}, есть ${actualRemainder}`);
                 // Исправляем
-                const cardCapacity = Math.max(0, 8600 - dataToRestore.advance_card);
+                const cardCapacity = Math.max(0, 8700 - dataToRestore.advance_card);
                 dataToRestore.card_remainder = Math.min(cardCapacity, calculatedRemainder);
                 dataToRestore.cash_payout = Math.max(0, calculatedRemainder - dataToRestore.card_remainder);
             }
