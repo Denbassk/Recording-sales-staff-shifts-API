@@ -42,13 +42,26 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- КОНСТАНТЫ ДЛЯ РАСЧЕТОВ И ВАЛИДАЦИИ ---
-const FIXED_CARD_PAYMENT = 8700; 
-const ADVANCE_PERCENTAGE = 0.9;  // 90% от лимита карты
-const MAX_ADVANCE_AMOUNT = 7900; // Именно 7900, не 7740!
-const COMPANY_TAX_RATE = 0.22; 
-const FIXED_CARD_PAYMENT_FOR_REPORT = 8700;
+// Дефолтные лимиты карты (для fallback и обратной совместимости)
+const DEFAULT_LIMITS = {
+    STANDARD: {
+        cardLimit: 8700,           // Лимит на карту за месяц
+        maxAdvance: 7900,          // Максимальный аванс (фиксированная сумма)
+        advancePercentage: 0.9,    // 90% от начислений (не от лимита!)
+        limitName: 'Обычная карта',
+        limitTypeId: 1
+    },
+    PREMIUM: {
+        cardLimit: 16000,          // Лимит на карту за месяц
+        maxAdvance: 11500,         // Максимальный аванс (фиксированная сумма)
+        advancePercentage: 0.9,    // 90% от начислений (не от лимита!)
+        limitName: 'Повышенная карта',
+        limitTypeId: 2
+    }
+};
 
+// Налоги и ограничения
+const COMPANY_TAX_RATE = 0.22; 
 const MAX_MANUAL_BONUS = 10000;
 const MAX_PENALTY = 5000;
 const MAX_SHORTAGE = 10000;
@@ -67,6 +80,60 @@ async function withLock(key, operation) {
     } finally {
         operationLocks.delete(lockKey);
     }
+}
+
+// После констант FIXED_CARD_PAYMENT и т.д. добавьте:
+
+// ========== ФУНКЦИЯ ПОЛУЧЕНИЯ ЛИМИТОВ КАРТЫ ==========
+async function getEmployeeCardLimit(employee_id) {
+    try {
+        const { data: employee, error } = await supabase
+            .from('employees')
+            .select(`
+                card_limit_type_id,
+                card_limit_types (
+                    limit_name,
+                    card_limit,
+                    max_advance,
+                    advance_percentage
+                )
+            `)
+            .eq('id', employee_id)
+            .single();
+        
+        if (error) {
+            console.warn(`Ошибка получения лимитов для ${employee_id}:`, error);
+            // Возвращаем дефолтные значения
+            return DEFAULT_LIMITS.STANDARD;
+        }
+        
+        // Если есть связь с типом лимита - используем его
+        if (employee?.card_limit_types) {
+            return {
+                cardLimit: employee.card_limit_types.card_limit,
+                maxAdvance: employee.card_limit_types.max_advance,
+                advancePercentage: employee.card_limit_types.advance_percentage || 0.9,
+                limitName: employee.card_limit_types.limit_name,
+                limitTypeId: employee.card_limit_type_id
+            };
+        }
+        
+        // Если нет связи - возвращаем стандартный лимит
+        console.log(`Сотрудник ${employee_id} без назначенного лимита, используем стандартный`);
+        return DEFAULT_LIMITS.STANDARD;
+        
+    } catch (error) {
+        console.error(`Критическая ошибка получения лимитов для ${employee_id}:`, error);
+        // В случае любой ошибки - возвращаем безопасные дефолтные значения
+        return DEFAULT_LIMITS.STANDARD;
+    }
+}
+
+// ========== ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ: ПОЛУЧИТЬ ЛИМИТ ДЛЯ ОТЧЕТОВ ==========
+// Используется когда нужен просто числовой лимит без деталей
+async function getCardLimitForReport(employee_id) {
+    const limits = await getEmployeeCardLimit(employee_id);
+    return limits.cardLimit;
 }
 
 // --- ФУНКЦИИ ВАЛИДАЦИИ ---
@@ -409,26 +476,56 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
 
     return withLock(`payroll_${date}`, async () => {
         try {
-            const { data: shifts, error: shiftsError } = await supabase.from('shifts')
-                .select(`store_id, stores (address), employees (fullname, id)`)
-                .eq('shift_date', date);
+// ИСПРАВЛЕНИЕ: добавляем role в select
+const { data: shiftsRaw, error: shiftsError } = await supabase.from('shifts')
+    .select(`store_id, stores (address), employees (fullname, id, role)`)
+    .eq('shift_date', date)
+    .neq('store_id', 27);  // ✅ ИСКЛЮЧАЕМ магазин Професорська 12
 
-            if (shiftsError) throw shiftsError;
-            if (!shifts || shifts.length === 0) {
-                return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
-            }
-            
-            const storeShifts = {};
-            shifts.forEach(shift => {
-                if (!shift.employees) return;
-                const address = shift.stores?.address || 'Старший продавец';
-                if (!storeShifts[address]) storeShifts[address] = [];
-                storeShifts[address].push({
-                    employee_id: shift.employees.id,
-                    employee_name: shift.employees.fullname,
-                    store_id: shift.store_id
-                });
-            });
+if (shiftsError) throw shiftsError;
+if (!shiftsRaw || shiftsRaw.length === 0) {
+    return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
+}
+
+// ✅ ФИЛЬТРАЦИЯ: исключаем админов, бухгалтеров и сотрудников без имен
+const shifts = shiftsRaw.filter(shift => {
+    if (!shift.employees) return false;
+    
+    const role = shift.employees.role;
+    const fullname = (shift.employees.fullname || '').trim();
+    
+    // Пропускаем админов и бухгалтеров
+    if (role === 'admin' || role === 'accountant') {
+        console.log(`Исключен ${role}: ${fullname}`);
+        return false;
+    }
+    
+    // Пропускаем сотрудников без имени
+    if (fullname === '') {
+        console.log(`Исключен сотрудник без имени: ${shift.employees.id}`);
+        return false;
+    }
+    
+    return true;
+});
+
+console.log(`Дата: ${date}, Смен до фильтрации: ${shiftsRaw.length}, после фильтрации: ${shifts.length}`);
+
+if (shifts.length === 0) {
+    return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
+}
+
+const storeShifts = {};
+shifts.forEach(shift => {
+    if (!shift.employees) return;
+    const address = shift.stores?.address || 'Старший продавец';
+    if (!storeShifts[address]) storeShifts[address] = [];
+    storeShifts[address].push({
+        employee_id: shift.employees.id,
+        employee_name: shift.employees.fullname,
+        store_id: shift.store_id
+    });
+});
             
             const uniqueStoreIds = [...new Set(shifts.map(s => s.store_id).filter(id => id))];
             
@@ -570,19 +667,41 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
         if (empError) throw empError;
         const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
 
-        // ИСПРАВЛЕНИЕ: получаем ВСЕ расчеты за период от startDate до reportEndDate
-        const { data: dailyData, error: dailyError } = await supabase.from('payroll_calculations')
-            .select('*')
-            .gte('work_date', startDate)
-            .lte('work_date', reportEndDate)
-            .order('work_date', { ascending: true });
-        if (dailyError) throw dailyError;
+// ✅ ИСПРАВЛЕНИЕ: получаем расчеты + информация о ролях и именах
+const { data: dailyDataRaw, error: dailyError } = await supabase.from('payroll_calculations')
+    .select(`
+        *,
+        employees!inner (fullname, role)
+    `)
+    .gte('work_date', startDate)
+    .lte('work_date', reportEndDate)
+    .neq('store_id', 27)  // ✅ ИСКЛЮЧАЕМ магазин Професорська 12
+    .order('work_date', { ascending: true });
+if (dailyError) throw dailyError;
 
-        // Обогащаем данные именами сотрудников
-        const enrichedDailyData = dailyData.map(calc => ({ 
-            ...calc, 
-            employee_name: employeeMap.get(calc.employee_id) || 'Неизвестный' 
-        }));
+// ✅ ФИЛЬТРАЦИЯ: исключаем админов, бухгалтеров и сотрудников без имен
+const dailyData = dailyDataRaw.filter(calc => {
+    if (!calc.employees) return false;
+    
+    const role = calc.employees.role;
+    const fullname = (calc.employees.fullname || '').trim();
+    
+    // Исключаем админов и бухгалтеров
+    if (role === 'admin' || role === 'accountant') return false;
+    
+    // Исключаем сотрудников без имени
+    if (fullname === '') return false;
+    
+    return true;
+});
+
+// Обогащаем данными именами сотрудников
+const enrichedDailyData = dailyData.map(calc => ({ 
+    ...calc, 
+    employee_name: calc.employees?.fullname || employeeMap.get(calc.employee_id) || 'Неизвестный' 
+}));
+
+console.log(`Период: ${startDate} - ${reportEndDate}, Расчетов до фильтрации: ${dailyDataRaw.length}, после: ${dailyData.length}`);
         
         // Логируем для отладки
         console.log(`Получено расчетов за период ${startDate} - ${reportEndDate}: ${enrichedDailyData.length}`);
@@ -646,22 +765,46 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
     if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
     
     try {
-        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-        
-        // Получаем расчеты за период
-        const { data: calculationsInPeriod, error } = await supabase
-            .from('payroll_calculations')
-            .select('employee_id, total_pay')
-            .gte('work_date', startDate)
-            .lte('work_date', advanceEndDate);
-        
-        if (error) throw error;
+const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
-        // Суммируем начисления по сотрудникам
-        const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
-            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
-            return acc;
-        }, {});
+// ✅ ИСПРАВЛЕНИЕ: получаем расчеты + проверяем роли и имена
+const { data: calculationsRaw, error } = await supabase
+    .from('payroll_calculations')
+    .select(`
+        employee_id, 
+        total_pay,
+        store_id,
+        employees!inner (fullname, role)
+    `)
+    .gte('work_date', startDate)
+    .lte('work_date', advanceEndDate)
+    .neq('store_id', 27);  // ✅ ИСКЛЮЧАЕМ магазин Професорська 12
+
+if (error) throw error;
+
+// ✅ ФИЛЬТРАЦИЯ: исключаем админов, бухгалтеров и сотрудников без имен
+const calculationsInPeriod = calculationsRaw.filter(calc => {
+    if (!calc.employees) return false;
+    
+    const role = calc.employees.role;
+    const fullname = (calc.employees.fullname || '').trim();
+    
+    // Исключаем админов и бухгалтеров
+    if (role === 'admin' || role === 'accountant') return false;
+    
+    // Исключаем сотрудников без имени
+    if (fullname === '') return false;
+    
+    return true;
+});
+
+console.log(`Расчет аванса ${year}-${month}: записей до фильтрации ${calculationsRaw.length}, после ${calculationsInPeriod.length}`);
+
+// Суммируем начисления по сотрудникам
+const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
+    acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+    return acc;
+}, {});
 
         // Проверяем зафиксированные авансы
         const { data: fixedAdvances, error: fixedError } = await supabase
@@ -722,8 +865,7 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
     // 2. Округляем вниз до 100
     let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
     
-    // 3. Ограничиваем максимумом 7900
-    advanceAmount = Math.min(roundedAdvance, 7900);
+advanceAmount = Math.min(roundedAdvance, limits.maxAdvance); // ✅ ДИНАМИЧЕСКИЙ ЛИМИТ
     
     // Логируем для отладки
     console.log(`Авторасчет для ${employeeId}: начислено ${totalEarned}, 90% = ${calculatedAdvance.toFixed(2)}, округлено = ${roundedAdvance}, финально = ${advanceAmount}`);
@@ -973,7 +1115,9 @@ app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) =
     } finally {
         operationLocks.delete(lockKey);
     }
-});
+}); 
+
+
 
 
 // --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ОТМЕНЫ ФИКСАЦИИ АВАНСА ---
@@ -1327,15 +1471,24 @@ app.post('/adjust-advance-manually', checkAuth, canManagePayroll, async (req, re
     const cashAmount = parseFloat(advance_cash) || 0;
     const totalAmount = parseFloat(adjusted_advance) || (cardAmount + cashAmount);
     
-    // При увольнении снимаем ограничение на аванс
-    if (!is_termination && totalAmount > MAX_ADVANCE_AMOUNT) {
-        return res.status(400).json({ success: false, error: `Аванс не может превышать ${MAX_ADVANCE_AMOUNT} грн` });
-    }
-    
-    // Проверка лимита карты даже при увольнении
-    if (cardAmount > FIXED_CARD_PAYMENT_FOR_REPORT) {
-        return res.status(400).json({ success: false, error: `На карту нельзя выплатить больше ${FIXED_CARD_PAYMENT_FOR_REPORT} грн` });
-    }
+// ✅ Получаем лимиты сотрудника
+const limits = await getEmployeeCardLimit(employee_id);
+
+// При увольнении снимаем ограничение на аванс
+if (!is_termination && totalAmount > limits.maxAdvance) {
+    return res.status(400).json({ 
+        success: false, 
+        error: `Аванс не может превышать ${limits.maxAdvance} грн (лимит: ${limits.limitName})` 
+    });
+}
+
+// Проверка лимита карты даже при увольнении
+if (cardAmount > limits.cardLimit) {
+    return res.status(400).json({ 
+        success: false, 
+        error: `На карту нельзя выплатить больше ${limits.cardLimit} грн (лимит: ${limits.limitName})` 
+    });
+}
     
     try {
         // Сохраняем с разделением на карту и наличные
@@ -1557,11 +1710,17 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                         // ИСПРАВЛЕННЫЙ РАСЧЕТ ОСТАТКОВ
                         const remainingToPay = totalAfterDeductions - advancePayment;
                         
-                        if (remainingToPay > 0) {
-                            // Есть остаток к выплате
-                            const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT; // 8700
-                            const alreadyOnCard = advanceCard; // Уже выплачено на карту
-                            const remainingCardCapacity = Math.max(0, maxCardTotal - alreadyOnCard);
+if (remainingToPay > 0) {
+    // ✅ Есть остаток к выплате - используем ДИНАМИЧЕСКИЙ лимит
+    const limits = await getEmployeeCardLimit(employeeId);
+    const maxCardTotal = limits.cardLimit; // Динамический лимит (8700 или 16000)
+    const alreadyOnCard = advanceCard; // Уже выплачено на карту
+    const remainingCardCapacity = Math.max(0, maxCardTotal - alreadyOnCard);
+
+    console.log(`Финальный расчет для ${employeeId}: лимит ${limits.limitName} (${maxCardTotal}), ` +
+                `аванс ${advanceCard}, остаток ${remainingCardCapacity}`);
+
+console.log(`Финальный расчет для ${employeeId}: лимит ${maxCardTotal}, аванс ${advanceCard}, остаток ${remainingCardCapacity}`);
                             
                             cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
                             cashPayout = remainingToPay - cardRemainder;
@@ -1571,19 +1730,21 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                             cashPayout = 0;
                         }
                     }
-                } else {
-                    // Новая запись - расчет по умолчанию
-                    let calculatedAdvance = basePay * 0.9;
-                    let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
-                    advancePayment = Math.min(roundedAdvance, MAX_ADVANCE_AMOUNT);
-                    advanceCard = advancePayment;
-                    advanceCash = 0;
-                    
-                    // ИСПРАВЛЕННЫЙ РАСЧЕТ ДЛЯ НОВЫХ ЗАПИСЕЙ
-                    const remainingToPay = totalAfterDeductions - advancePayment;
-                    
-                    if (remainingToPay > 0) {
-                        const maxCardTotal = FIXED_CARD_PAYMENT_FOR_REPORT;
+} else {
+    // ✅ Новая запись - расчет с ДИНАМИЧЕСКИМ лимитом
+    const limits = await getEmployeeCardLimit(employeeId);
+    
+    let calculatedAdvance = basePay * (limits.advancePercentage || 0.9);
+    let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
+    advancePayment = Math.min(roundedAdvance, limits.maxAdvance);
+    advanceCard = advancePayment;
+    advanceCash = 0;
+    
+    // ИСПРАВЛЕННЫЙ РАСЧЕТ ДЛЯ НОВЫХ ЗАПИСЕЙ
+    const remainingToPay = totalAfterDeductions - advancePayment;
+    
+    if (remainingToPay > 0) {
+        const maxCardTotal = limits.cardLimit; // ✅ Динамический лимит
                         const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
                         
                         cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
@@ -1722,7 +1883,8 @@ app.post('/adjust-final-payment', checkAuth, canManagePayroll, async (req, res) 
             return res.status(404).json({ success: false, error: 'Расчет не найден' });
         }
         
-        const maxCard = Math.max(0, FIXED_CARD_PAYMENT_FOR_REPORT - (currentData.advance_card || 0)); // Использует константу
+        const limits = await getEmployeeCardLimit(employee_id);
+const maxCard = Math.max(0, limits.cardLimit - (currentData.advance_card || 0)); // ✅
         if (card_remainder > maxCard) {
             return res.status(400).json({ 
                 success: false, 
@@ -2481,6 +2643,394 @@ app.post('/validate-all-calculations', checkAuth, canManagePayroll, async (req, 
 });
 
 
+// ========== ЭНДПОИНТЫ ДЛЯ УПРАВЛЕНИЯ ЛИМИТАМИ КАРТЫ ==========
+
+// Получение списка типов лимитов
+app.get('/api/card-limit-types', checkAuth, canManagePayroll, async (req, res) => {
+    try {
+        const { data: types, error } = await supabase
+            .from('card_limit_types')
+            .select('*')
+            .eq('is_active', true)
+            .order('id');
+        
+        if (error) throw error;
+        
+        res.json({ success: true, types });
+    } catch (error) {
+        console.error('Ошибка получения типов лимитов:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Получение списка сотрудников с их лимитами
+app.get('/api/employees-with-limits', checkAuth, canManagePayroll, async (req, res) => {
+    try {
+        const { data: employees, error } = await supabase
+            .from('employees')
+            .select(`
+                id,
+                fullname,
+                card_limit_type_id,
+                card_limit_types (
+                    limit_name,
+                    card_limit,
+                    max_advance
+                )
+            `)
+            .eq('active', true)
+            .order('fullname');
+        
+        if (error) throw error;
+        
+        res.json({ success: true, employees });
+    } catch (error) {
+        console.error('Ошибка получения сотрудников:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Изменение лимита для одного сотрудника
+app.post('/api/update-employee-card-limit', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, new_limit_type_id } = req.body;
+    
+    if (!employee_id || !new_limit_type_id) {
+        return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    }
+    
+    try {
+        // Получаем текущий лимит
+        const { data: currentEmployee } = await supabase
+            .from('employees')
+            .select('card_limit_type_id, card_limit_types(limit_name)')
+            .eq('id', employee_id)
+            .single();
+        
+        const oldLimitTypeId = currentEmployee?.card_limit_type_id;
+        const oldLimitName = currentEmployee?.card_limit_types?.limit_name;
+        
+        // Получаем новый лимит
+        const { data: newLimit } = await supabase
+            .from('card_limit_types')
+            .select('limit_name')
+            .eq('id', new_limit_type_id)
+            .single();
+        
+        // Обновляем лимит сотрудника
+        const { error: updateError } = await supabase
+            .from('employees')
+            .update({ 
+                card_limit_type_id: new_limit_type_id,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', employee_id);
+        
+        if (updateError) throw updateError;
+        
+        // Записываем в историю
+        await supabase
+            .from('card_limit_changes')
+            .insert({
+                employee_id: employee_id,
+                old_limit_type_id: oldLimitTypeId,
+                new_limit_type_id: new_limit_type_id,
+                old_limit_name: oldLimitName,
+                new_limit_name: newLimit?.limit_name,
+                changed_by: req.user.id
+            });
+        
+        await logFinancialOperation('update_card_limit', {
+            employee_id,
+            old_limit: oldLimitName,
+            new_limit: newLimit?.limit_name
+        }, req.user.id);
+        
+        res.json({ 
+            success: true, 
+            message: `Лимит карты изменен на "${newLimit?.limit_name}"` 
+        });
+        
+    } catch (error) {
+        console.error('Ошибка изменения лимита:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Массовое изменение лимитов
+app.post('/api/bulk-update-card-limits', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_ids, new_limit_type_id } = req.body;
+    
+    if (!employee_ids || !Array.isArray(employee_ids) || employee_ids.length === 0) {
+        return res.status(400).json({ success: false, error: 'Не указаны сотрудники' });
+    }
+    
+    if (!new_limit_type_id) {
+        return res.status(400).json({ success: false, error: 'Не указан тип лимита' });
+    }
+    
+    try {
+        // Получаем информацию о новом лимите
+        const { data: newLimit } = await supabase
+            .from('card_limit_types')
+            .select('limit_name')
+            .eq('id', new_limit_type_id)
+            .single();
+        
+        // Получаем текущие лимиты для истории
+        const { data: currentEmployees } = await supabase
+            .from('employees')
+            .select('id, card_limit_type_id, card_limit_types(limit_name)')
+            .in('id', employee_ids);
+        
+        // Обновляем лимиты
+        const { error: updateError } = await supabase
+            .from('employees')
+            .update({ 
+                card_limit_type_id: new_limit_type_id,
+                updated_at: new Date().toISOString()
+            })
+            .in('id', employee_ids);
+        
+        if (updateError) throw updateError;
+        
+        // Записываем в историю для каждого сотрудника
+        const historyRecords = currentEmployees.map(emp => ({
+            employee_id: emp.id,
+            old_limit_type_id: emp.card_limit_type_id,
+            new_limit_type_id: new_limit_type_id,
+            old_limit_name: emp.card_limit_types?.limit_name,
+            new_limit_name: newLimit?.limit_name,
+            changed_by: req.user.id
+        }));
+        
+        await supabase
+            .from('card_limit_changes')
+            .insert(historyRecords);
+        
+        await logFinancialOperation('bulk_update_card_limits', {
+            count: employee_ids.length,
+            new_limit: newLimit?.limit_name
+        }, req.user.id);
+        
+        res.json({ 
+            success: true, 
+            message: `Лимит изменен для ${employee_ids.length} сотрудников`,
+            count: employee_ids.length
+        });
+        
+    } catch (error) {
+        console.error('Ошибка массового изменения лимитов:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// История изменений лимита для сотрудника
+app.get('/api/card-limit-history/:employee_id', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id } = req.params;
+    
+    try {
+        const { data: history, error } = await supabase
+            .from('card_limit_changes')
+            .select(`
+                *,
+                employees!card_limit_changes_employee_id_fkey(fullname)
+            `)
+            .eq('employee_id', employee_id)
+            .order('changed_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        res.json({ success: true, history: history || [] });
+    } catch (error) {
+        console.error('Ошибка получения истории:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ========== ПОЛУЧИТЬ ЛИМИТ КОНКРЕТНОГО СОТРУДНИКА ==========
+app.get('/api/get-employee-card-limit/:employee_id', checkAuth, async (req, res) => {
+    const { employee_id } = req.params;
+    
+    try {
+        const limits = await getEmployeeCardLimit(employee_id);
+        res.json({ success: true, limits });
+    } catch (error) {
+        console.error('Ошибка получения лимита:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            // Возвращаем дефолтные значения даже при ошибке
+            limits: DEFAULT_LIMITS.STANDARD
+        });
+    }
+});
+
+// ========== ЭНДПОИНТЫ ДЛЯ УНИВЕРСАЛЬНЫХ КОРРЕКТИРОВОК ==========
+
+// Получение лимитов карты сотрудника
+app.get('/api/get-employee-card-limit/:employee_id', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id } = req.params;
+    
+    try {
+        const limits = await getEmployeeCardLimit(employee_id);
+        res.json({ success: true, limits });
+    } catch (error) {
+        console.error('Ошибка получения лимитов:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Получение полных данных сотрудника для модального окна
+app.post('/api/get-employee-full-data', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year } = req.body;
+    
+    try {
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const endDate = new Date(year, month, 0).toISOString().split('T')[0];
+        
+        // Базовые начисления
+        const { data: calculations } = await supabase
+            .from('payroll_calculations')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .gte('work_date', startDate)
+            .lte('work_date', endDate);
+        
+        const basePay = calculations?.reduce((sum, c) => sum + c.total_pay, 0) || 0;
+        
+        // Корректировки
+        const { data: adjustments } = await supabase
+            .from('monthly_adjustments')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year)
+            .single();
+        
+        // Финальные расчеты
+        const { data: finalCalc } = await supabase
+            .from('final_payroll_calculations')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year)
+            .single();
+        
+        // Недостачи
+        const { data: shortages } = await supabase
+            .from('employee_shortages')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year);
+        
+        const fullData = {
+            basePay: basePay,
+            bonuses: adjustments?.manual_bonus || 0,
+            penalties: adjustments?.penalty || 0,
+            shortages: adjustments?.shortage || 0,
+            bonusReason: adjustments?.bonus_reason || '',
+            penaltyReason: adjustments?.penalty_reason || '',
+            totalGross: basePay + (adjustments?.manual_bonus || 0),
+            totalDeductions: (adjustments?.penalty || 0) + (adjustments?.shortage || 0),
+            advanceCard: finalCalc?.advance_card || 0,
+            advanceCash: finalCalc?.advance_cash || 0,
+            salaryCard: finalCalc?.card_remainder || 0,
+            salaryCash: finalCalc?.cash_payout || 0,
+            shortagesList: shortages || [],
+            isTermination: finalCalc?.is_termination || false,
+            isFixed: finalCalc?.is_fixed || false,
+            workDays: calculations?.map(c => ({
+                date: c.work_date,
+                amount: c.total_pay
+            })) || []
+        };
+        
+        fullData.totalToPay = fullData.totalGross - fullData.totalDeductions;
+        fullData.advanceTotal = fullData.advanceCard + fullData.advanceCash;
+        fullData.salaryTotal = fullData.salaryCard + fullData.salaryCash;
+        
+        res.json(fullData);
+        
+    } catch (error) {
+        console.error('Ошибка получения данных сотрудника:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Сохранение универсальных корректировок
+app.post('/api/save-universal-corrections', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, corrections } = req.body;
+    
+    try {
+        // Обновляем monthly_adjustments
+        await supabase
+            .from('monthly_adjustments')
+            .upsert({
+                employee_id,
+                month,
+                year,
+                manual_bonus: corrections.bonus || 0,
+                penalty: corrections.penalty || 0,
+                shortage: (corrections.shortagesList || []).reduce((sum, s) => sum + s.amount, 0),
+                bonus_reason: corrections.bonusReason || '',
+                penalty_reason: corrections.penaltyReason || ''
+            }, { onConflict: 'employee_id,month,year' });
+        
+        // Обновляем final_payroll_calculations
+        const totalGross = (corrections.basePay || 0) + (corrections.bonus || 0);
+        const totalDeductions = (corrections.penalty || 0) + (corrections.shortage || 0);
+        
+        await supabase
+            .from('final_payroll_calculations')
+            .upsert({
+                employee_id,
+                month,
+                year,
+                advance_card: corrections.advanceCard || 0,
+                advance_cash: corrections.advanceCash || 0,
+                advance_payment: (corrections.advanceCard || 0) + (corrections.advanceCash || 0),
+                card_remainder: corrections.salaryCard || 0,
+                cash_payout: corrections.salaryCash || 0,
+                total_gross: totalGross,
+                total_deductions: totalDeductions,
+                total_after_deductions: totalGross - totalDeductions,
+                is_manual_adjustment: true,
+                adjusted_by: req.user.id,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'employee_id,month,year' });
+        
+        // Сохраняем недостачи
+        if (corrections.shortagesList && corrections.shortagesList.length > 0) {
+            for (const shortage of corrections.shortagesList) {
+                if (shortage.is_new) {
+                    await supabase
+                        .from('employee_shortages')
+                        .insert({
+                            employee_id,
+                            year,
+                            month,
+                            amount: shortage.amount,
+                            description: shortage.description,
+                            deduction_from: shortage.deduction_from,
+                            created_by: req.user.id
+                        });
+                }
+            }
+        }
+        
+        await logFinancialOperation('universal_correction', {
+            employee_id, month, year
+        }, req.user.id);
+        
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('Ошибка сохранения корректировок:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // --- Запуск сервера ---
 const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0'; // Явно указываем хост
@@ -2694,76 +3244,6 @@ app.post('/create-backup', checkAuth, canManagePayroll, async (req, res) => {
     }
 });
 
-// НОВАЯ ФУНКЦИЯ: Восстановление из резервной копии
-app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) => {
-    const { year, month, backupDate } = req.body;
-    
-    try {
-        // Получаем данные из резервной копии
-        const { data: backupData, error: fetchError } = await supabase
-            .from('final_payroll_calculations_backup')
-            .select('*')
-            .eq('month', month)
-            .eq('year', year)
-            .eq('backup_date', backupDate);
-        
-        if (fetchError) throw fetchError;
-        
-        if (!backupData || backupData.length === 0) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Резервная копия не найдена' 
-            });
-        }
-        
-        // Сначала создаем копию текущего состояния
-        const { data: currentData } = await supabase
-            .from('final_payroll_calculations')
-            .select('*')
-            .eq('month', month)
-            .eq('year', year);
-        
-        if (currentData && currentData.length > 0) {
-            await supabase
-                .from('final_payroll_calculations_backup')
-                .insert(currentData.map(row => ({
-                    ...row,
-                    backup_date: new Date().toISOString(),
-                    backup_reason: 'before_restore',
-                    backup_by: req.user.id
-                })));
-        }
-        
-        // Восстанавливаем данные
-        for (const record of backupData) {
-            const { original_id, backup_date, backup_reason, backup_by, ...dataToRestore } = record;
-            
-            const { error: upsertError } = await supabase
-                .from('final_payroll_calculations')
-                .upsert(dataToRestore, { 
-                    onConflict: 'employee_id,month,year' 
-                });
-            
-            if (upsertError) {
-                console.error(`Ошибка восстановления записи:`, upsertError);
-            }
-        }
-        
-        await logFinancialOperation('restore_from_backup', {
-            year, month, backupDate,
-            recordsRestored: backupData.length
-        }, req.user.id);
-        
-        res.json({
-            success: true,
-            message: `Восстановлено ${backupData.length} записей из резервной копии от ${backupDate}`
-        });
-        
-    } catch (error) {
-        console.error('Ошибка восстановления:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
 
 // Автоматический backup дважды в день
 async function createAutoBackup() {
@@ -2814,7 +3294,7 @@ async function createAutoBackup() {
                 console.log(`[${now.toISOString()}] Auto backup created: ${backupData.length} records`);
                 
                 // Удаляем старые auto backup (старше 7 дней)
-                const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+                const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                 await supabase
                     .from('final_payroll_calculations_backup')
                     .delete()
@@ -2827,8 +3307,8 @@ async function createAutoBackup() {
     }
 }
 
-// Запускаем backup каждый час и проверяем время
-setInterval(async () => {
+// Сохраняем ссылку на интервал для очистки
+const backupInterval = setInterval(async () => {
     const hour = new Date().getHours();
     // Backup в 11:00 и 23:00
     if (hour === 11 || hour === 23) {
@@ -2839,5 +3319,24 @@ setInterval(async () => {
     }
 }, 5 * 60 * 1000); // Проверяем каждые 5 минут
 
-// Также делаем backup при старте сервера
-setTimeout(createAutoBackup, 30000); // Через 30 секунд после старта
+// Также делаем backup при старте сервера (через 30 секунд)
+setTimeout(createAutoBackup, 30000);
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('SIGTERM received: closing HTTP server');
+    clearInterval(backupInterval);
+    server.close(() => {
+        console.log('HTTP server closed');
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log('SIGINT received: closing HTTP server');
+    clearInterval(backupInterval);
+    server.close(() => {
+        console.log('HTTP server closed');
+        process.exit(0);
+    });
+});
