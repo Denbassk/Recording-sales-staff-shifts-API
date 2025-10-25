@@ -31,49 +31,51 @@ window.onscroll = function () {
 // --- БЛОК АВТОРИЗАЦИИ И ИНИЦИАЛИЗАЦИИ ---
 document.addEventListener('DOMContentLoaded', async function () {
 
-    async function verifyAuthentication() {
-        try {
-            const response = await fetch(`${API_BASE}/check-auth`, {
-                method: 'GET',
-                credentials: 'include'
-            });
+   async function verifyAuthentication() {
+    try {
+        const response = await fetch(`${API_BASE}/check-auth`, {
+            method: 'GET',
+            credentials: 'include'
+        });
 
-            if (!response.ok) {
-                window.location.href = '/index.html';
-                return;
+        if (!response.ok) {
+            window.location.href = '/index.html';
+            return;
+        }
+
+        const data = await response.json();
+
+        // ИСПРАВЛЕНИЕ: Убрали дублирование
+        if (data.success && data.user) {
+            const isAdmin = data.user.role === 'admin';
+            const isAccountant = data.user.role === 'accountant';
+
+            // ФОТ - только для админа
+            const fotTabButton = document.getElementById('fot-tab-button');
+            if (fotTabButton) {
+                fotTabButton.style.display = isAdmin ? 'block' : 'none';
             }
 
-            const data = await response.json();
+            // Админская секция - только для админа
+            const adminSection = document.getElementById('adminSection');
+            if (adminSection) {
+                adminSection.style.display = isAdmin ? 'block' : 'none';
+            }
+            
+            // Лимиты карты - для админа и бухгалтера
+            const cardLimitsTabButton = document.querySelector('button[onclick*="cardLimits"]');
+            if (cardLimitsTabButton) {
+                cardLimitsTabButton.style.display = (isAdmin || isAccountant) ? 'block' : 'none';
+            }
+        }
 
-            // Находим кнопки
-            const fotTabButton = document.getElementById('fot-tab-button');
-            const clearDataButton = document.querySelector('button.danger[onclick="clearDatabase()"]');
+        initializePage();
 
-            // Проверяем роль пользователя
-  if (data.success && data.user) {
-    const isAdmin = data.user.role === 'admin';
-    const isAccountant = data.user.role === 'accountant';
-
-    // ФОТ - только для админа
-    if (fotTabButton) {
-        fotTabButton.style.display = isAdmin ? 'block' : 'none';
-    }
-
-    // Админская секция - только для админа
-    const adminSection = document.getElementById('adminSection');
-    if (adminSection) {
-        adminSection.style.display = isAdmin ? 'block' : 'none';
+    } catch (error) {
+        console.error('Ошибка проверки аутентификации:', error);
+        window.location.href = '/index.html';
     }
 }
-
-            initializePage();
-
-        } catch (error) {
-            console.error('Ошибка проверки аутентификации:', error);
-            window.location.href = '/index.html';
-        }
-    }
-
 
     function initializePage() {
         const today = new Date();
@@ -140,10 +142,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         monthSelects.forEach(s => {
-            if (s) s.addEventListener('change', updateEndDateDefault)
+            if (s) s.addEventListener('change', updateEndDateDefault);
         });
         yearInputs.forEach(i => {
-            if (i) i.addEventListener('change', updateEndDateDefault)
+            if (i) i.addEventListener('change', updateEndDateDefault);
         });
 
         // Привязываем события к кнопкам
@@ -156,12 +158,12 @@ document.addEventListener('DOMContentLoaded', async function () {
     await verifyAuthentication();
 });
 
-
 async function logout() {
     await fetch(`${API_BASE}/logout`, { method: 'POST', credentials: 'include' });
     document.cookie = "token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
     window.location.href = '/index.html';
 }
+
 
 // --- УТИЛИТЫ ---
 function switchTab(tabName, button) {
@@ -169,7 +171,9 @@ function switchTab(tabName, button) {
     document.getElementById(tabName + '-tab').classList.add('active');
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     button.classList.add('active');
+
 }
+
 function formatNumber(num) {
     // Проверяем, что это число
     if (num === null || num === undefined) return '0,00';
@@ -1082,42 +1086,51 @@ function recalculateRow(row) {
     const totalDeductions = penalty + shortage;
     const totalAfterDeductions = totalGross - totalDeductions;
 
-    // Получаем текущий аванс из обеих колонок
+    // Получаем текущий аванс
     const advanceCardCell = row.querySelector('.advance-payment-card');
     const advanceCashCell = row.querySelector('.advance-payment-cash');
     
-    let totalAdvance = 0;
+    let advanceCard = 0;
+    let advanceCash = 0;
+    
     if (advanceCardCell) {
         const cardText = advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-        totalAdvance += parseFloat(cardText) || 0;
+        advanceCard = parseFloat(cardText) || 0;
     }
     if (advanceCashCell) {
         const cashText = advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-        totalAdvance += parseFloat(cashText) || 0;
+        advanceCash = parseFloat(cashText) || 0;
     }
+    
+    const totalAdvance = advanceCard + advanceCash;
 
-    // Остаток к выплате после вычета аванса
+    // ИСПРАВЛЕНИЕ: Правильный расчет остатка
     const remainingToPay = totalAfterDeductions - totalAdvance;
     
-    // ВАЖНО: Пересчитываем распределение остатка между картой и наличными
-    const advanceCard = parseFloat(advanceCardCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-    const maxCardTotal = 8700; // Лимит на карту
-    const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+    let newCardRemainder = 0;
+    let newCashPayout = 0;
     
-    // Новые значения для остатка на карту и наличные
-    const newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-    const newCashPayout = Math.max(0, remainingToPay - newCardRemainder);
+    if (remainingToPay > 0) {
+        // Есть остаток к выплате
+        const maxCardTotal = 8700;
+        const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+        
+        newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+        newCashPayout = remainingToPay - newCardRemainder;
+    }
+    // Если remainingToPay <= 0, остатки остаются 0
 
-    // Обновляем ВСЕ ячейки с суммами
+    // Обновляем ячейки
     const totalGrossCell = row.querySelector('.total-gross');
     if (totalGrossCell) {
         totalGrossCell.textContent = formatNumber(totalGross);
     }
 
-    // НОВОЕ: Обновляем остаток на карту
     const cardRemainderCell = row.querySelector('.card-remainder');
     if (cardRemainderCell) {
+        const hasButton = cardRemainderCell.innerHTML.includes('button');
         cardRemainderCell.textContent = formatNumber(newCardRemainder);
+        
         if (newCardRemainder > 0) {
             cardRemainderCell.style.color = '#28a745';
             cardRemainderCell.style.fontWeight = 'bold';
@@ -1125,9 +1138,17 @@ function recalculateRow(row) {
             cardRemainderCell.style.color = '';
             cardRemainderCell.style.fontWeight = 'normal';
         }
+        
+        if (hasButton) {
+            const button = document.createElement('button');
+            button.onclick = () => adjustCardRemainder(row.dataset.employeeId, row.dataset.employeeName);
+            button.style.cssText = 'margin-left: 5px; padding: 2px 6px; font-size: 10px;';
+            button.title = 'Корректировать остаток';
+            button.innerHTML = '✏️';
+            cardRemainderCell.appendChild(button);
+        }
     }
 
-    // НОВОЕ: Обновляем зарплату наличными
     const cashPayoutCell = row.querySelector('.cash-payout');
     if (cashPayoutCell) {
         if (newCashPayout > 0) {
@@ -1137,13 +1158,17 @@ function recalculateRow(row) {
         }
     }
 
-    // Обновляем итоговую сумму к выплате
-    const totalPayoutCell = row.querySelector('.total-payout strong');
+    const totalPayoutCell = row.querySelector('.total-payout');
     if (totalPayoutCell) {
-        totalPayoutCell.textContent = formatNumber(remainingToPay);
-        totalPayoutCell.title = `После вычета аванса ${formatNumber(totalAdvance)} грн`;
+        totalPayoutCell.innerHTML = `<strong title="Остаток к выплате">${formatNumber(Math.max(0, remainingToPay))}</strong>`;
     }
+    
+    console.log(`Пересчет для ${row.dataset.employeeName}:
+        Начислено: ${totalAfterDeductions} (база: ${basePay}, бонус: ${manualBonus}, вычеты: ${totalDeductions})
+        Аванс: ${totalAdvance} (карта: ${advanceCard}, нал: ${advanceCash})
+        Остаток: ${remainingToPay} → Карта: ${newCardRemainder}, Нал: ${newCashPayout}`);
 }
+
 async function saveAdjustments(row) {
     if (!row) return;
     const payload = {
@@ -1481,7 +1506,12 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             data-year="${year}" 
             data-base-pay="${data.totalPay}" 
             data-shifts='${JSON.stringify(data.shifts)}'>
-            <td style="padding: 5px;">${data.name}</td>
+            <td style="padding: 5px;">
+    ${data.name}
+    ${finalCalc?.card_limit_type_id === 2 ? 
+        '<span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">💎 VIP</span>' 
+        : ''}
+</td>
             <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
             <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>

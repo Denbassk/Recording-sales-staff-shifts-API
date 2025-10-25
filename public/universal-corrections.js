@@ -19,9 +19,30 @@ class UniversalCorrectionsModal {
         // Загружаем все данные сотрудника
         await this.loadEmployeeData();
         
+        // Загружаем лимиты карты
+        await this.loadEmployeeLimits(employeeId);
+        
         // Создаем и показываем модальное окно
         this.createModal();
     }
+
+// ДОБАВИТЬ НОВУЮ ФУНКЦИЮ:
+async loadEmployeeLimits(employeeId) {
+    try {
+        const response = await fetch(`${API_BASE}/get-employee-card-limit/${employeeId}`, {
+            credentials: 'include'
+        });
+        const result = await response.json();
+        this.employeeLimits = result.limits || { 
+            cardLimit: 8700, 
+            maxAdvance: 7900,
+            limitName: 'Обычная карта'
+        };
+    } catch (error) {
+        console.error('Ошибка загрузки лимитов:', error);
+        this.employeeLimits = { cardLimit: 8700, maxAdvance: 7900, limitName: 'Обычная карта' };
+    }
+}
 
     // Загрузка всех данных сотрудника
     async loadEmployeeData() {
@@ -91,6 +112,7 @@ class UniversalCorrectionsModal {
                     <button class="ucm-tab" data-tab="salary">💵 ЗАРПЛАТА</button>
                     <button class="ucm-tab" data-tab="bonuses">🎁 ПРЕМИИ/ШТРАФЫ</button>
                     <button class="ucm-tab" data-tab="shortages">📉 НЕДОСТАЧИ</button>
+                    <button class="ucm-tab" data-tab="card-limit">💳 ЛИМИТ КАРТЫ</button>
                     <button class="ucm-tab" data-tab="special">⚡ ОСОБЫЕ СЛУЧАИ</button>
                 </div>
 
@@ -118,6 +140,11 @@ class UniversalCorrectionsModal {
                     <!-- Вкладка Недостачи -->
                     <div class="ucm-tab-content" data-content="shortages">
                         ${this.renderShortagesTab()}
+                    </div>
+                    
+                    <!-- Вкладка Лимит Карты -->
+                    <div class="ucm-tab-content" data-content="card-limit">
+                        ${this.renderCardLimitTab()}
                     </div>
                     
                     <!-- Вкладка Особые случаи -->
@@ -1162,7 +1189,66 @@ renderBonusesTab() {
         </div>`;
     }
 
-   // Рендер вкладки Особые случаи - компактная сетка
+   // Рендер вкладки Лимит Карты
+    renderCardLimitTab() {
+        const currentLimits = this.employeeLimits || {
+            cardLimit: 8700,
+            maxAdvance: 7900,
+            limitName: 'Обычная карта',
+            limitTypeId: 1
+        };
+        
+        return `
+        <div class="ucm-form-compact">
+            <h4>💳 Лимит карты</h4>
+            
+            <p style="margin-bottom: 20px; color: #495057; font-size: 13px;">
+                <strong>Сотрудник:</strong> ${this.currentEmployee.name}
+            </p>
+            
+            <div id="card-limit-options" style="display: flex; flex-direction: column; gap: 12px;">
+                <!-- Обычная карта -->
+                <label style="
+                    display: flex; align-items: center; padding: 15px;
+                    background: ${currentLimits.limitTypeId === 1 ? '#e8f5e9' : 'white'};
+                    border: 2px solid ${currentLimits.limitTypeId === 1 ? '#28a745' : '#e0e0e0'};
+                    border-radius: 8px; cursor: pointer;">
+                    <input type="radio" name="card_limit_type" value="1"
+                           ${currentLimits.limitTypeId === 1 ? 'checked' : ''}
+                           onchange="ucModal.changeCardLimit()"
+                           style="margin-right: 12px;">
+                    <div style="flex: 1;">
+                        <strong style="font-size: 14px; color: #212529;">ОБЫЧНАЯ КАРТА</strong><br>
+                        <small style="color: #6c757d;">
+                            Лимит: <strong>8700 грн</strong> | Макс. аванс: <strong>7900 грн</strong>
+                        </small>
+                    </div>
+                </label>
+                
+                <!-- Повышенная карта -->
+                <label style="
+                    display: flex; align-items: center; padding: 15px;
+                    background: ${currentLimits.limitTypeId === 2 ? '#e3f2fd' : 'white'};
+                    border: 2px solid ${currentLimits.limitTypeId === 2 ? '#2196f3' : '#e0e0e0'};
+                    border-radius: 8px; cursor: pointer;">
+                    <input type="radio" name="card_limit_type" value="2"
+                           ${currentLimits.limitTypeId === 2 ? 'checked' : ''}
+                           onchange="ucModal.changeCardLimit()"
+                           style="margin-right: 12px;">
+                    <div style="flex: 1;">
+                        <strong style="font-size: 14px; color: #212529;">ПОВЫШЕННАЯ КАРТА</strong><br>
+                        <small style="color: #6c757d;">
+                            Лимит: <strong>16000 грн</strong> | Макс. аванс: <strong>11500 грн</strong>
+                        </small>
+                    </div>
+                </label>
+            </div>
+            
+            <div id="ucm-card-limit-status" style="display: none; margin-top: 15px; padding: 12px; border-radius: 6px;"></div>
+        </div>`;
+    }
+
+    // Рендер вкладки Особые случаи - компактная сетка
 renderSpecialTab() {
     return `
     <div class="ucm-special-grid-compact">
@@ -1686,6 +1772,49 @@ togglePreview() {
         this.updateCalculations();
     }
 
+    // Изменение лимита карты
+    async changeCardLimit() {
+        const selectedRadio = document.querySelector('input[name="card_limit_type"]:checked');
+        if (!selectedRadio) return;
+        
+        const limitTypeId = parseInt(selectedRadio.value);
+        
+        const limitTypes = {
+            1: { name: 'Обычная карта', cardLimit: 8700, maxAdvance: 7900 },
+            2: { name: 'Повышенная карта', cardLimit: 16000, maxAdvance: 11500 }
+        };
+        
+        const newLimit = limitTypes[limitTypeId];
+        
+        if (!newLimit) {
+            alert('Некорректный тип лимита');
+            return;
+        }
+        
+        // Сохраняем новый лимит
+        this.adjustedData.newCardLimit = {
+            limitTypeId: limitTypeId,
+            limitName: newLimit.name,
+            cardLimit: newLimit.cardLimit,
+            maxAdvance: newLimit.maxAdvance
+        };
+        
+        // Обновляем отображение
+        const statusEl = document.getElementById('ucm-card-limit-status');
+        if (statusEl) {
+            statusEl.style.display = 'block';
+            statusEl.style.background = '#d4edda';
+            statusEl.style.color = '#155724';
+            statusEl.style.border = '1px solid #c3e6cb';
+            statusEl.innerHTML = `✅ Новый лимит выбран: <strong>${newLimit.name}</strong><br>
+                💳 Макс. на карту: <strong>${this.formatNumber(newLimit.cardLimit)} грн</strong> | 
+                💰 Макс. аванс: <strong>${this.formatNumber(newLimit.maxAdvance)} грн</strong><br>
+                <small style="margin-top: 8px; display: block;">⚠️ Не забудьте нажать "💾 СОХРАНИТЬ" для применения изменений!</small>`;
+        }
+        
+        this.hasUnsavedChanges = true;
+    }
+
     // Валидация данных
     validateData() {
         const errors = [];
@@ -1945,7 +2074,8 @@ togglePreview() {
                     penalty: this.adjustedData.penalty || 0,
                     bonusReason: document.getElementById('ucm-bonus-reason')?.value || '',
                     penaltyReason: document.getElementById('ucm-penalty-reason')?.value || '',
-                    shortagesList: this.adjustedData.shortagesList || []
+                    shortagesList: this.adjustedData.shortagesList || [],
+                    cardLimit: this.adjustedData.newCardLimit || null
                 },
                 changes: changes,
                 validation: {

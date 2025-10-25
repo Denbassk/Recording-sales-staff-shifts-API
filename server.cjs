@@ -476,44 +476,73 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
 
     return withLock(`payroll_${date}`, async () => {
         try {
-// ИСПРАВЛЕНИЕ: добавляем role в select
-const { data: shiftsRaw, error: shiftsError } = await supabase.from('shifts')
-    .select(`store_id, stores (address), employees (fullname, id, role)`)
-    .eq('shift_date', date)
-    .neq('store_id', 27);  // ✅ ИСКЛЮЧАЕМ магазин Професорська 12
+// ✅ ШАГ 1: Получаем смены БЕЗ JOIN с employees
+            const { data: shiftsRaw, error: shiftsError } = await supabase
+                .from('shifts')
+                .select('store_id, employee_id, stores(address)')
+                .eq('shift_date', date)
+                .neq('store_id', 27);
 
-if (shiftsError) throw shiftsError;
-if (!shiftsRaw || shiftsRaw.length === 0) {
-    return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
-}
+            if (shiftsError) throw shiftsError;
+            if (!shiftsRaw || shiftsRaw.length === 0) {
+                return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
+            }
 
-// ✅ ФИЛЬТРАЦИЯ: исключаем админов, бухгалтеров и сотрудников без имен
-const shifts = shiftsRaw.filter(shift => {
-    if (!shift.employees) return false;
-    
-    const role = shift.employees.role;
-    const fullname = (shift.employees.fullname || '').trim();
-    
-    // Пропускаем админов и бухгалтеров
-    if (role === 'admin' || role === 'accountant') {
-        console.log(`Исключен ${role}: ${fullname}`);
-        return false;
-    }
-    
-    // Пропускаем сотрудников без имени
-    if (fullname === '') {
-        console.log(`Исключен сотрудник без имени: ${shift.employees.id}`);
-        return false;
-    }
-    
-    return true;
-});
+            // ✅ ШАГ 2: Получаем employee_ids из смен
+            const employeeIdsPayroll = [...new Set(shiftsRaw.map(s => s.employee_id))];
 
-console.log(`Дата: ${date}, Смен до фильтрации: ${shiftsRaw.length}, после фильтрации: ${shifts.length}`);
+            // ✅ ШАГ 3: Получаем данные сотрудников
+            const { data: employeesPayroll, error: empPayError } = await supabase
+                .from('employees')
+                .select('id, fullname, role')
+                .in('id', employeeIdsPayroll);
 
-if (shifts.length === 0) {
-    return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
-}
+            if (empPayError) throw empPayError;
+
+            // ✅ ШАГ 4: Создаем мапу
+            const employeesPayrollMap = new Map(
+                employeesPayroll.map(emp => [emp.id, emp])
+            );
+
+            // ✅ ШАГ 5: Обогащаем смены данными о сотрудниках и фильтруем
+            const shifts = shiftsRaw
+                .map(shift => {
+                    const employee = employeesPayrollMap.get(shift.employee_id);
+                    return {
+                        ...shift,
+                        employees: employee ? {
+                            id: employee.id,
+                            fullname: employee.fullname,
+                            role: employee.role
+                        } : null
+                    };
+                })
+                .filter(shift => {
+                    if (!shift.employees) return false;
+                    
+                    const role = shift.employees.role;
+                    const fullname = (shift.employees.fullname || '').trim();
+                    
+                    // Пропускаем админов и бухгалтеров
+                    if (role === 'admin' || role === 'accountant') {
+                        console.log(`[Расчет ЗП] Исключен ${role}: ${fullname}`);
+                        return false;
+                    }
+                    
+                    // Пропускаем сотрудников без имени
+                    if (fullname === '') {
+                        console.log(`[Расчет ЗП] Исключен сотрудник без имени: ${shift.employees.id}`);
+                        return false;
+                    }
+                    
+                    return true;
+                });
+
+            console.log(`Дата: ${date}, Смен до фильтрации: ${shiftsRaw.length}, после фильтрации: ${shifts.length}`);
+
+            if (shifts.length === 0) {
+                return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
+            }
 
 const storeShifts = {};
 shifts.forEach(shift => {
@@ -667,41 +696,64 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
         if (empError) throw empError;
         const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
 
-// ✅ ИСПРАВЛЕНИЕ: получаем расчеты + информация о ролях и именах
-const { data: dailyDataRaw, error: dailyError } = await supabase.from('payroll_calculations')
-    .select(`
-        *,
-        employees!inner (fullname, role)
-    `)
-    .gte('work_date', startDate)
-    .lte('work_date', reportEndDate)
-    .neq('store_id', 27)  // ✅ ИСКЛЮЧАЕМ магазин Професорська 12
-    .order('work_date', { ascending: true });
-if (dailyError) throw dailyError;
+        // ✅ ШАГ 1: Получаем все расчеты БЕЗ JOIN
+        const { data: dailyDataRaw, error: dailyError } = await supabase
+            .from('payroll_calculations')
+            .select('*')
+            .gte('work_date', startDate)
+            .lte('work_date', reportEndDate)
+            .neq('store_id', 27)
+            .order('work_date', { ascending: true });
 
-// ✅ ФИЛЬТРАЦИЯ: исключаем админов, бухгалтеров и сотрудников без имен
-const dailyData = dailyDataRaw.filter(calc => {
-    if (!calc.employees) return false;
-    
-    const role = calc.employees.role;
-    const fullname = (calc.employees.fullname || '').trim();
-    
-    // Исключаем админов и бухгалтеров
-    if (role === 'admin' || role === 'accountant') return false;
-    
-    // Исключаем сотрудников без имени
-    if (fullname === '') return false;
-    
-    return true;
-});
+        if (dailyError) throw dailyError;
 
-// Обогащаем данными именами сотрудников
-const enrichedDailyData = dailyData.map(calc => ({ 
-    ...calc, 
-    employee_name: calc.employees?.fullname || employeeMap.get(calc.employee_id) || 'Неизвестный' 
-}));
+        // ✅ ШАГ 2: Получаем employee_ids из расчетов
+        const employeeIds = [...new Set(dailyDataRaw.map(calc => calc.employee_id))];
 
-console.log(`Период: ${startDate} - ${reportEndDate}, Расчетов до фильтрации: ${dailyDataRaw.length}, после: ${dailyData.length}`);
+        // ✅ ШАГ 3: Получаем данные сотрудников отдельным запросом
+        const { data: employeesData, error: empDataError } = await supabase
+            .from('employees')
+            .select('id, fullname, role')
+            .in('id', employeeIds);
+
+        if (empDataError) throw empDataError;
+
+        // ✅ ШАГ 4: Создаем мапу сотрудников для быстрого доступа
+        const employeesDbMap = new Map(
+            employeesData.map(emp => [emp.id, emp])
+        );
+
+        // ✅ ШАГ 5: Обогащаем расчеты данными о сотрудниках и фильтруем
+        const enrichedDailyData = dailyDataRaw
+            .map(calc => {
+                const employee = employeesDbMap.get(calc.employee_id);
+                return {
+                    ...calc,
+                    employee_name: employee?.fullname || employeeMap.get(calc.employee_id) || 'Неизвестный',
+                    role: employee?.role,
+                    fullname: employee?.fullname
+                };
+            })
+            .filter(calc => {
+                const role = calc.role;
+                const fullname = (calc.fullname || '').trim();
+                
+                // Исключаем админов и бухгалтеров
+                if (role === 'admin' || role === 'accountant') {
+                    console.log(`[Месячные данные] Исключен ${role}: ${fullname}`);
+                    return false;
+                }
+                
+                // Исключаем сотрудников без имени
+                if (fullname === '') {
+                    console.log(`[Месячные данные] Исключен сотрудник без имени: ${calc.employee_id}`);
+                    return false;
+                }
+                
+                return true;
+            });
+
+        console.log(`Период: ${startDate} - ${reportEndDate}, Расчетов до фильтрации: ${dailyDataRaw.length}, после: ${enrichedDailyData.length}`);
         
         // Логируем для отладки
         console.log(`Получено расчетов за период ${startDate} - ${reportEndDate}: ${enrichedDailyData.length}`);
@@ -765,46 +817,70 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
     if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
     
     try {
-const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
-// ✅ ИСПРАВЛЕНИЕ: получаем расчеты + проверяем роли и имена
-const { data: calculationsRaw, error } = await supabase
-    .from('payroll_calculations')
-    .select(`
-        employee_id, 
-        total_pay,
-        store_id,
-        employees!inner (fullname, role)
-    `)
-    .gte('work_date', startDate)
-    .lte('work_date', advanceEndDate)
-    .neq('store_id', 27);  // ✅ ИСКЛЮЧАЕМ магазин Професорська 12
+        // ✅ ШАГ 1: Получаем расчеты БЕЗ JOIN
+        const { data: calculationsRaw, error } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, total_pay, store_id')
+            .gte('work_date', startDate)
+            .lte('work_date', advanceEndDate)
+            .neq('store_id', 27);
 
-if (error) throw error;
+        if (error) throw error;
 
-// ✅ ФИЛЬТРАЦИЯ: исключаем админов, бухгалтеров и сотрудников без имен
-const calculationsInPeriod = calculationsRaw.filter(calc => {
-    if (!calc.employees) return false;
-    
-    const role = calc.employees.role;
-    const fullname = (calc.employees.fullname || '').trim();
-    
-    // Исключаем админов и бухгалтеров
-    if (role === 'admin' || role === 'accountant') return false;
-    
-    // Исключаем сотрудников без имени
-    if (fullname === '') return false;
-    
-    return true;
-});
+        // ✅ ШАГ 2: Получаем уникальные employee_ids
+        const employeeIdsAdvance = [...new Set(calculationsRaw.map(c => c.employee_id))];
 
-console.log(`Расчет аванса ${year}-${month}: записей до фильтрации ${calculationsRaw.length}, после ${calculationsInPeriod.length}`);
+        // ✅ ШАГ 3: Получаем данные сотрудников
+        const { data: employeesAdvance, error: empAdvError } = await supabase
+            .from('employees')
+            .select('id, fullname, role')
+            .in('id', employeeIdsAdvance);
 
-// Суммируем начисления по сотрудникам
-const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
-    acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
-    return acc;
-}, {});
+        if (empAdvError) throw empAdvError;
+
+        // ✅ ШАГ 4: Создаем мапу
+        const employeesAdvanceMap = new Map(
+            employeesAdvance.map(emp => [emp.id, emp])
+        );
+
+        // ✅ ШАГ 5: Обогащаем и фильтруем
+        const calculationsInPeriod = calculationsRaw
+            .map(calc => {
+                const employee = employeesAdvanceMap.get(calc.employee_id);
+                return {
+                    ...calc,
+                    fullname: employee?.fullname,
+                    role: employee?.role
+                };
+            })
+            .filter(calc => {
+                const role = calc.role;
+                const fullname = (calc.fullname || '').trim();
+                
+                // Исключаем админов и бухгалтеров
+                if (role === 'admin' || role === 'accountant') {
+                    console.log(`[Аванс] Исключен ${role}: ${fullname}`);
+                    return false;
+                }
+                
+                // Исключаем сотрудников без имени
+                if (fullname === '') {
+                    console.log(`[Аванс] Исключен сотрудник без имени: ${calc.employee_id}`);
+                    return false;
+                }
+                
+                return true;
+            });
+
+        console.log(`Расчет аванса ${year}-${month}: записей до фильтрации ${calculationsRaw.length}, после ${calculationsInPeriod.length}`);
+
+        // ✅ ШАГ 6: Суммируем начисления по сотрудникам
+        const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
+            acc[calc.employee_id] = (acc[calc.employee_id] || 0) + calc.total_pay;
+            return acc;
+        }, {});
 
         // Проверяем зафиксированные авансы
         const { data: fixedAdvances, error: fixedError } = await supabase
@@ -859,17 +935,21 @@ const earnedInPeriod = calculationsInPeriod.reduce((acc, calc) => {
             }
             // Рассчитываем автоматически с ПРАВИЛЬНЫМ округлением
             else {
-    // 1. Берем 90% от НАЧИСЛЕНИЙ (не от лимита карты!)
-    let calculatedAdvance = totalEarned * 0.9; 
-    
-    // 2. Округляем вниз до 100
-    let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
-    
-advanceAmount = Math.min(roundedAdvance, limits.maxAdvance); // ✅ ДИНАМИЧЕСКИЙ ЛИМИТ
-    
-    // Логируем для отладки
-    console.log(`Авторасчет для ${employeeId}: начислено ${totalEarned}, 90% = ${calculatedAdvance.toFixed(2)}, округлено = ${roundedAdvance}, финально = ${advanceAmount}`);
-}
+                // Получаем лимиты сотрудника
+                const limits = await getEmployeeCardLimit(employeeId);
+                
+                // 1. Берем 90% от НАЧИСЛЕНИЙ
+                let calculatedAdvance = totalEarned * (limits.advancePercentage || 0.9); 
+                
+                // 2. Округляем вниз до 100
+                let roundedAdvance = Math.floor(calculatedAdvance / 100) * 100;
+                
+                // 3. Ограничиваем максимальным авансом для данного сотрудника
+                advanceAmount = Math.min(roundedAdvance, limits.maxAdvance);
+                
+                // Логируем для отладки
+                console.log(`Авторасчет для ${employeeId}: начислено ${totalEarned}, 90% = ${calculatedAdvance.toFixed(2)}, округлено = ${roundedAdvance}, финально = ${advanceAmount}, лимит = ${limits.limitName}`);
+            }
 
             results[employeeId] = {
                 advance_payment: advanceAmount,
@@ -891,6 +971,7 @@ advanceAmount = Math.min(roundedAdvance, limits.maxAdvance); // ✅ ДИНАМИ
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 // ЗАМЕНИТЕ функцию app.post('/fix-advance-payment'...) примерно на строке 1850
 app.post('/fix-advance-payment', checkAuth, canManagePayroll, async (req, res) => {
@@ -2663,29 +2744,54 @@ app.get('/api/card-limit-types', checkAuth, canManagePayroll, async (req, res) =
     }
 });
 
-// Получение списка сотрудников с их лимитами
-app.get('/api/employees-with-limits', checkAuth, canManagePayroll, async (req, res) => {
+app.get('/api/employees-with-limits', checkAuth, async (req, res) => {
     try {
-        const { data: employees, error } = await supabase
+        const { data: employeesRaw, error } = await supabase
             .from('employees')
             .select(`
                 id,
                 fullname,
+                role,
                 card_limit_type_id,
-                card_limit_types (
+                card_limit_types!card_limit_type_id (
+                    id,
                     limit_name,
                     card_limit,
                     max_advance
                 )
             `)
             .eq('active', true)
-            .order('fullname');
+            .order('fullname', { ascending: true });
         
         if (error) throw error;
         
+        // ✅ ФИЛЬТРАЦИЯ: исключаем админов, бухгалтеров и пустые имена
+        const employees = employeesRaw.filter(emp => {
+            const role = emp.role;
+            const fullname = (emp.fullname || '').trim();
+            
+            // Исключаем админов и бухгалтеров
+            if (role === 'admin' || role === 'accountant') {
+                console.log(`[Лимиты карты] Исключен ${role}: ${fullname}`);
+                return false;
+            }
+            
+            // Исключаем сотрудников без имени
+            if (fullname === '') {
+                console.log(`[Лимиты карты] Исключен сотрудник без имени: ${emp.id}`);
+                return false;
+            }
+            
+            return true;
+        });
+        
+        console.log(`[Лимиты карты] До фильтрации: ${employeesRaw.length}, после: ${employees.length}`);
+        
+        // ✅ ДОБАВЛЕНО: Возвращаем отфильтрованный список
         res.json({ success: true, employees });
+        
     } catch (error) {
-        console.error('Ошибка получения сотрудников:', error);
+        console.error('Ошибка получения сотрудников с лимитами:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
