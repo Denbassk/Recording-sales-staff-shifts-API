@@ -477,11 +477,10 @@ app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => 
     return withLock(`payroll_${date}`, async () => {
         try {
 // ✅ ШАГ 1: Получаем смены БЕЗ JOIN с employees
-            const { data: shiftsRaw, error: shiftsError } = await supabase
-                .from('shifts')
-                .select('store_id, employee_id, stores(address)')
-                .eq('shift_date', date)
-                .neq('store_id', 27);
+const { data: shiftsRaw, error: shiftsError } = await supabase
+    .from('shifts')
+    .select('store_id, employee_id, stores(address)')
+    .eq('shift_date', date);
 
             if (shiftsError) throw shiftsError;
             if (!shiftsRaw || shiftsRaw.length === 0) {
@@ -697,13 +696,12 @@ app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
         const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
 
         // ✅ ШАГ 1: Получаем все расчеты БЕЗ JOIN
-        const { data: dailyDataRaw, error: dailyError } = await supabase
-            .from('payroll_calculations')
-            .select('*')
-            .gte('work_date', startDate)
-            .lte('work_date', reportEndDate)
-            .neq('store_id', 27)
-            .order('work_date', { ascending: true });
+const { data: dailyDataRaw, error: dailyError } = await supabase
+    .from('payroll_calculations')
+    .select('*')
+    .gte('work_date', startDate)
+    .lte('work_date', reportEndDate)
+    .order('work_date', { ascending: true });
 
         if (dailyError) throw dailyError;
 
@@ -820,12 +818,11 @@ app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => 
         const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
 
         // ✅ ШАГ 1: Получаем расчеты БЕЗ JOIN
-        const { data: calculationsRaw, error } = await supabase
-            .from('payroll_calculations')
-            .select('employee_id, total_pay, store_id')
-            .gte('work_date', startDate)
-            .lte('work_date', advanceEndDate)
-            .neq('store_id', 27);
+const { data: calculationsRaw, error } = await supabase
+    .from('payroll_calculations')
+    .select('employee_id, total_pay, store_id')
+    .gte('work_date', startDate)
+    .lte('work_date', advanceEndDate);
 
         if (error) throw error;
 
