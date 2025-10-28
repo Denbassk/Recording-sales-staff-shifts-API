@@ -3348,12 +3348,27 @@ app.post('/create-backup', checkAuth, canManagePayroll, async (req, res) => {
 });
 
 
-// Автоматический backup дважды в день
 async function createAutoBackup() {
     try {
         const now = new Date();
         const month = now.getMonth() + 1;
         const year = now.getFullYear();
+        
+        // ✅ ДОБАВИТЬ: Проверка что бэкап не был недавно
+        const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+        const { data: recentBackup } = await supabase
+            .from('final_payroll_calculations_backup')
+            .select('backup_date')
+            .eq('backup_reason', 'auto_backup_daily')
+            .eq('month', month)
+            .eq('year', year)
+            .gte('backup_date', fiveMinutesAgo.toISOString())
+            .limit(1);
+        
+        if (recentBackup && recentBackup.length > 0) {
+            console.log(`[${now.toISOString()}] Бэкап недавно создан, пропускаем`);
+            return;
+        }
         
         // Получаем данные текущего месяца
         const { data: currentData } = await supabase
@@ -3396,13 +3411,17 @@ async function createAutoBackup() {
             if (!error) {
                 console.log(`[${now.toISOString()}] Auto backup created: ${backupData.length} records`);
                 
-                // Удаляем старые auto backup (старше 7 дней)
+                // ✅ ИСПРАВИТЬ: Удаляем старые auto backup (старше 7 дней)
                 const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                await supabase
+                const { error: deleteError, count } = await supabase
                     .from('final_payroll_calculations_backup')
-                    .delete()
+                    .delete({ count: 'exact' })
                     .eq('backup_reason', 'auto_backup_daily')
                     .lt('backup_date', sevenDaysAgo.toISOString());
+                
+                if (!deleteError && count > 0) {
+                    console.log(`[${now.toISOString()}] Deleted ${count} old backups`);
+                }
             }
         }
     } catch (error) {
