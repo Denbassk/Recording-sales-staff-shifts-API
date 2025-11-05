@@ -337,14 +337,13 @@ document.addEventListener("DOMContentLoaded", async () => {
           
           // Синхронизация офлайн смен в фоне
           setTimeout(syncOfflineShifts, 2000);
-        } else if (data.role === 'admin' || data.role === 'accountant') {
-          // Для админов и бухгалтеров - перенаправление
+        } else if (data.role === 'admin' || data.role === 'accountant' || data.role === 'curator') {
+          // Для админов, бухгалтеров и кураторов - перенаправление
           showMessage(`✓ ${data.message} Перенаправление...`, "green");
           setTimeout(() => {
             window.location.href = '/payroll.html';
           }, 1000);
         }
-
       } else {
         throw new Error(data.message || "Ошибка авторизации");
       }

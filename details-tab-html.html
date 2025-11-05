@@ -1,0 +1,142 @@
+<!-- ================================================ -->
+<!-- НОВАЯ ВКЛАДКА: Детализация расчетов -->
+<!-- ================================================ -->
+<!-- Добавить в payroll.html после других вкладок -->
+
+<!-- 1. Добавить кнопку в навигацию (внутри .tab-navigation): -->
+<button class="tab-button" id="details-tab-button" onclick="switchTab('details', this)" style="display: none;">
+    📊 Детализация расчетов
+</button>
+
+<!-- 2. Добавить содержимое вкладки (внутри .content после других tab-content): -->
+<div id="details-tab" class="tab-content">
+    <div class="control-panel">
+        <h3 style="margin-bottom: 15px; color: #667eea;">
+            📊 Детальная расшифровка расчетов зарплаты
+        </h3>
+        <p style="margin-bottom: 20px; color: #666; font-size: 14px;">
+            Здесь можно посмотреть детализацию расчетов по каждому дню: какая была касса, 
+            сколько продавцов, как считались ставка и бонусы.
+        </p>
+        
+        <div class="control-row">
+            <div class="control-group">
+                <label>Выберите сотрудника:</label>
+                <select id="detailsEmployeeSelect" style="min-width: 250px;">
+                    <option value="">-- Выберите сотрудника --</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Месяц:</label>
+                <select id="detailsMonth">
+                    <option value="1">Январь</option>
+                    <option value="2">Февраль</option>
+                    <option value="3">Март</option>
+                    <option value="4">Апрель</option>
+                    <option value="5">Май</option>
+                    <option value="6">Июнь</option>
+                    <option value="7">Июль</option>
+                    <option value="8">Август</option>
+                    <option value="9">Сентябрь</option>
+                    <option value="10">Октябрь</option>
+                    <option value="11">Ноябрь</option>
+                    <option value="12">Декабрь</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Год:</label>
+                <input type="number" id="detailsYear" value="2024" min="2024" max="2030">
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadCalculationDetails()" class="primary">
+                    🔍 Показать детализацию
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="detailsStatus" class="status" style="display:none;"></div>
+    
+    <div id="calculationDetailsContent" style="display: none;">
+        <!-- Сюда будет загружаться контент -->
+    </div>
+</div>
+
+<!-- ================================================ -->
+<!-- СТИЛИ для вкладки детализации -->
+<!-- ================================================ -->
+<style>
+.details-summary-panel {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+}
+
+.details-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.details-summary-item {
+    background: rgba(255,255,255,0.15);
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.details-summary-item .label {
+    font-size: 12px;
+    opacity: 0.9;
+    margin-bottom: 5px;
+}
+
+.details-summary-item .value {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.store-stats-panel {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.store-stat-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.store-stat-row:last-child {
+    border-bottom: none;
+}
+
+.day-row-senior {
+    background: #fff3cd !important;
+}
+
+.day-row-weekend {
+    background: #f8f9fa;
+}
+
+.bonus-breakdown {
+    font-size: 11px;
+    color: #666;
+    font-style: italic;
+}
+
+.export-buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+    justify-content: flex-end;
+}
+</style>

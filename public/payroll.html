@@ -53,51 +53,51 @@
         }
 
         .tab-navigation {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #e0e0e0;
-            padding-bottom: 0;
-        }
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e0e0e0;
+    padding-bottom: 0;
+}
 
-        .tab-button {
-            padding: 12px 25px;
-            background: transparent;
-            border: none;
-            border-bottom: 3px solid transparent;
-            cursor: pointer;
-            font-size: 15px;
-            font-weight: 500;
-            color: #666;
-            transition: all 0.3s ease;
-            position: relative;
-            top: 2px;
-        }
+.tab-button {
+    padding: 12px 25px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    color: #666;
+    transition: all 0.3s ease;
+    position: relative;
+    top: 2px;
+}
 
-        .tab-button:hover {
-            color: #667eea;
-            background: rgba(102, 126, 234, 0.05);
-        }
+.tab-button:hover {
+    color: #667eea;
+    background: rgba(102, 126, 234, 0.05);
+}
 
-        .tab-button.active {
-            color: #667eea;
-            border-bottom-color: #667eea;
-            background: rgba(102, 126, 234, 0.08);
-        }
+.tab-button.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+    background: rgba(102, 126, 234, 0.08);
+}
 
-        .tab-content {
-            display: none;
-            animation: fadeIn 0.3s ease;
-        }
+.tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease;
+}
 
-        .tab-content.active {
-            display: block;
-        }
+.tab-content.active {
+    display: block;
+}
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 
         .control-panel {
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
@@ -814,15 +814,15 @@
             <p>Автоматизированный расчет и учет заработной платы сотрудников</p>
         </div>
 
-        <div class="content">
+<div class="content">
             <div class="tab-navigation">
                 <button class="tab-button active" onclick="switchTab('revenue', this)">📊 Загрузка выручки</button>
                 <button class="tab-button" onclick="switchTab('payroll', this)">💵 Расчет зарплаты</button>
                 <button class="tab-button" onclick="switchTab('report', this)">📈 Отчет за месяц</button>
                 <button id="fot-tab-button" class="tab-button" onclick="switchTab('fot', this)" style="display: none;">💼 Фонд оплаты труда</button>
                 <button class="tab-button" onclick="switchTab('cardLimits', this); initCardLimitsPage()">💳 Лимиты карты</button>
+                <button class="tab-button" id="details-tab-button" onclick="switchTab('details', this)" style="display: none;">📊 Детализация расчетов</button>
             </div>
-
             <div id="revenue-tab" class="tab-content active">
                 <div class="control-panel">
                     <div class="control-row">
@@ -1120,7 +1120,7 @@
                     </table>
                 </div>
                 
-                <div id="bulkActionsPanel" class="control-panel" style="display: none; margin-top: 20px;">
+<div id="bulkActionsPanel" class="control-panel" style="display: none; margin-top: 20px;">
                     <h4 style="margin-bottom: 15px;">
                         Массовое изменение для выбранных (<span id="selectedCount">0</span>)
                     </h4>
@@ -1139,6 +1139,51 @@
                 </div>
             </div>
 
+            <!-- ========== ВКЛАДКА ДЕТАЛИЗАЦИЯ РАСЧЕТОВ ========== -->
+            <div id="details-tab" class="tab-content">
+                <div class="control-panel">
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>👤 Сотрудник:</label>
+                            <select id="detailsEmployeeSelect">
+                                <option value="">-- Выберите сотрудника --</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Месяц:</label>
+                            <select id="detailsMonth">
+                                <option value="1">Январь</option>
+                                <option value="2">Февраль</option>
+                                <option value="3">Март</option>
+                                <option value="4">Апрель</option>
+                                <option value="5">Май</option>
+                                <option value="6">Июнь</option>
+                                <option value="7">Июль</option>
+                                <option value="8">Август</option>
+                                <option value="9">Сентябрь</option>
+                                <option value="10">Октябрь</option>
+                                <option value="11">Ноябрь</option>
+                                <option value="12">Декабрь</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Год:</label>
+                            <input type="number" id="detailsYear" value="2025" min="2024" max="2030">
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button onclick="loadCalculationDetails()" class="primary">
+                                📊 Показать детализацию
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="detailsStatus" class="status" style="display:none;"></div>
+                
+                <div id="calculationDetailsContent" style="display:none;"></div>
+            </div>
+
         </div>
     </div>
     
@@ -1149,6 +1194,6 @@
 <script src="payroll.js" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
 </body>
 </html>
-
