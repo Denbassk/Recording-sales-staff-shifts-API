@@ -1788,40 +1788,56 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     isTermination = existing.is_termination || false;
                     isFixed = existing.is_fixed || false;
                     
-                    // ИСПРАВЛЕНИЕ: Правильный расчет остатков
-                    if (existing.is_remainder_adjusted) {
-                        // Если были ручные корректировки остатков - сохраняем их
-                        cardRemainder = existing.card_remainder || 0;
-                        cashPayout = existing.cash_payout || 0;
-                    } else if (isTermination) {
+// ИСПРАВЛЕНИЕ: Правильный расчет остатков
+                    if (isTermination) {
                         // При увольнении остатки всегда 0
                         cardRemainder = 0;
                         cashPayout = 0;
                     } else {
-                        // ИСПРАВЛЕННЫЙ РАСЧЕТ ОСТАТКОВ
                         const remainingToPay = totalAfterDeductions - advancePayment;
                         
-if (remainingToPay > 0) {
-    // ✅ Есть остаток к выплате - используем ДИНАМИЧЕСКИЙ лимит
-    const limits = await getEmployeeCardLimit(employeeId);
-    const maxCardTotal = limits.cardLimit; // Динамический лимит (8700 или 16000)
-    const alreadyOnCard = advanceCard; // Уже выплачено на карту
-    const remainingCardCapacity = Math.max(0, maxCardTotal - alreadyOnCard);
-
-    console.log(`Финальный расчет для ${employeeId}: лимит ${limits.limitName} (${maxCardTotal}), ` +
-                `аванс ${advanceCard}, остаток ${remainingCardCapacity}`);
-
-console.log(`Финальный расчет для ${employeeId}: лимит ${maxCardTotal}, аванс ${advanceCard}, остаток ${remainingCardCapacity}`);
+                        if (remainingToPay > 0) {
+                            // Получаем ДИНАМИЧЕСКИЙ лимит
+                            const limits = await getEmployeeCardLimit(employeeId);
+                            const maxCardTotal = limits.cardLimit;
+                            const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
                             
-                            cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-                            cashPayout = remainingToPay - cardRemainder;
+                            if (existing.is_remainder_adjusted) {
+                                // Была ручная корректировка - проверяем валидность
+                                const oldCardRemainder = existing.card_remainder || 0;
+                                const oldCashPayout = existing.cash_payout || 0;
+                                const oldTotal = oldCardRemainder + oldCashPayout;
+                                
+                                // Если старая сумма совпадает с новой - сохраняем распределение
+                                if (Math.abs(oldTotal - remainingToPay) < 1) {
+                                    // Сумма та же, но проверяем лимит карты
+                                    if (oldCardRemainder <= remainingCardCapacity) {
+                                        cardRemainder = oldCardRemainder;
+                                        cashPayout = oldCashPayout;
+                                    } else {
+                                        // Лимит изменился - пересчитываем
+                                        cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+                                        cashPayout = remainingToPay - cardRemainder;
+                                    }
+                                } else {
+                                    // Сумма изменилась - пересчитываем полностью
+                                    cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+                                    cashPayout = remainingToPay - cardRemainder;
+                                }
+                            } else {
+                                // Обычный расчет
+                                cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+                                cashPayout = remainingToPay - cardRemainder;
+                            }
+                            
+                            console.log(`Финальный расчет для ${employeeId}: лимит ${maxCardTotal}, аванс ${advanceCard}, карта ${cardRemainder}, нал ${cashPayout}`);
                         } else {
                             // Аванс покрывает все или переплата
                             cardRemainder = 0;
                             cashPayout = 0;
                         }
                     }
-} else {
+                } else {
     // ✅ Новая запись - расчет с ДИНАМИЧЕСКИМ лимитом
     const limits = await getEmployeeCardLimit(employeeId);
     
