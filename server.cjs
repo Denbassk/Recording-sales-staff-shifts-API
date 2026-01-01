@@ -167,11 +167,11 @@ function validatePayrollCalculation(data) {
         errors.push(`Расхождение в остатках: ожидается ${expectedRemainder}, получено ${actualRemainder}`);
     }
     
-    // Проверка лимита карты
-    const totalOnCard = (data.advance_card || 0) + (data.card_remainder || 0);
-    if (totalOnCard > 8700) {
-        errors.push(`Превышен лимит карты: ${totalOnCard} > 8700`);
-    }
+    // Проверка лимита карты - убираем жёсткую проверку, т.к. лимиты разные
+    // const totalOnCard = (data.advance_card || 0) + (data.card_remainder || 0);
+    // if (totalOnCard > 8700) {
+    //     errors.push(`Превышен лимит карты: ${totalOnCard} > 8700`);
+    // }
     
     // Проверка отрицательных значений
     if (data.card_remainder < 0 || data.cash_payout < 0) {
@@ -1889,31 +1889,6 @@ console.log(`Финальный расчет для ${employeeId}: лимит ${
                     remainder_adjusted_by: existing?.remainder_adjusted_by || null,
                     updated_at: new Date().toISOString()
                 });
-                // НОВОЕ: Валидация перед сохранением
-const validation = validatePayrollCalculation(recordToSave);
-if (!validation.valid) {
-    console.warn(`Ошибки валидации для ${employeeId}:`, validation.errors);
-    
-    // Пытаемся автоматически исправить
-    const fixedRecord = autoFixPayrollCalculation(recordToSave);
-    const revalidation = validatePayrollCalculation(fixedRecord);
-    
-    if (revalidation.valid) {
-        console.log(`Автоматически исправлено для ${employeeId}`);
-        dataToSave.push(fixedRecord);
-    } else {
-        console.error(`Не удалось исправить для ${employeeId}:`, revalidation.errors);
-        // Сохраняем как есть, но логируем проблему
-        await logFinancialOperation('validation_error', {
-            employee_id: employeeId,
-            errors: revalidation.errors,
-            data: fixedRecord
-        }, req.user.id);
-        dataToSave.push(fixedRecord);
-    }
-} else {
-    dataToSave.push(recordToSave);
-}
             }
 
             // Сохраняем финальные расчеты в базу данных
@@ -2304,10 +2279,11 @@ app.post('/save-universal-corrections', async (req, res) => {
     }
     
     // Проверка лимитов
-    const totalCard = (corrections.advanceCard || 0) + (corrections.salaryCard || 0);
-    if (totalCard > 8700) {
-        errors.push('Превышен лимит карты');
-    }
+    // Проверка лимита карты - лимиты индивидуальные, проверяется в другом месте
+    // const totalCard = (corrections.advanceCard || 0) + (corrections.salaryCard || 0);
+    // if (totalCard > 8700) {
+    //     errors.push('Превышен лимит карты');
+    // }
     
     if (errors.length > 0) {
         return res.status(400).json({ 
@@ -2519,7 +2495,7 @@ async function buildFotReport({ startDate, endDate }) {
     // ШАГ 4: Считаем ФОТ по магазинам, как и раньше
     const fotByStore = {};
     const TAX = 0.22;
-    const cardLimit = 8700;
+    const cardLimit = 16000;
     const employeeCardTracker = {}; 
   
     for (const c of calcs) {
@@ -2981,20 +2957,6 @@ app.get('/api/get-employee-card-limit/:employee_id', checkAuth, async (req, res)
     }
 });
 
-// ========== ЭНДПОИНТЫ ДЛЯ УНИВЕРСАЛЬНЫХ КОРРЕКТИРОВОК ==========
-
-// Получение лимитов карты сотрудника
-app.get('/api/get-employee-card-limit/:employee_id', checkAuth, canManagePayroll, async (req, res) => {
-    const { employee_id } = req.params;
-    
-    try {
-        const limits = await getEmployeeCardLimit(employee_id);
-        res.json({ success: true, limits });
-    } catch (error) {
-        console.error('Ошибка получения лимитов:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
 
 // Получение полных данных сотрудника для модального окна
 app.post('/api/get-employee-full-data', checkAuth, canManagePayroll, async (req, res) => {
@@ -3186,12 +3148,12 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
         const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
         const endDate = new Date(year, month, 0).toISOString().split('T')[0];
         
-        // Получаем информацию о сотруднике (проверяем что это продавец!)
+        // Получаем информацию о сотруднике
         const { data: employee, error: empError } = await supabase
             .from('employees')
             .select('id, fullname, role')
             .eq('id', employee_id)
-            .eq('role', 'seller')  // ⚠️ КРИТИЧНО! Только продавцы
+            .eq('role', 'seller')
             .single();
         
         if (empError) throw empError;
@@ -3214,6 +3176,18 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
         
         if (calcError) throw calcError;
         
+        // НОВОЕ: Получаем корректировки (премии, штрафы, недостачи)
+        const { data: adjustments, error: adjError } = await supabase
+            .from('monthly_adjustments')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year)
+            .single();
+        
+        // Не выбрасываем ошибку если корректировок нет
+        const adj = adjustments || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
+        
         if (!calculations || calculations.length === 0) {
             return res.json({ 
                 success: true, 
@@ -3224,8 +3198,16 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
                     total_earned: 0,
                     avg_per_day: 0,
                     total_base: 0,
-                    total_bonus: 0
-                }
+                    total_bonus: 0,
+                    // НОВОЕ: добавляем корректировки в summary
+                    manual_bonus: adj.manual_bonus || 0,
+                    penalty: adj.penalty || 0,
+                    shortage: adj.shortage || 0,
+                    bonus_reason: adj.bonus_reason || '',
+                    penalty_reason: adj.penalty_reason || '',
+                    total_with_adjustments: 0
+                },
+                adjustments: adj
             });
         }
         
@@ -3243,28 +3225,36 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
         }));
         
         // Считаем итоги
+        const total_base = calculations.reduce((sum, c) => sum + (c.base_rate || 0), 0);
+        const total_bonus = calculations.reduce((sum, c) => sum + (c.bonus || 0), 0);
+        const total_earned = calculations.reduce((sum, c) => sum + (c.total_pay || 0), 0);
+        
+        // НОВОЕ: Итого с учётом корректировок
+        const total_deductions = (adj.penalty || 0) + (adj.shortage || 0);
+        const total_with_adjustments = total_earned + (adj.manual_bonus || 0) - total_deductions;
+        
         const summary = {
             total_days: calculations.length,
-            total_earned: calculations.reduce((sum, c) => sum + (c.total_pay || 0), 0),
-            total_base: calculations.reduce((sum, c) => sum + (c.base_rate || 0), 0),
-            total_bonus: calculations.reduce((sum, c) => sum + (c.bonus || 0), 0),
-            avg_per_day: 0
+            total_earned: total_earned,
+            total_base: total_base,
+            total_bonus: total_bonus,
+            avg_per_day: calculations.length > 0 ? total_earned / calculations.length : 0,
+            // НОВОЕ: добавляем корректировки
+            manual_bonus: adj.manual_bonus || 0,
+            penalty: adj.penalty || 0,
+            shortage: adj.shortage || 0,
+            bonus_reason: adj.bonus_reason || '',
+            penalty_reason: adj.penalty_reason || '',
+            total_deductions: total_deductions,
+            total_with_adjustments: total_with_adjustments
         };
         
-        summary.avg_per_day = summary.total_days > 0 
-            ? summary.total_earned / summary.total_days 
-            : 0;
-        
-        // Группируем по магазинам для дополнительной статистики
+        // Группируем по магазинам
         const storeStats = {};
         calculations.forEach(calc => {
             const store = calc.store_address || 'Не указан';
             if (!storeStats[store]) {
-                storeStats[store] = {
-                    days: 0,
-                    total_revenue: 0,
-                    total_earned: 0
-                };
+                storeStats[store] = { days: 0, total_revenue: 0, total_earned: 0 };
             }
             storeStats[store].days++;
             storeStats[store].total_revenue += calc.revenue || 0;
@@ -3276,7 +3266,8 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
             employee: employee,
             details: details, 
             summary: summary,
-            store_stats: storeStats
+            store_stats: storeStats,
+            adjustments: adj  // НОВОЕ: возвращаем корректировки отдельно
         });
         
     } catch (error) {
@@ -3474,7 +3465,7 @@ app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) =
             if (Math.abs(calculatedRemainder - actualRemainder) > 0.01) {
                 console.warn(`Расхождение для ${record.employee_id}: должно быть ${calculatedRemainder}, есть ${actualRemainder}`);
                 // Исправляем
-                const cardCapacity = Math.max(0, 8700 - dataToRestore.advance_card);
+                const cardCapacity = Math.max(0, 16000 - dataToRestore.advance_card);
                 dataToRestore.card_remainder = Math.min(cardCapacity, calculatedRemainder);
                 dataToRestore.cash_payout = Math.max(0, calculatedRemainder - dataToRestore.card_remainder);
             }

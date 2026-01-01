@@ -1139,21 +1139,21 @@ function recalculateRow(row) {
     
     const totalAdvance = advanceCard + advanceCash;
 
-    // ИСПРАВЛЕНИЕ: Правильный расчет остатка
+// ИСПРАВЛЕНИЕ: Правильный расчет остатка
     const remainingToPay = totalAfterDeductions - totalAdvance;
     
     let newCardRemainder = 0;
     let newCashPayout = 0;
     
     if (remainingToPay > 0) {
-        // Есть остаток к выплате
-        const maxCardTotal = 8700;
+        // Есть остаток к выплате - используем ДИНАМИЧЕСКИЙ лимит из data-атрибута
+        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 16000;
         const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
         
         newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
         newCashPayout = remainingToPay - newCardRemainder;
     }
-    // Если remainingToPay <= 0, остатки остаются 0
+        // Если remainingToPay <= 0, остатки остаются 0
 
     // Обновляем ячейки
     const totalGrossCell = row.querySelector('.total-gross');
@@ -1533,18 +1533,19 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             const rowClass = finalCalc ? 'has-final-calc' : '';
 
             // Добавляем строку в таблицу
-            tableHtml += `<tr class="${rowClass}" 
+tableHtml += `<tr class="${rowClass}" 
             data-employee-id="${id}" 
             data-employee-name="${data.name}" 
             data-store-address="${data.primaryStore}" 
             data-month="${month}" 
             data-year="${year}" 
             data-base-pay="${data.totalPay}" 
-            data-shifts='${JSON.stringify(data.shifts)}'>
+            data-card-limit="${finalCalc?.card_limit || 16000}"
+data-shifts='${JSON.stringify(data.shifts)}'>
             <td style="padding: 5px;">
     ${data.name}
-    ${finalCalc?.card_limit_type_id === 2 ? 
-        '<span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">💎 VIP</span>' 
+    ${finalCalc?.card_limit_type_id === 2 ?
+                '<span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">💎 VIP</span>' 
         : ''}
 </td>
             <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
@@ -1751,9 +1752,9 @@ function recalculateRow(row) {
     let newCardRemainder = 0;
     let newCashPayout = 0;
     
-    if (remainingToPay > 0) {
-        // Есть остаток к выплате
-        const maxCardTotal = 8700;
+if (remainingToPay > 0) {
+        // Есть остаток к выплате - используем ДИНАМИЧЕСКИЙ лимит из data-атрибута
+        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 16000;
         const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
         
         newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
@@ -1768,7 +1769,6 @@ function recalculateRow(row) {
             console.warn(`⚠️ Переплата для ${row.dataset.employeeName}: аванс ${totalAdvance} > начислений ${totalAfterDeductions}`);
         }
     }
-
     // 1. Обновляем "Всего начислено"
     const totalGrossCell = row.querySelector('.total-gross');
     if (totalGrossCell) {
@@ -4771,7 +4771,7 @@ function displayCalculationDetails(data) {
     const container = document.getElementById('calculationDetailsContent');
     if (!container) return;
     
-    const { employee, details, summary, store_stats } = data;
+    const { employee, details, summary, store_stats, adjustments } = data;
     
     if (!details || details.length === 0) {
         container.innerHTML = `
@@ -4787,6 +4787,13 @@ function displayCalculationDetails(data) {
         "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
     const month = document.getElementById('detailsMonth')?.value;
     const year = document.getElementById('detailsYear')?.value;
+    
+    // Получаем данные о корректировках
+    const manualBonus = summary.manual_bonus || 0;
+    const penalty = summary.penalty || 0;
+    const shortage = summary.shortage || 0;
+    const totalDeductions = penalty + shortage;
+    const totalWithAdjustments = summary.total_with_adjustments || (summary.total_earned + manualBonus - totalDeductions);
     
     let html = `
         <div class="details-summary-panel">
@@ -4804,26 +4811,83 @@ function displayCalculationDetails(data) {
                     <div class="value">${summary.total_days}</div>
                 </div>
                 <div class="details-summary-item">
-                    <div class="label">💰 Всего начислено</div>
+                    <div class="label">💵 Ставка (всего)</div>
+                    <div class="value">${formatNumber(summary.total_base)} грн</div>
+                </div>
+                <div class="details-summary-item">
+                    <div class="label">🎁 Бонусы за выручку</div>
+                    <div class="value">${formatNumber(summary.total_bonus)} грн</div>
+                </div>
+                <div class="details-summary-item">
+                    <div class="label">💰 База (ставка + бонусы)</div>
                     <div class="value">${formatNumber(summary.total_earned)} грн</div>
                 </div>
                 <div class="details-summary-item">
                     <div class="label">📊 Средняя за день</div>
                     <div class="value">${formatNumber(summary.avg_per_day)} грн</div>
                 </div>
-                <div class="details-summary-item">
-                    <div class="label">💵 Ставка (всего)</div>
-                    <div class="value">${formatNumber(summary.total_base)} грн</div>
+            </div>
+    `;
+    
+    // НОВОЕ: Блок корректировок
+    if (manualBonus > 0 || totalDeductions > 0) {
+        html += `
+            <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                <h4 style="margin: 0 0 10px 0; color: #667eea;">📝 Корректировки:</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+        `;
+        
+        if (manualBonus > 0) {
+            html += `
+                <div style="padding: 8px; background: #d4edda; border-radius: 4px;">
+                    <strong style="color: #155724;">➕ Премия:</strong> ${formatNumber(manualBonus)} грн
+                    ${summary.bonus_reason ? `<br><small style="color: #666;">Причина: ${summary.bonus_reason}</small>` : ''}
                 </div>
-                <div class="details-summary-item">
-                    <div class="label">🎁 Бонусы (всего)</div>
-                    <div class="value">${formatNumber(summary.total_bonus)} грн</div>
+            `;
+        }
+        
+        if (penalty > 0) {
+            html += `
+                <div style="padding: 8px; background: #f8d7da; border-radius: 4px;">
+                    <strong style="color: #721c24;">➖ Штраф:</strong> ${formatNumber(penalty)} грн
+                    ${summary.penalty_reason ? `<br><small style="color: #666;">Причина: ${summary.penalty_reason}</small>` : ''}
                 </div>
+            `;
+        }
+        
+        if (shortage > 0) {
+            html += `
+                <div style="padding: 8px; background: #fff3cd; border-radius: 4px;">
+                    <strong style="color: #856404;">➖ Недостача:</strong> ${formatNumber(shortage)} грн
+                </div>
+            `;
+        }
+        
+        html += `
+                </div>
+            </div>
+        `;
+    }
+    
+    // НОВОЕ: Итоговая сумма с учётом корректировок
+    html += `
+            <div style="margin-top: 15px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 16px;">💰 ИТОГО К ВЫПЛАТЕ:</span>
+                    <span style="font-size: 24px; font-weight: bold;">${formatNumber(totalWithAdjustments)} грн</span>
+                </div>
+                ${manualBonus > 0 || totalDeductions > 0 ? `
+                <div style="margin-top: 8px; font-size: 12px; opacity: 0.9;">
+                    База ${formatNumber(summary.total_earned)} 
+                    ${manualBonus > 0 ? `+ премия ${formatNumber(manualBonus)}` : ''} 
+                    ${totalDeductions > 0 ? `- вычеты ${formatNumber(totalDeductions)}` : ''}
+                </div>
+                ` : ''}
             </div>
         </div>
     `;
     
-    // Статистика по магазинам (если есть)
+    // Статистика по магазинам
     if (store_stats && Object.keys(store_stats).length > 0) {
         html += `
             <div class="store-stats-panel">
@@ -4842,7 +4906,7 @@ function displayCalculationDetails(data) {
         html += `</div>`;
     }
     
-    // Таблица с детализацией по дням
+    // Таблица детализации по дням
     html += `
         <h4 style="margin: 20px 0 10px 0; color: #667eea;">📅 Детализация по дням:</h4>
         <div class="table-container">
@@ -4881,10 +4945,10 @@ function displayCalculationDetails(data) {
         `;
     });
     
-    // Итоговая строка
+    // Итоговая строка таблицы
     html += `
                     <tr class="summary-row" style="background: #f0f2f5; font-weight: bold;">
-                        <td colspan="4" style="text-align: right;">ИТОГО:</td>
+                        <td colspan="4" style="text-align: right;">ИТОГО (база):</td>
                         <td style="text-align: right;">${formatNumber(summary.total_base)} грн</td>
                         <td style="text-align: right;">${formatNumber(summary.total_bonus)} грн</td>
                         <td></td>
@@ -5028,3 +5092,164 @@ function printDetails() {
     window.print();
 }
 
+// ========== ДИАГНОСТИКА (временный код) ==========
+
+// Функция для проверки расчетов конкретного сотрудника
+async function debugEmployee(employeeId) {
+    const month = document.getElementById('reportMonth')?.value;
+    const year = document.getElementById('reportYear')?.value;
+    const endDate = document.getElementById('reportEndDate')?.value;
+    
+    console.group(`🔍 ДИАГНОСТИКА: ${employeeId}`);
+    console.log('Период:', { month, year, endDate });
+    
+    // 1. Проверяем что в таблице
+    const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
+    if (row) {
+        console.log('📋 Данные из таблицы:');
+        console.log('  - basePay (dataset):', row.dataset.basePay);
+        console.log('  - shifts:', row.dataset.shifts);
+        console.log('  - employeeName:', row.dataset.employeeName);
+        
+        // Получаем все значения из ячеек
+        const totalGrossCell = row.querySelector('.total-gross');
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        const cardRemainderCell = row.querySelector('.card-remainder');
+        const cashPayoutCell = row.querySelector('.cash-payout');
+        
+        console.log('  - totalGross (ячейка):', totalGrossCell?.textContent);
+        console.log('  - advanceCard (ячейка):', advanceCardCell?.textContent);
+        console.log('  - advanceCash (ячейка):', advanceCashCell?.textContent);
+        console.log('  - cardRemainder (ячейка):', cardRemainderCell?.textContent);
+        console.log('  - cashPayout (ячейка):', cashPayoutCell?.textContent);
+    } else {
+        console.warn('❌ Строка не найдена в таблице!');
+    }
+    
+    // 2. Запрашиваем детализацию с сервера
+    try {
+        const response = await fetch(`${API_BASE}/api/get-calculation-details`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ 
+                employee_id: employeeId, 
+                year: parseInt(year), 
+                month: parseInt(month) 
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            console.log('📊 Данные с сервера:');
+            console.log('  - Всего дней:', result.details.length);
+            console.log('  - Сумма (summary):', result.summary.total_earned);
+            
+            // Показываем каждый день
+            console.log('📅 Детализация по дням:');
+            let calculatedTotal = 0;
+            result.details.forEach((day, idx) => {
+                calculatedTotal += day.total_pay;
+                console.log(`    ${idx + 1}. ${day.date}: ${day.total_pay} грн (${day.store_address})`);
+            });
+            
+            console.log('  - Сумма (рассчитанная):', calculatedTotal);
+            
+            // Сравниваем
+            const tableBasePay = parseFloat(row?.dataset.basePay) || 0;
+            if (Math.abs(tableBasePay - calculatedTotal) > 0.01) {
+                console.error('⚠️ РАСХОЖДЕНИЕ!');
+                console.error('  В таблице:', tableBasePay);
+                console.error('  На сервере:', calculatedTotal);
+                console.error('  Разница:', tableBasePay - calculatedTotal);
+            } else {
+                console.log('✅ Суммы совпадают');
+            }
+        } else {
+            console.error('❌ Ошибка API:', result.error);
+        }
+    } catch (error) {
+        console.error('❌ Ошибка запроса:', error);
+    }
+    
+    console.groupEnd();
+}
+
+// Функция для проверки всех расчетов
+function debugAllCalculations() {
+    const rows = document.querySelectorAll('#monthlyReportTable tbody tr:not(.summary-row)');
+    
+    console.group('🔍 ПРОВЕРКА ВСЕХ РАСЧЕТОВ');
+    
+    let problemsFound = 0;
+    
+    rows.forEach(row => {
+        const employeeId = row.dataset.employeeId;
+        const employeeName = row.dataset.employeeName;
+        const basePay = parseFloat(row.dataset.basePay) || 0;
+        
+        // Получаем значения из ячеек
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        const cardRemainderCell = row.querySelector('.card-remainder');
+        const cashPayoutCell = row.querySelector('.cash-payout');
+        
+        // Извлекаем числа
+        const extractNum = (cell) => {
+            if (!cell) return 0;
+            const text = cell.innerText || '';
+            const match = text.replace(/[^\d.,]/g, '').replace(',', '.').match(/[\d.]+/);
+            return match ? parseFloat(match[0]) : 0;
+        };
+        
+        const advanceCard = extractNum(advanceCardCell);
+        const advanceCash = extractNum(advanceCashCell);
+        const cardRemainder = extractNum(cardRemainderCell);
+        const cashPayout = extractNum(cashPayoutCell);
+        
+        const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
+        const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+        const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+        
+        // Расчеты
+        const totalGross = basePay + manualBonus;
+        const totalDeductions = penalty + shortage;
+        const totalAfterDeductions = totalGross - totalDeductions;
+        const totalAdvance = advanceCard + advanceCash;
+        const expectedRemainder = totalAfterDeductions - totalAdvance;
+        const actualRemainder = cardRemainder + cashPayout;
+        
+        // Проверяем
+        const hasDiscrepancy = Math.abs(expectedRemainder - actualRemainder) > 0.01;
+        const cardOverLimit = (advanceCard + cardRemainder) > 8700;
+        
+        if (hasDiscrepancy || cardOverLimit) {
+            problemsFound++;
+            console.warn(`⚠️ ${employeeName} (${employeeId}):`);
+            if (hasDiscrepancy) {
+                console.warn(`   Остаток: ожидается ${expectedRemainder.toFixed(2)}, есть ${actualRemainder.toFixed(2)}`);
+            }
+            if (cardOverLimit) {
+                console.warn(`   Превышен лимит карты: ${advanceCard + cardRemainder}`);
+            }
+        }
+    });
+    
+    if (problemsFound === 0) {
+        console.log('✅ Все расчеты корректны!');
+    } else {
+        console.warn(`⚠️ Найдено проблем: ${problemsFound}`);
+    }
+    
+    console.groupEnd();
+}
+
+// Делаем функции доступными из консоли
+window.debugEmployee = debugEmployee;
+window.debugAllCalculations = debugAllCalculations;
+
+console.log('🛠️ Диагностические функции загружены:');
+console.log('   debugEmployee("ID_сотрудника") - проверить конкретного сотрудника');
+console.log('   debugAllCalculations() - проверить всех');
