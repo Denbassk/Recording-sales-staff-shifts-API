@@ -227,7 +227,17 @@ const checkRole = (roles) => {
 };
 
 // --- ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ РАСЧЕТА ДНЕВНОЙ ЗАРПЛАТЫ ---
-function calculateDailyPay(revenue, numSellers, isSenior = false) {
+function calculateDailyPay(revenue, numSellers, isSenior = false, fixedRate = null) {
+  // НОВОЕ: Если есть фиксированная ставка — используем её
+  if (fixedRate && fixedRate > 0) {
+    return { 
+      baseRate: fixedRate, 
+      bonus: 0, 
+      totalPay: fixedRate, 
+      bonusDetails: `Фиксированная ставка ${fixedRate} грн/день` 
+    };
+  }
+  
   if (isSenior) return { baseRate: 1300, bonus: 0, totalPay: 1300, bonusDetails: 'Старший продавец - фиксированная ставка 1300грн' };
   if (numSellers === 0) return { baseRate: 0, bonus: 0, totalPay: 0, bonusDetails: 'Нет продавцов' };
   
@@ -241,7 +251,6 @@ function calculateDailyPay(revenue, numSellers, isSenior = false) {
     let ratePerThousand = 0;
     let bracket = '';
     
-    // Определяем ставку по ФАКТИЧЕСКОЙ выручке
     if (revenue >= 50000) {
       ratePerThousand = 12;
       bracket = '50-60к';
@@ -268,10 +277,8 @@ function calculateDailyPay(revenue, numSellers, isSenior = false) {
       bracket = '13-20к';
     }
     
-    // Бонус НЕ делится! Каждый продавец получает полный бонус
     bonusPerPerson = wholeThousands * ratePerThousand;
     
-    // Детальная расшифровка с проверкой
     bonusDetails = `📊 РАСЧЕТ БОНУСА:\n` +
                    `• Касса магазина: ${revenue.toFixed(2)}грн\n` +
                    `• Диапазон выручки: ${bracket}\n` +
@@ -504,10 +511,11 @@ const { data: shiftsRaw, error: shiftsError } = await supabase
             const employeeIdsPayroll = [...new Set(shiftsRaw.map(s => s.employee_id))];
 
             // ✅ ШАГ 3: Получаем данные сотрудников
-            const { data: employeesPayroll, error: empPayError } = await supabase
-                .from('employees')
-                .select('id, fullname, role')
-                .in('id', employeeIdsPayroll);
+const { data: employeesPayroll, error: empPayError } = await supabase
+    .from('employees')
+    .select('id, fullname, role, fixed_rate')
+    .in('id', employeeIdsPayroll);
+
 
             if (empPayError) throw empPayError;
 
@@ -523,10 +531,12 @@ const { data: shiftsRaw, error: shiftsError } = await supabase
                     return {
                         ...shift,
                         employees: employee ? {
-                            id: employee.id,
-                            fullname: employee.fullname,
-                            role: employee.role
-                        } : null
+    id: employee.id,
+    fullname: employee.fullname,
+    role: employee.role,
+    fixed_rate: employee.fixed_rate || null
+} : null
+
                     };
                 })
                 .filter(shift => {
@@ -564,7 +574,8 @@ shifts.forEach(shift => {
     storeShifts[address].push({
         employee_id: shift.employees.id,
         employee_name: shift.employees.fullname,
-        store_id: shift.store_id
+        store_id: shift.store_id,
+        fixed_rate: shift.employees.fixed_rate || null
     });
 });
             
@@ -611,18 +622,22 @@ shifts.forEach(shift => {
                     }
                 }
                 
-                const numSellers = storeEmployees.length;
-                for (const employee of storeEmployees) {
-                    const isSenior = employee.employee_id.startsWith('SProd');
-                    let payDetails;
-                    
-                    if (isSenior) {
-                        payDetails = calculateDailyPay(0, 0, true);
-                    } else if (hasRevenue) {
-                        payDetails = calculateDailyPay(revenue, numSellers, false);
-                    } else {
-                        payDetails = { baseRate: 0, bonus: 0, totalPay: 0, bonusDetails: 'Нет выручки' };
-                    }
+const numSellers = storeEmployees.length;
+for (const employee of storeEmployees) {
+    const isSenior = employee.employee_id.startsWith('SProd');
+    const fixedRate = employee.fixed_rate || null;
+    let payDetails;
+    
+    if (fixedRate && fixedRate > 0) {
+        // Фиксированная ставка — не зависит от выручки
+        payDetails = calculateDailyPay(0, 0, false, fixedRate);
+    } else if (isSenior) {
+        payDetails = calculateDailyPay(0, 0, true);
+    } else if (hasRevenue) {
+        payDetails = calculateDailyPay(revenue, numSellers, false);
+    } else {
+        payDetails = { baseRate: 0, bonus: 0, totalPay: 0, bonusDetails: 'Нет выручки' };
+    }
                     
                     const calculation = {
                         employee_id: employee.employee_id,
