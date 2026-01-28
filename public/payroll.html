@@ -1139,6 +1139,32 @@
                 </div>
             </div>
 
+                <!-- Секция настройки типов лимитов (для админов и бухгалтеров) -->
+                <div id="limitTypesSettings" class="control-panel" style="margin-top: 20px; display: none; background: linear-gradient(135deg, #fff9c4 0%, #fff59d 100%); border: 2px solid #ffc107;">
+                    <h4 class="section-title" style="color: #856404;">⚙️ Настройки типов лимитов</h4>
+                    <p style="color: #666; margin-bottom: 15px; font-size: 13px;">
+                        ⚠️ Здесь можно изменить значения лимитов. Изменения применяются ко всем сотрудникам с соответствующим типом карты.
+                    </p>
+                    
+                    <div id="limitTypesEditor">
+                        <p style="text-align: center; color: #999;">Загрузка...</p>
+                    </div>
+                    
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ffc107; display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button onclick="addNewLimitType()" class="secondary">
+                            ➕ Добавить новый тип лимита
+                        </button>
+                        <button onclick="saveLimitTypes()" class="success">
+                            💾 Сохранить все изменения
+                        </button>
+                        <button onclick="loadLimitTypesEditor()" class="secondary" style="margin-left: auto;">
+                            🔄 Обновить
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+
             <!-- ========== ВКЛАДКА ДЕТАЛИЗАЦИЯ РАСЧЕТОВ ========== -->
             <div id="details-tab" class="tab-content">
                 <div class="control-panel">

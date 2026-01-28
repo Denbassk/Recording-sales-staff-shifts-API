@@ -312,7 +312,9 @@ app.post("/login", async (req, res) => {
   const { username, password, deviceKey } = req.body;
   const { data: employee, error } = await supabase.from('employees')
     .select('id, fullname, role').ilike('fullname', username.trim())
-    .eq('password', password).single();
+    .eq('password', password)
+    .eq('active', true)
+    .single();
 
   if (error || !employee) return res.status(401).json({ success: false, message: "Неверное имя или пароль" });
 
@@ -3667,6 +3669,365 @@ app.post('/create-backup', checkAuth, canManagePayroll, async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
+// ========== ЭНДПОИНТЫ ДЛЯ РЕДАКТИРОВАНИЯ ТИПОВ ЛИМИТОВ ==========
+
+// Обновление типов лимитов (массовое) с сохранением истории
+app.post('/api/update-card-limit-types', checkAuth, checkRole(['admin', 'accountant']), async (req, res) => {
+    const { updates } = req.body;
+    
+    if (!updates || !Array.isArray(updates) || updates.length === 0) {
+        return res.status(400).json({ success: false, error: 'Некорректные данные' });
+    }
+    
+    try {
+        // Валидация всех записей
+        for (const update of updates) {
+            if (!update.limit_name || update.limit_name.trim() === '') {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `Название типа лимита не может быть пустым` 
+                });
+            }
+            if (update.card_limit < 1000) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `Лимит карты должен быть не менее 1000 грн для "${update.limit_name}"` 
+                });
+            }
+            if (update.max_advance > update.card_limit) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `Макс. аванс не может превышать лимит карты для "${update.limit_name}"` 
+                });
+            }
+            if (update.advance_percentage < 0 || update.advance_percentage > 1) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `Некорректный процент аванса для "${update.limit_name}"` 
+                });
+            }
+        }
+        
+        // Получаем старые значения для истории
+        const { data: oldValues, error: fetchError } = await supabase
+            .from('card_limit_types')
+            .select('*')
+            .in('id', updates.map(u => u.id));
+        
+        if (fetchError) throw fetchError;
+        
+        // Сохраняем старые значения в историю
+        if (oldValues && oldValues.length > 0) {
+            const historyRecords = oldValues.map(old => ({
+                limit_type_id: old.id,
+                limit_name: old.limit_name,
+                card_limit: old.card_limit,
+                max_advance: old.max_advance,
+                advance_percentage: old.advance_percentage,
+                changed_at: new Date().toISOString(),
+                changed_by: req.user.id,
+                change_reason: 'before_update'
+            }));
+            
+            const { error: historyError } = await supabase
+                .from('card_limit_types_history')
+                .insert(historyRecords);
+            
+            if (historyError) {
+                console.error('Ошибка сохранения истории:', historyError);
+                // Продолжаем даже если история не сохранилась
+            }
+        }
+        
+        // Обновляем каждый тип
+        for (const update of updates) {
+            const { error } = await supabase
+                .from('card_limit_types')
+                .update({
+                    limit_name: update.limit_name.trim(),
+                    card_limit: update.card_limit,
+                    max_advance: update.max_advance,
+                    advance_percentage: update.advance_percentage,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', update.id);
+            
+            if (error) {
+                console.error(`Ошибка обновления типа ${update.id}:`, error);
+                throw error;
+            }
+        }
+        
+        // Логируем изменение
+        await logFinancialOperation('update_limit_types', { 
+            updates,
+            old_values: oldValues,
+            updated_by: req.user.id
+        }, req.user.id);
+        
+        console.log(`Типы лимитов обновлены пользователем ${req.user.id}:`, updates.map(u => u.limit_name).join(', '));
+        
+        res.json({ 
+            success: true, 
+            message: `Обновлено ${updates.length} типов лимитов` 
+        });
+        
+    } catch (error) {
+        console.error('Ошибка обновления типов лимитов:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Получение истории изменений лимитов
+app.get('/api/card-limit-types-history', checkAuth, checkRole(['admin', 'accountant']), async (req, res) => {
+    try {
+        const { data: history, error } = await supabase
+            .from('card_limit_types_history')
+            .select('*')
+            .order('changed_at', { ascending: false })
+            .limit(50);
+        
+        if (error) throw error;
+        
+        res.json({ success: true, history: history || [] });
+    } catch (error) {
+        console.error('Ошибка получения истории:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Откат к предыдущим значениям
+app.post('/api/rollback-card-limit-type', checkAuth, checkRole(['admin', 'accountant']), async (req, res) => {
+    const { history_id } = req.body;
+    
+    if (!history_id) {
+        return res.status(400).json({ success: false, error: 'Не указан ID записи истории' });
+    }
+    
+    try {
+        // Получаем запись из истории
+        const { data: historyRecord, error: fetchError } = await supabase
+            .from('card_limit_types_history')
+            .select('*')
+            .eq('id', history_id)
+            .single();
+        
+        if (fetchError || !historyRecord) {
+            return res.status(404).json({ success: false, error: 'Запись истории не найдена' });
+        }
+        
+        // Сохраняем текущие значения в историю перед откатом
+        const { data: currentValue } = await supabase
+            .from('card_limit_types')
+            .select('*')
+            .eq('id', historyRecord.limit_type_id)
+            .single();
+        
+        if (currentValue) {
+            await supabase
+                .from('card_limit_types_history')
+                .insert({
+                    limit_type_id: currentValue.id,
+                    limit_name: currentValue.limit_name,
+                    card_limit: currentValue.card_limit,
+                    max_advance: currentValue.max_advance,
+                    advance_percentage: currentValue.advance_percentage,
+                    changed_at: new Date().toISOString(),
+                    changed_by: req.user.id,
+                    change_reason: 'before_rollback'
+                });
+        }
+        
+        // Восстанавливаем значения из истории
+        const { error: updateError } = await supabase
+            .from('card_limit_types')
+            .update({
+                limit_name: historyRecord.limit_name,
+                card_limit: historyRecord.card_limit,
+                max_advance: historyRecord.max_advance,
+                advance_percentage: historyRecord.advance_percentage,
+                updated_at: new Date().toISOString()
+            })
+            .eq('id', historyRecord.limit_type_id);
+        
+        if (updateError) throw updateError;
+        
+        await logFinancialOperation('rollback_limit_type', { 
+            history_id,
+            restored_values: historyRecord,
+            rolled_back_by: req.user.id
+        }, req.user.id);
+        
+        res.json({ 
+            success: true, 
+            message: `Лимит "${historyRecord.limit_name}" восстановлен к значениям от ${new Date(historyRecord.changed_at).toLocaleString('ru-RU')}`
+        });
+        
+    } catch (error) {
+        console.error('Ошибка отката:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Добавление нового типа лимита
+app.post('/api/add-card-limit-type', checkAuth, checkRole(['admin', 'accountant']), async (req, res) => {
+    const { limit_name, card_limit, max_advance, advance_percentage } = req.body;
+    
+    // Валидация
+    if (!limit_name || limit_name.trim() === '') {
+        return res.status(400).json({ success: false, error: 'Название не может быть пустым' });
+    }
+    if (!card_limit || card_limit < 1000) {
+        return res.status(400).json({ success: false, error: 'Лимит карты должен быть не менее 1000 грн' });
+    }
+    if (!max_advance || max_advance < 0) {
+        return res.status(400).json({ success: false, error: 'Макс. аванс должен быть положительным' });
+    }
+    if (max_advance > card_limit) {
+        return res.status(400).json({ success: false, error: 'Макс. аванс не может превышать лимит карты' });
+    }
+    
+    try {
+        // Проверяем уникальность названия
+        const { data: existing } = await supabase
+            .from('card_limit_types')
+            .select('id')
+            .ilike('limit_name', limit_name.trim())
+            .eq('is_active', true)
+            .single();
+        
+        if (existing) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Тип лимита с таким названием уже существует' 
+            });
+        }
+        
+        // Добавляем новый тип
+        const { data, error } = await supabase
+            .from('card_limit_types')
+            .insert({
+                limit_name: limit_name.trim(),
+                card_limit: card_limit,
+                max_advance: max_advance,
+                advance_percentage: advance_percentage || 0.9,
+                is_active: true,
+                created_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+        
+        if (error) throw error;
+        
+        // Логируем
+        await logFinancialOperation('add_limit_type', { 
+            new_type: data,
+            created_by: req.user.id
+        }, req.user.id);
+        
+        console.log(`Новый тип лимита "${limit_name}" создан пользователем ${req.user.id}`);
+        
+        res.json({ 
+            success: true, 
+            type: data,
+            message: `Тип лимита "${limit_name}" успешно создан`
+        });
+        
+    } catch (error) {
+        console.error('Ошибка добавления типа лимита:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Удаление типа лимита
+app.delete('/api/delete-card-limit-type/:id', checkAuth, checkRole(['admin', 'accountant']), async (req, res) => {
+    const { id } = req.params;
+    const typeId = parseInt(id);
+    
+    // Нельзя удалять базовые типы (id 1 и 2)
+    if (typeId <= 2) {
+        return res.status(400).json({ 
+            success: false, 
+            error: 'Нельзя удалить базовые типы лимитов (Обычная карта и Повышенная карта)' 
+        });
+    }
+    
+    try {
+        // Получаем информацию об удаляемом типе
+        const { data: typeToDelete } = await supabase
+            .from('card_limit_types')
+            .select('*')
+            .eq('id', typeId)
+            .single();
+        
+        if (!typeToDelete) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Тип лимита не найден' 
+            });
+        }
+        
+        // Считаем сколько сотрудников используют этот тип
+        const { data: affectedEmployees, error: countError } = await supabase
+            .from('employees')
+            .select('id, fullname')
+            .eq('card_limit_type_id', typeId);
+        
+        if (countError) throw countError;
+        
+        const affectedCount = affectedEmployees?.length || 0;
+        
+        // Переводим сотрудников на стандартный лимит (id = 1)
+        if (affectedCount > 0) {
+            const { error: updateError } = await supabase
+                .from('employees')
+                .update({ 
+                    card_limit_type_id: 1,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('card_limit_type_id', typeId);
+            
+            if (updateError) throw updateError;
+            
+            console.log(`${affectedCount} сотрудников переведено на стандартный лимит`);
+        }
+        
+        // Деактивируем тип (soft delete)
+        const { error: deleteError } = await supabase
+            .from('card_limit_types')
+            .update({ 
+                is_active: false,
+                deleted_at: new Date().toISOString(),
+                deleted_by: req.user.id
+            })
+            .eq('id', typeId);
+        
+        if (deleteError) throw deleteError;
+        
+        // Логируем
+        await logFinancialOperation('delete_limit_type', { 
+            deleted_type: typeToDelete,
+            affected_employees: affectedCount,
+            deleted_by: req.user.id
+        }, req.user.id);
+        
+        console.log(`Тип лимита "${typeToDelete.limit_name}" удален пользователем ${req.user.id}. Затронуто сотрудников: ${affectedCount}`);
+        
+        res.json({ 
+            success: true,
+            message: affectedCount > 0 
+                ? `Тип лимита удален. ${affectedCount} сотрудников переведено на "Обычную карту".`
+                : 'Тип лимита удален'
+        });
+        
+    } catch (error) {
+        console.error('Ошибка удаления типа лимита:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
 
 
 async function createAutoBackup() {

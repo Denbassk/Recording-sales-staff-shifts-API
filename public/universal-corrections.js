@@ -29,7 +29,7 @@ class UniversalCorrectionsModal {
 // ДОБАВИТЬ НОВУЮ ФУНКЦИЮ:
 async loadEmployeeLimits(employeeId) {
     try {
-        const response = await fetch(`${API_BASE}/get-employee-card-limit/${employeeId}`, {
+        const response = await fetch(`${API_BASE}/api/get-employee-card-limit/${employeeId}`, {
             credentials: 'include'
         });
         const result = await response.json();
@@ -967,11 +967,12 @@ document.head.appendChild(improvedStyle);
                     });
                 }
                 
-                // Проверка лимитов карты
-                const totalCard = (this.adjustedData.advanceCard || 0) + (this.adjustedData.salaryCard || 0);
-                if (totalCard > 8700) {
-                    console.warn('Превышен лимит карты:', totalCard);
-                }
+// Проверка лимитов карты с учётом индивидуального лимита
+const totalCard = (this.adjustedData.advanceCard || 0) + (this.adjustedData.salaryCard || 0);
+const cardLimit = this.employeeLimits?.cardLimit || 8700;
+if (totalCard > cardLimit) {
+    console.warn(`Превышен лимит карты: ${totalCard} > ${cardLimit}`);
+}
             }
         }, 200);
         
@@ -1836,10 +1837,10 @@ togglePreview() {
         const salaryCard = this.adjustedData.salaryCard || 0;
         const totalCard = advanceCard + salaryCard;
         
-        if (totalCard > 8700) {
-            errors.push(`Превышен лимит карты: ${totalCard} > 8700`);
-        }
-        
+        const cardLimit = this.employeeLimits?.cardLimit || 8700;
+if (totalCard > cardLimit) {
+    errors.push(`Превышен лимит карты: ${totalCard} > ${cardLimit}`);
+}        
         // Проверка авансов
         const advanceTotal = this.adjustedData.advanceCard + this.adjustedData.advanceCash;
         if (advanceTotal > 7900 && !this.adjustedData.isTermination && !this.adjustedData.loanAmount) {

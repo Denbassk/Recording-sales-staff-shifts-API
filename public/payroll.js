@@ -1,15 +1,58 @@
 // API URL Configuration
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://shifts-api.fly.dev';
+window.API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3000' : 'https://shifts-api.fly.dev';
+const API_BASE = window.API_BASE;
 
 // --- Глобальная переменная для кэширования данных отчета ФОТ ---
 let fotReportDataCache = [];
 
-// --- КОНСТАНТЫ (остаются для отображения, но основная логика на сервере) ---
-const FIXED_CARD_PAYMENT = 8700;      // Лимит на карту за месяц
+// --- КОНСТАНТЫ (лимиты теперь загружаются динамически из API) ---
+const FIXED_CARD_PAYMENT = 8700;      // Дефолтный лимит на карту (используется как fallback)
 const ADVANCE_PERCENTAGE = 0.9;       // 90% для расчета аванса
-const MAX_ADVANCE = 7900;              // Максимальный аванс (ИМЕННО 7900!)
+// MAX_ADVANCE убран - теперь используются динамические лимиты из API
 const ADVANCE_PERIOD_DAYS = 15;       // Период для аванса
 const ASSUMED_WORK_DAYS_IN_FIRST_HALF = 12;
+
+// --- КЭШ ЛИМИТОВ СОТРУДНИКОВ ---
+const employeeLimitsCache = new Map();
+
+// --- ФУНКЦИЯ ПОЛУЧЕНИЯ ДИНАМИЧЕСКИХ ЛИМИТОВ СОТРУДНИКА ---
+async function getEmployeeLimits(employeeId) {
+    // Проверяем кэш
+    if (employeeLimitsCache.has(employeeId)) {
+        return employeeLimitsCache.get(employeeId);
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/get-employee-card-limit/${employeeId}`, {
+            credentials: 'include'
+        });
+        const result = await response.json();
+        
+        if (result.success && result.limits) {
+            employeeLimitsCache.set(employeeId, result.limits);
+            return result.limits;
+        }
+    } catch (error) {
+        console.error(`Ошибка получения лимитов для ${employeeId}:`, error);
+    }
+    
+    // Fallback - стандартный лимит
+    const defaultLimits = { 
+        cardLimit: 8700, 
+        maxAdvance: 7900, 
+        advancePercentage: 0.9, 
+        limitName: 'Обычная карта',
+        limitTypeId: 1
+    };
+    employeeLimitsCache.set(employeeId, defaultLimits);
+    return defaultLimits;
+}
+
+// --- Функция очистки кэша лимитов ---
+function clearLimitsCache() {
+    employeeLimitsCache.clear();
+    console.log('Кэш лимитов очищен');
+}
 
 // --- Функция прокрутки наверх ---
 function scrollToTop() {
@@ -75,7 +118,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                 detailsTabButton.style.display = canViewDetails ? 'block' : 'none';
             }
 
-// СПЕЦИАЛЬНО ДЛЯ КУРАТОРОВ: показываем ТОЛЬКО вкладку детализации
+            // СПЕЦИАЛЬНО ДЛЯ КУРАТОРОВ: показываем ТОЛЬКО вкладку детализации
             if (data.user.role === 'curator') {
                 // Скрываем все вкладки кроме детализации
                 document.querySelectorAll('.tab-button').forEach(btn => {
@@ -90,7 +133,7 @@ document.addEventListener('DOMContentLoaded', async function () {
                     initDetailsTab(); // Инициализируем список сотрудников
                 }, 100);
             }
-                } else {
+        } else {
             // Если нет данных пользователя - выбрасываем на вход
             window.location.href = '/index.html';
         }
@@ -206,7 +249,12 @@ function switchTab(tabName, button) {
     document.getElementById(tabName + '-tab').classList.add('active');
     document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
     button.classList.add('active');
-
+    
+    // Скрываем панель настроек лимитов если переключились не на вкладку лимитов
+    const settingsPanel = document.getElementById('limitTypesSettings');
+    if (settingsPanel && tabName !== 'cardLimits') {
+        settingsPanel.style.display = 'none';
+    }
 }
 
 function formatNumber(num) {
@@ -1233,61 +1281,64 @@ async function saveAdjustments(row) {
 }
 
 
-    async function generateMonthlyReport() {
-        const monthEl = document.getElementById('reportMonth');
-        const yearEl = document.getElementById('reportYear');
-        const endDateEl = document.getElementById('reportEndDate');
-        const reportContentEl = document.getElementById('monthlyReportContent');
+async function generateMonthlyReport() {
+    const monthEl = document.getElementById('reportMonth');
+    const yearEl = document.getElementById('reportYear');
+    const endDateEl = document.getElementById('reportEndDate');
+    const reportContentEl = document.getElementById('monthlyReportContent');
 
-        if (!monthEl || !yearEl || !endDateEl || !reportContentEl) return;
+    if (!monthEl || !yearEl || !endDateEl || !reportContentEl) return;
 
-        const month = monthEl.value;
-        const year = yearEl.value;
-        const reportEndDate = endDateEl.value;
+    const month = monthEl.value;
+    const year = yearEl.value;
+    const reportEndDate = endDateEl.value;
 
-        if (!month || !year || !reportEndDate) {
-            showStatus('reportStatus', 'Пожалуйста, выберите месяц, год и конечную дату.', 'error');
-            return;
-        }
-
-        // Логируем параметры запроса
-        console.log(`Формирование отчета за ${month}/${year} до ${reportEndDate}`);
-
-        showStatus('reportStatus', 'Формирование отчета...', 'info');
-        reportContentEl.innerHTML = ''; // Очищаем содержимое перед генерацией
-        reportContentEl.style.display = 'none';
-
-        try {
-            const result = await fetchData(
-                `${API_BASE}/get-monthly-data`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify({ year: parseInt(year), month: parseInt(month), reportEndDate })
-                },
-                'reportStatus'
-            );
-
-            if (result.success) {
-                console.log(`Получено ${result.dailyData.length} записей, ${result.adjustments.length} корректировок и ${(result.finalCalculations || []).length} финальных расчетов`);
-                hideStatus('reportStatus');
-                reportContentEl.style.display = 'block';
-
-                // ВАЖНО: Передаем finalCalculations в функцию displayMonthlyReport
-                displayMonthlyReport(
-                    result.dailyData,
-                    result.adjustments,
-                    month,
-                    year,
-                    result.finalCalculations || [] // Добавляем финальные расчеты
-                );
-            }
-        } catch (error) {
-            console.error('Ошибка генерации отчета:', error);
-            showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
-        }
+    if (!month || !year || !reportEndDate) {
+        showStatus('reportStatus', 'Пожалуйста, выберите месяц, год и конечную дату.', 'error');
+        return;
     }
+
+    // НОВОЕ: Очищаем кэш лимитов при генерации нового отчета
+    clearLimitsCache();
+
+    // Логируем параметры запроса
+    console.log(`Формирование отчета за ${month}/${year} до ${reportEndDate}`);
+
+    showStatus('reportStatus', 'Формирование отчета...', 'info');
+    reportContentEl.innerHTML = ''; // Очищаем содержимое перед генерацией
+    reportContentEl.style.display = 'none';
+
+    try {
+        const result = await fetchData(
+            `${API_BASE}/get-monthly-data`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ year: parseInt(year), month: parseInt(month), reportEndDate })
+            },
+            'reportStatus'
+        );
+
+        if (result.success) {
+            console.log(`Получено ${result.dailyData.length} записей, ${result.adjustments.length} корректировок и ${(result.finalCalculations || []).length} финальных расчетов`);
+            hideStatus('reportStatus');
+            reportContentEl.style.display = 'block';
+
+            // ВАЖНО: Передаем finalCalculations в функцию displayMonthlyReport
+            displayMonthlyReport(
+                result.dailyData,
+                result.adjustments,
+                month,
+                year,
+                result.finalCalculations || [] // Добавляем финальные расчеты
+            );
+        }
+    } catch (error) {
+        console.error('Ошибка генерации отчета:', error);
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
 
 function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = []) {
     const reportContentEl = document.getElementById('monthlyReportContent');
@@ -2113,7 +2164,7 @@ async function calculateAdvance15(silent = false) {
 }
 
 
-    async function adjustAdvanceManually(employeeId, employeeName) {
+async function adjustAdvanceManually(employeeId, employeeName) {
     const year = document.getElementById('reportYear')?.value;
     const month = document.getElementById('reportMonth')?.value;
     
@@ -2124,6 +2175,9 @@ async function calculateAdvance15(silent = false) {
     
     const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
     if (!row) return;
+    
+    // НОВОЕ: Получаем динамические лимиты сотрудника
+    const limits = await getEmployeeLimits(employeeId);
     
     // Получаем полную сумму начислений
     const basePay = parseFloat(row.dataset.basePay) || 0;
@@ -2140,15 +2194,18 @@ async function calculateAdvance15(silent = false) {
     const currentAdvanceCard = parseFloat(advanceCellCard?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
     const currentAdvanceCash = parseFloat(advanceCellCash?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
     const currentAdvanceTotal = currentAdvanceCard + currentAdvanceCash;
-    const maxAdvanceAmount = MAX_ADVANCE; // 7900
+    
+    // ИЗМЕНЕНО: Используем динамический лимит вместо константы
+    const maxAdvanceAmount = limits.maxAdvance;
     
     // НОВОЕ: Спрашиваем тип операции
     const operationType = prompt(
         `Выберите тип операции для ${employeeName}:\n\n` +
-        `1 - Обычная корректировка аванса (макс ${maxAdvanceAmount} грн)\n` +
-        `2 - УВОЛЬНЕНИЕ (полная выплата ${totalToPay} грн)\n\n` +
-        `Текущие начисления: ${totalToPay} грн\n` +
-        `Текущий аванс: ${currentAdvanceTotal} грн\n\n` +
+        `1 - Обычная корректировка аванса (макс ${formatNumber(maxAdvanceAmount)} грн)\n` +
+        `2 - УВОЛЬНЕНИЕ (полная выплата ${formatNumber(totalToPay)} грн)\n\n` +
+        `Лимит карты: ${limits.limitName} (${formatNumber(limits.cardLimit)} грн)\n` +
+        `Текущие начисления: ${formatNumber(totalToPay)} грн\n` +
+        `Текущий аванс: ${formatNumber(currentAdvanceTotal)} грн\n\n` +
         `Введите 1 или 2:`,
         '1'
     );
@@ -2168,7 +2225,7 @@ async function calculateAdvance15(silent = false) {
         const confirmTermination = confirm(
             `⚠️ РЕЖИМ УВОЛЬНЕНИЯ\n\n` +
             `Сотрудник: ${employeeName}\n` +
-            `К выплате: ${totalToPay} грн\n\n` +
+            `К выплате: ${formatNumber(totalToPay)} грн\n\n` +
             `Будет выплачена ВСЯ сумма начислений.\n` +
             `Лимиты аванса НЕ применяются.\n\n` +
             `Продолжить?`
@@ -2180,12 +2237,13 @@ async function calculateAdvance15(silent = false) {
         // Обычная корректировка с лимитами
         const totalAdvanceStr = prompt(
             `Корректировка аванса для ${employeeName}\n\n` +
+            `Лимит карты: ${limits.limitName}\n\n` +
             `Текущий аванс:\n` +
-            `• На карту: ${currentAdvanceCard} грн\n` +
-            `• Наличными: ${currentAdvanceCash} грн\n` +
-            `• Всего: ${currentAdvanceTotal} грн\n\n` +
-            `К выплате всего: ${totalToPay} грн\n` +
-            `Максимум аванса: ${maxAmount} грн\n\n` +
+            `• На карту: ${formatNumber(currentAdvanceCard)} грн\n` +
+            `• Наличными: ${formatNumber(currentAdvanceCash)} грн\n` +
+            `• Всего: ${formatNumber(currentAdvanceTotal)} грн\n\n` +
+            `К выплате всего: ${formatNumber(totalToPay)} грн\n` +
+            `Максимум аванса: ${formatNumber(maxAmount)} грн\n\n` +
             `Введите сумму аванса:`,
             Math.min(currentAdvanceTotal, maxAmount)
         );
@@ -2199,7 +2257,7 @@ async function calculateAdvance15(silent = false) {
         }
         
         if (totalAdvance > maxAmount) {
-            showStatus('reportStatus', `Аванс не может превышать ${maxAmount} грн`, 'error');
+            showStatus('reportStatus', `Аванс не может превышать ${formatNumber(maxAmount)} грн (лимит: ${limits.limitName})`, 'error');
             return;
         }
     }
@@ -2210,10 +2268,11 @@ async function calculateAdvance15(silent = false) {
     if (totalAdvance > 0) {
         // Выбор способа выплаты
         const paymentChoice = prompt(
-            `Как выплатить ${totalAdvance} грн?\n\n` +
+            `Как выплатить ${formatNumber(totalAdvance)} грн?\n\n` +
             `1 - Всё на карту (безнал)\n` +
             `2 - Всё наличными\n` +
             `3 - Разделить между картой и наличными\n\n` +
+            `Лимит карты: ${formatNumber(limits.cardLimit)} грн\n\n` +
             `Введите 1, 2 или 3:`,
             '3' // По умолчанию предлагаем разделить
         );
@@ -2227,19 +2286,20 @@ async function calculateAdvance15(silent = false) {
             advanceCard = 0;
             advanceCash = totalAdvance;
         } else if (paymentChoice === '3') {
-            // Разделение суммы
-            let defaultCardAmount = Math.min(totalAdvance, 8700); // Предлагаем максимум карты
+            // Разделение суммы - используем динамический лимит
+            let defaultCardAmount = Math.min(totalAdvance, limits.cardLimit);
             if (isTermination) {
                 // При увольнении предлагаем разумное разделение
-                defaultCardAmount = Math.min(totalAdvance, 6000); // Или другая логика
+                defaultCardAmount = Math.min(totalAdvance, 6000);
             }
             
             const cardAmountStr = prompt(
                 `Разделение суммы ${formatNumber(totalAdvance)} грн\n\n` +
                 `Сколько выплатить НА КАРТУ?\n` +
                 `(остальное будет выплачено наличными)\n\n` +
-                `Максимум на карту: ${Math.min(totalAdvance, 8700)} грн\n` +
-                `Остаток наличными: ${formatNumber(totalAdvance - Math.min(totalAdvance, 8700))} грн\n\n` +
+                `Лимит карты: ${limits.limitName}\n` +
+                `Максимум на карту: ${formatNumber(Math.min(totalAdvance, limits.cardLimit))} грн\n` +
+                `Остаток наличными: ${formatNumber(totalAdvance - Math.min(totalAdvance, limits.cardLimit))} грн\n\n` +
                 `Введите сумму для карты:`,
                 defaultCardAmount
             );
@@ -2252,9 +2312,9 @@ async function calculateAdvance15(silent = false) {
                 return;
             }
             
-            // При увольнении проверяем лимит карты 8700
-            if (advanceCard > 8700) {
-                showStatus('reportStatus', 'На карту нельзя выплатить больше 8700 грн даже при увольнении', 'error');
+            // Проверяем динамический лимит карты
+            if (advanceCard > limits.cardLimit) {
+                showStatus('reportStatus', `На карту нельзя выплатить больше ${formatNumber(limits.cardLimit)} грн (лимит: ${limits.limitName})`, 'error');
                 return;
             }
             
@@ -2304,7 +2364,7 @@ async function calculateAdvance15(silent = false) {
                 adjusted_advance: totalAdvance,
                 adjustment_reason: reason,
                 payment_method: advanceCash > 0 && advanceCard > 0 ? 'mixed' : (advanceCash > 0 ? 'cash' : 'card'),
-                is_termination: isTermination // Новое поле
+                is_termination: isTermination
             })
         });
         
@@ -2989,6 +3049,9 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 <div id="newEmployeesList">`;
     
     newEmployees.forEach((emp, index) => {
+        // ИЗМЕНЕНО: Убран хардкод 7900 - теперь просто 90% без ограничения (лимит применяется на сервере)
+        const calculatedAdvance = Math.floor(emp.earned_amount * 0.9 / 100) * 100;
+        
         dialogHTML += `
             <div class="employee-decision-block" data-employee-id="${emp.employee_id}" style="
                 border: 1px solid #e0e0e0;
@@ -3011,7 +3074,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0;">
                     <div>💰 Начислено за ${emp.shifts_count} ${emp.shifts_count === 1 ? 'день' : 'дня'}: <strong>${formatNumber(emp.earned_amount)} грн</strong></div>
-                    <div>📊 Расчетный аванс (90%): <strong>${formatNumber(Math.min(Math.floor(emp.earned_amount * 0.9 / 100) * 100, 7900))} грн</strong></div>
+                    <div>📊 Расчетный аванс (90%): <strong>${formatNumber(calculatedAdvance)} грн</strong></div>
                 </div>
                 
                 <div style="border-top: 1px solid #dee2e6; margin: 15px 0; padding-top: 15px;">
@@ -3039,7 +3102,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                                 <input type="number" 
                                     class="advance-card-input" 
                                     min="0" 
-                                    max="${Math.min(emp.earned_amount, 8700)}"
+                                    max="${emp.earned_amount}"
                                     value="0"
                                     style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
                             </div>
@@ -3132,7 +3195,8 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 const empId = block.dataset.employeeId;
                 const emp = newEmployees.find(e => e.employee_id === empId);
                 if (emp) {
-                    const autoAdvance = Math.min(Math.floor(emp.earned_amount * 0.9 / 100) * 100, 7900);
+                    // ИЗМЕНЕНО: Убран хардкод 7900 - лимит применяется на сервере
+                    const autoAdvance = Math.floor(emp.earned_amount * 0.9 / 100) * 100;
                     // Сохраняем значение в data-атрибуте для последующей обработки
                     block.dataset.autoAdvance = autoAdvance;
                 }
@@ -3169,7 +3233,8 @@ async function applyNewEmployeesDecisions(month, year) {
         } else if (decision === 'auto') {
             const emp = newEmployees.find(e => e.employee_id === employeeId);
             if (emp) {
-                const autoAdvance = Math.min(Math.floor(emp.earned_amount * 0.9 / 100) * 100, 7900);
+                // ИЗМЕНЕНО: Убран хардкод 7900 - лимит применяется на сервере
+                const autoAdvance = Math.floor(emp.earned_amount * 0.9 / 100) * 100;
                 data.advance_card = autoAdvance;
                 data.advance_cash = 0;
                 data.reason = 'Автоматический расчет 90%';
