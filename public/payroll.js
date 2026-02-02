@@ -1476,12 +1476,27 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             let remainingToPay;
             let hasCompleteCalculation = false;
             
-            if (finalCalc && finalCalc.is_fixed) {
-                // Если есть финальный расчет с зафиксированным авансом
-                remainingToPay = cardRemainder + cashPayout;
+            if (finalCalc) {
+                // Если есть финальный расчет (зафиксирован ИЛИ нет)
                 hasCompleteCalculation = true;
+                
+                if (finalCalc.is_fixed) {
+                    // Зафиксированный аванс - берём сохранённые значения
+                    remainingToPay = cardRemainder + cashPayout;
+                } else {
+                    // Не зафиксирован - рассчитываем остаток
+                    remainingToPay = totalAfterDeductions - advancePayment;
+                    
+                    // Если остаток не был рассчитан, распределяем его
+                    if (remainingToPay > 0 && cardRemainder === 0 && cashPayout === 0) {
+                        const maxCardTotal = finalCalc.card_limit || 16000;
+                        const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+                        cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+                        cashPayout = Math.max(0, remainingToPay - cardRemainder);
+                    }
+                }
             } else {
-                // Предварительный расчет - просто разница
+                // Нет финального расчета - предварительный расчет
                 remainingToPay = totalAfterDeductions - advancePayment;
                 hasCompleteCalculation = false;
             }
