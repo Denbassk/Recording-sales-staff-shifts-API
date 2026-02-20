@@ -438,25 +438,55 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         }).filter(item => item.store_address && !isNaN(item.revenue) && !String(item.store_address).startsWith('* Себестоимость'));
         
         const addressesFromFile = [...new Set(revenues.map(r => r.store_address.trim()))];
-        const { data: stores, error: storeError } = await supabase.from('stores').select('id, address').in('address', addressesFromFile);
-        if (storeError) throw storeError;
+        // ШАГ 1: Ищем магазины по актуальным адресам
+const { data: stores, error: storeError } = await supabase
+    .from('stores')
+    .select('id, address')
+    .in('address', addressesFromFile);
+if (storeError) throw storeError;
 
-        const storeAddressToIdMap = new Map(stores.map(s => [s.address, s.id]));
-        const dataToUpsert = [], matched = [], unmatched = [];
-        
-        for (const item of revenues) {
-            const storeId = storeAddressToIdMap.get(item.store_address.trim());
-            if (storeId) {
-                dataToUpsert.push({ 
-                    store_id: storeId, 
-                    revenue_date: revenueDate,
-                    revenue: item.revenue 
-                });
-                matched.push(item.store_address);
-            } else {
-                unmatched.push(item.store_address);
-            }
-        }
+const storeAddressToIdMap = new Map(stores.map(s => [s.address, s.id]));
+
+// ШАГ 2: Определяем адреса которые не нашлись
+const unmatchedAddresses = addressesFromFile.filter(
+    addr => !storeAddressToIdMap.has(addr)
+);
+
+// ШАГ 3: Для ненайденных ищем в таблице алиасов (старые названия)
+if (unmatchedAddresses.length > 0) {
+    console.log(`[Алиасы] Ищем: ${unmatchedAddresses.join(', ')}`);
+    
+    const { data: aliases, error: aliasError } = await supabase
+        .from('store_address_aliases')
+        .select('store_id, alias_address')
+        .in('alias_address', unmatchedAddresses);
+
+    if (!aliasError && aliases && aliases.length > 0) {
+        aliases.forEach(alias => {
+            storeAddressToIdMap.set(alias.alias_address, alias.store_id);
+            console.log(`[Алиас найден] "${alias.alias_address}" → store_id ${alias.store_id}`);
+        });
+    } else {
+        console.warn(`[Алиасы] Не найдены для: ${unmatchedAddresses.join(', ')}`);
+    }
+}
+
+// ШАГ 4: Финальное сопоставление
+const dataToUpsert = [], matched = [], unmatched = [];
+
+for (const item of revenues) {
+    const storeId = storeAddressToIdMap.get(item.store_address.trim());
+    if (storeId) {
+        dataToUpsert.push({ 
+            store_id: storeId, 
+            revenue_date: revenueDate,
+            revenue: item.revenue 
+        });
+        matched.push(item.store_address);
+    } else {
+        unmatched.push(item.store_address);
+    }
+}
 
         if (dataToUpsert.length > 0) {
             await withLock(`revenue_${revenueDate}`, async () => {
