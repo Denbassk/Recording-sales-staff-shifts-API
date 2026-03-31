@@ -194,7 +194,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // Автодополнение имени
-  const normalizeString = (str) => str.toLowerCase().replace(/і/g, 'и').replace(/ї/g, 'и').replace(/є/g, 'е').replace(/ґ/g, 'г');
+const normalizeString = (str) => str.toLowerCase().replace(/і/g, 'и').replace(/ї/g, 'и').replace(/є/g, 'е').replace(/ґ/g, 'г').replace(/ё/g, 'е');
 
   usernameInput.addEventListener("input", (e) => {
     const userInput = e.target.value;
@@ -203,13 +203,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       usernameHint.value = "";
       return;
     }
-    const match = allNames.find(name => normalizeString(name).startsWith(normalizedInput));
-    if (match) {
-      usernameHint.value = userInput + match.substring(userInput.length);
+    const matches = allNames.filter(name => normalizeString(name).startsWith(normalizedInput));
+    if (matches.length === 1) {
+      usernameHint.value = userInput + matches[0].substring(userInput.length);
     } else {
       usernameHint.value = "";
     }
-  });
+});
 
   usernameInput.addEventListener("keydown", (e) => {
     if ((e.key === "Tab" || e.key === "ArrowRight") && usernameHint.value) {
