@@ -312,40 +312,22 @@ app.post("/login", async (req, res) => {
   const { username, password, deviceKey } = req.body;
   const trimmedName = username.trim();
   
-  // Пробуем точный поиск
-  let { data: employee, error } = await supabase.from('employees')
-    .select('id, fullname, role')
-    .ilike('fullname', trimmedName)
-    .eq('password', password)
-    .eq('active', true)
-    .single();
-
-  // Если не нашли — пробуем с заменой ё↔е
-  if (!employee) {
-    const altName = trimmedName.replace(/ё/gi, 'е');
-    if (altName !== trimmedName) {
-      const { data: altEmployee } = await supabase.from('employees')
-        .select('id, fullname, role')
-        .ilike('fullname', altName)
-        .eq('password', password)
-        .eq('active', true)
-        .single();
-      if (altEmployee) employee = altEmployee;
-    }
-  }
+  // Создаём паттерн где каждая е/ё заменена на [её] для LIKE
+  const fuzzyName = trimmedName.replace(/[еёЕЁ]/g, (ch) => {
+    return ch === ch.toUpperCase() ? '[ЕЁ]' : '[её]';
+  });
   
-  // Ещё попытка — наоборот е→ё
-  if (!employee) {
-    const altName2 = trimmedName.replace(/е/gi, 'ё');
-    if (altName2 !== trimmedName) {
-      const { data: altEmployee2 } = await supabase.from('employees')
-        .select('id, fullname, role')
-        .ilike('fullname', altName2)
-        .eq('password', password)
-        .eq('active', true)
-        .single();
-      if (altEmployee2) employee = altEmployee2;
-    }
+  // Ищем через ilike с подстановкой
+  let { data: employees } = await supabase.from('employees')
+    .select('id, fullname, role')
+    .eq('password', password)
+    .eq('active', true);
+  
+  let employee = null;
+  if (employees && employees.length > 0) {
+    const normalizeYo = (str) => str.toLowerCase().replace(/ё/g, 'е');
+    const searchName = normalizeYo(trimmedName);
+    employee = employees.find(e => normalizeYo(e.fullname) === searchName);
   }
 
   if (!employee) return res.status(401).json({ success: false, message: "Неверное имя или пароль" });
