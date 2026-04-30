@@ -8,7 +8,8 @@
     "dev": "nodemon server.cjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.7",
+    "@google-cloud/bigquery": "^8.3.0",
+    "@supabase/supabase-js": "^2.105.1",
     "body-parser": "^1.20.2",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
