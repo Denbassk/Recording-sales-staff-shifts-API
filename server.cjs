@@ -41,6 +41,9 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
+const lookupRouter = require('./routes/lookup');
+app.use('/', lookupRouter);
+
 
 // Дефолтные лимиты карты (для fallback и обратной совместимости)
 const DEFAULT_LIMITS = {

@@ -3622,7 +3622,7 @@ async function fixManualAdvances() {
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
     }
 
-    async function printAllPayslips() {
+async function printAllPayslips() {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
     if (tableRows.length === 0) { 
         return showStatus('reportStatus', 'Нет данных для печати', 'error'); 
@@ -3633,7 +3633,6 @@ async function fixManualAdvances() {
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", 
                         "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
     
-    // Функция для получения деталей недостач
     async function getShortageDetailsForPrint(employeeId, month, year) {
         try {
             const response = await fetch(
@@ -3641,389 +3640,429 @@ async function fixManualAdvances() {
                 { credentials: 'include' }
             );
             const result = await response.json();
-            
-            if (result.shortages && result.shortages.length > 0) {
-                return result.shortages
-                    .map(s => `${s.description || ''} - ${formatNumber(s.amount)} грн`)
-                    .join(', ');
-            }
-            return '';
+            return result.shortages || [];
         } catch (error) {
-            console.error('Ошибка получения деталей недостач:', error);
-            return '';
+            return [];
         }
     }
     
     let allPayslipsHTML = '<div class="page-container">';
     let payslipCount = 0;
     
-    // Собираем все данные включая недостачи
     for (const row of tableRows) {
-        const employeeId = row.dataset.employeeId;
-        const employeeName = row.dataset.employeeName;
-        const storeAddress = row.dataset.storeAddress;
-        const basePay = parseFloat(row.dataset.basePay) || 0;
-        const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
-        const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-        const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
-        const bonus_reason = row.querySelector('[name="bonus_reason"]')?.value || '';
-        const penalty_reason = row.querySelector('[name="penalty_reason"]')?.value || '';
+        if (row.classList.contains('summary-row')) continue;
+
+        const employeeId    = row.dataset.employeeId;
+        const employeeName  = row.dataset.employeeName;
+        const storeAddress  = row.dataset.storeAddress;
+        const basePay       = parseFloat(row.dataset.basePay) || 0;
+        const manualBonus   = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
+        const penalty       = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
+        const shortage      = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
+        const bonusReason   = row.querySelector('[name="bonus_reason"]')?.value || '';
+        const penaltyReason = row.querySelector('[name="penalty_reason"]')?.value || '';
         
-        // Получаем детали недостач
-        const shortageDetails = shortage > 0 ? await getShortageDetailsForPrint(employeeId, month, year) : '';
+        const shortagesList = await getShortageDetailsForPrint(employeeId, month, year);
         
-        const totalGross = basePay + manualBonus;
+        const totalGross      = basePay + manualBonus;
         const totalDeductions = penalty + shortage;
-        const totalToPay = totalGross - totalDeductions;
+        const totalToPay      = totalGross - totalDeductions;
         
-        // Получаем авансы раздельно
         const advanceCardCell = row.querySelector('.advance-payment-card');
         const advanceCashCell = row.querySelector('.advance-payment-cash');
-        
-        const advanceCard = parseFloat(advanceCardCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-        const advanceCash = parseFloat(advanceCashCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-        
-        const cardRemainderAmount = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-        const cashAmount = parseFloat(row.querySelector('.cash-payout')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
-        
-        // Начинаем новую страницу после каждых 4 расчеток
+        const advanceCard   = parseFloat(advanceCardCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        const advanceCash   = parseFloat(advanceCashCell?.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
+        const cardRemainder = parseFloat(row.querySelector('.card-remainder')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+        const cashAmount    = parseFloat(row.querySelector('.cash-payout')?.textContent.replace(/\s/g, '').replace(',', '.')) || 0;
+
         if (payslipCount > 0 && payslipCount % 4 === 0) {
             allPayslipsHTML += '</div><div class="page-container">';
         }
-        
-        allPayslipsHTML += `<div class="payslip-compact">
+
+        // Считаем количество строк контента для определения размера шрифта
+        let contentLines = 6; // базовые строки всегда есть
+        if (manualBonus > 0) contentLines += 1;
+        if (bonusReason)     contentLines += 1;
+        if (penalty > 0)     contentLines += 1;
+        if (penaltyReason)   contentLines += 1;
+        if (shortage > 0) {
+            contentLines += shortagesList.length > 0 
+                ? shortagesList.length * 2  // каждая недостача + причина
+                : 1;
+        }
+        if (advanceCard > 0)   contentLines += 1;
+        if (advanceCash > 0)   contentLines += 1;
+        if (cardRemainder > 0) contentLines += 1;
+        if (cashAmount > 0)    contentLines += 1;
+
+        // Адаптивный размер шрифта
+        let fontSize, reasonSize, titleSize;
+        if (contentLines <= 10) {
+            titleSize  = '12pt';
+            fontSize   = '10pt';
+            reasonSize = '9.5pt';
+        } else if (contentLines <= 14) {
+            titleSize  = '11pt';
+            fontSize   = '9.5pt';
+            reasonSize = '9pt';
+        } else {
+            titleSize  = '10.5pt';
+            fontSize   = '9pt';
+            reasonSize = '8.5pt';
+        }
+
+        // БЛОК ПРЕМИИ
+        let bonusHTML = '';
+        if (manualBonus > 0) {
+            bonusHTML = `
+                <tr>
+                    <td class="desc">Премия:</td>
+                    <td class="amt positive">+${formatNumber(manualBonus)} грн</td>
+                </tr>
+                ${bonusReason ? `
+                <tr>
+                    <td colspan="2" class="reason-cell">
+                        <span class="reason-label">📝 Причина:</span> ${bonusReason}
+                    </td>
+                </tr>` : ''}
+            `;
+        }
+
+        // БЛОК ВЫЧЕТОВ
+        let deductionsHTML = '';
+        if (totalDeductions > 0) {
+            let deductionRows = '';
+
+            if (penalty > 0) {
+                deductionRows += `
+                    <tr>
+                        <td class="desc">Депремирование:</td>
+                        <td class="amt negative">−${formatNumber(penalty)} грн</td>
+                    </tr>
+                    ${penaltyReason ? `
+                    <tr>
+                        <td colspan="2" class="reason-cell">
+                            <span class="reason-label">📝 Причина:</span> ${penaltyReason}
+                        </td>
+                    </tr>` : ''}
+                `;
+            }
+
+            if (shortage > 0) {
+                if (shortagesList.length > 0) {
+                    shortagesList.forEach(s => {
+                        deductionRows += `
+                            <tr>
+                                <td class="desc">Недостача:</td>
+                                <td class="amt negative">−${formatNumber(s.amount)} грн</td>
+                            </tr>
+                            ${s.description ? `
+                            <tr>
+                                <td colspan="2" class="reason-cell">
+                                    <span class="reason-label">📝 Причина:</span> ${s.description}
+                                </td>
+                            </tr>` : ''}
+                        `;
+                    });
+                } else {
+                    deductionRows += `
+                        <tr>
+                            <td class="desc">Вычет за недостачу:</td>
+                            <td class="amt negative">−${formatNumber(shortage)} грн</td>
+                        </tr>
+                    `;
+                }
+            }
+
+            deductionsHTML = `
+                <div class="section">
+                    <div class="section-title">Удержания:</div>
+                    <table class="pay-table">
+                        ${deductionRows}
+                        <tr class="total-row">
+                            <td class="desc"><strong>ВСЕГО УДЕРЖАНО:</strong></td>
+                            <td class="amt negative"><strong>−${formatNumber(totalDeductions)} грн</strong></td>
+                        </tr>
+                    </table>
+                </div>
+            `;
+        }
+
+        // БЛОК ВЫПЛАТ
+        let paymentsHTML = '';
+        if (advanceCard > 0) {
+            paymentsHTML += `
+                <tr>
+                    <td class="desc">Аванс (на карту):</td>
+                    <td class="amt">${formatNumber(advanceCard)} грн</td>
+                </tr>`;
+        }
+        if (advanceCash > 0) {
+            paymentsHTML += `
+                <tr class="cash-row">
+                    <td class="desc"><strong>Аванс (НАЛИЧНЫМИ):</strong></td>
+                    <td class="amt cash-amt"><strong>${formatNumber(advanceCash)} грн</strong></td>
+                </tr>`;
+        }
+        if (cardRemainder > 0) {
+            paymentsHTML += `
+                <tr>
+                    <td class="desc">Остаток зарплаты (на карту):</td>
+                    <td class="amt">${formatNumber(cardRemainder)} грн</td>
+                </tr>`;
+        }
+        if (cashAmount > 0) {
+            paymentsHTML += `
+                <tr class="cash-row">
+                    <td class="desc"><strong>Зарплата (НАЛИЧНЫМИ):</strong></td>
+                    <td class="amt cash-amt"><strong>${formatNumber(cashAmount)} грн</strong></td>
+                </tr>`;
+        }
+
+        allPayslipsHTML += `
+        <div class="payslip" style="font-size: ${fontSize};">
             <div class="payslip-inner">
-                <div class="payslip-header">
-                    <h3>РАСЧЕТНЫЙ ЛИСТ</h3>
-                    <div class="employee-info">
-                        <p><strong>Сотрудник:</strong> ${employeeName}</p>
-                        <p><strong>Магазин:</strong> ${storeAddress !== 'Старший продавец' ? storeAddress : 'Астрономічна 44Г'}</p>
-                        <p><strong>Период:</strong> ${monthNames[month - 1]} ${year}</p>
-                    </div>
+
+                <div class="ps-title" style="font-size: ${titleSize};">РАСЧЕТНЫЙ ЛИСТ</div>
+
+                <div class="ps-info">
+                    <p><strong>Сотрудник:</strong> ${employeeName}</p>
+                    <p><strong>Магазин:</strong> ${storeAddress !== 'Старший продавец' ? storeAddress : 'Астрономічна 44Г'}</p>
+                    <p><strong>Период:</strong> ${monthNames[month - 1]} ${year}</p>
                 </div>
-                
-                <div class="payslip-section">
-                    <h4>Начисления:</h4>
-                    <table class="payslip-table">
+
+                <div class="section">
+                    <div class="section-title">Начисления:</div>
+                    <table class="pay-table">
                         <tr>
-                            <td class="description">База (ставка + бонусы за смены):</td>
-                            <td class="amount">${formatNumber(basePay)} грн</td>
+                            <td class="desc">База (ставка + бонусы за смены):</td>
+                            <td class="amt">${formatNumber(basePay)} грн</td>
                         </tr>
-                        ${manualBonus > 0 ? `
-                        <tr>
-                            <td class="description">Премирование:</td>
-                            <td class="amount positive">+${formatNumber(manualBonus)} грн</td>
-                        </tr>` : ''}
+                        ${bonusHTML}
                         <tr class="total-row">
-                            <td class="description"><strong>ВСЕГО НАЧИСЛЕНО:</strong></td>
-                            <td class="amount"><strong>${formatNumber(totalGross)} грн</strong></td>
+                            <td class="desc"><strong>ВСЕГО НАЧИСЛЕНО:</strong></td>
+                            <td class="amt"><strong>${formatNumber(totalGross)} грн</strong></td>
                         </tr>
                     </table>
                 </div>
-                
-                ${totalDeductions > 0 ? `
-                <div class="payslip-section">
-                    <h4>Удержания:</h4>
-                    <table class="payslip-table">
-                        ${penalty > 0 ? `
+
+                ${deductionsHTML}
+
+                <div class="section highlight-section">
+                    <table class="pay-table">
                         <tr>
-                            <td class="description">Вычет за недостачу:</td>
-                            <td class="amount negative">-${formatNumber(penalty)} грн</td>
-                        </tr>` : ''}
-                        ${shortage > 0 ? `
-                        <tr>
-                            <td class="description">Вычет за недостачу:</td>
-                            <td class="amount negative">-${formatNumber(shortage)} грн</td>
-                        </tr>` : ''}
-                        <tr class="total-row">
-                            <td class="description"><strong>ВСЕГО УДЕРЖАНО:</strong></td>
-                            <td class="amount negative"><strong>-${formatNumber(totalDeductions)} грн</strong></td>
+                            <td class="desc"><strong>К ВЫПЛАТЕ ПОСЛЕ ВЫЧЕТОВ:</strong></td>
+                            <td class="amt"><strong>${formatNumber(totalToPay)} грн</strong></td>
                         </tr>
                     </table>
                 </div>
-                ` : ''}
-                
-                <div class="payslip-section highlighted">
-                    <table class="payslip-table">
-                        <tr class="final-total">
-                            <td class="description"><strong>К ВЫПЛАТЕ ПОСЛЕ ВЫЧЕТОВ:</strong></td>
-                            <td class="amount"><strong>${formatNumber(totalToPay)} грн</strong></td>
-                        </tr>
+
+                ${paymentsHTML ? `
+                <div class="section">
+                    <div class="section-title">Выплаты:</div>
+                    <table class="pay-table">
+                        ${paymentsHTML}
                     </table>
-                </div>
-                
-                <div class="payslip-section">
-                    <h4>Выплаты:</h4>
-                    <table class="payslip-table">
-                        ${advanceCard > 0 ? `
-                        <tr>
-                            <td class="description">Аванс (на карту):</td>
-                            <td class="amount">${formatNumber(advanceCard)} грн</td>
-                        </tr>` : ''}
-                        ${cardRemainderAmount > 0 ? `
-                        <tr>
-                            <td class="description">Остаток зарплаты (на карту):</td>
-                            <td class="amount">${formatNumber(cardRemainderAmount)} грн</td>
-                        </tr>` : ''}
-                        ${advanceCash > 0 ? `
-                        <tr class="cash-highlight">
-                            <td class="description"><strong>Аванс (НАЛИЧНЫМИ):</strong></td>
-                            <td class="amount"><strong class="cash-amount">${formatNumber(advanceCash)} грн</strong></td>
-                        </tr>` : ''}
-                        ${cashAmount > 0 ? `
-                        <tr class="cash-highlight">
-                            <td class="description"><strong>Остаток зарплаты (НАЛИЧНЫМИ):</strong></td>
-                            <td class="amount"><strong class="cash-amount">${formatNumber(cashAmount)} грн</strong></td>
-                        </tr>` : ''}
-                    </table>
-                </div>
-                
+                </div>` : ''}
+
                 <div class="signature-section">
                     <p>С расчетом ознакомлен(а): _________________________</p>
-                    <div class="signature-line">
-                        <span>Дата: _______________</span>
-                        <span style="margin-left: 20px;">Подпись: _______________</span>
+                    <div class="sig-line">
+                        <span>Дата: ___________</span>
+                        <span>Подпись: ___________</span>
                     </div>
                 </div>
+
             </div>
         </div>`;
-        
+
         payslipCount++;
     }
-    
+
     allPayslipsHTML += '</div>';
-    
-    // Создаем окно предпросмотра с правильными стилями
+
     const printWindow = window.open('', '_blank');
     printWindow.document.write(`
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Расчетные листы - ${monthNames[month - 1]} ${year}</title>
+            <title>Расчетные листы — ${monthNames[month - 1]} ${year}</title>
             <style>
-                @page { 
+                @page {
                     size: A4 portrait;
                     margin: 5mm;
                 }
-                
-                * {
-                    margin: 0;
-                    padding: 0;
-                    box-sizing: border-box;
-                }
-                
-                body { 
-                    font-family: Arial, sans-serif; 
-                    margin: 0;
-                    padding: 0;
+
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+
+                body {
+                    font-family: Arial, sans-serif;
                     background: white;
                 }
-                
+
                 .page-container {
-                    width: 210mm;
-                    height: 297mm;
+                    width: 200mm;
+                    height: 287mm;
                     margin: 0 auto;
-                    padding: 5mm;
-                    page-break-after: always;
-                    page-break-inside: avoid;
                     display: grid;
                     grid-template-columns: 1fr 1fr;
                     grid-template-rows: 1fr 1fr;
-                    gap: 5mm;
+                    gap: 4mm;
+                    page-break-after: always;
                 }
-                
-                .payslip-compact { 
-                    width: 100%;
-                    height: 100%;
-                    border: 1px solid #000;
+
+                .payslip {
+                    border: 1.5px solid #333;
                     overflow: hidden;
-                    position: relative;
                     background: white;
+                    /* Ключевое: фиксированная высота ячейки грида */
+                    min-height: 0;
                 }
-                
+
                 .payslip-inner {
-                    padding: 5mm;
+                    padding: 3.5mm;
                     height: 100%;
                     display: flex;
                     flex-direction: column;
+                    gap: 2mm;
+                    overflow: hidden;
                 }
-                
-                .payslip-header {
-                    margin-bottom: 3mm;
-                }
-                
-                .payslip-compact h3 { 
-                    text-align: center; 
-                    font-size: 11pt; 
-                    margin-bottom: 2mm;
+
+                .ps-title {
+                    text-align: center;
                     font-weight: bold;
                     text-decoration: underline;
+                    letter-spacing: 0.5px;
+                    flex-shrink: 0;
                 }
-                
-                .employee-info p {
-                    margin: 1mm 0;
-                    font-size: 9pt;
-                    line-height: 1.2;
+
+                .ps-info {
+                    flex-shrink: 0;
                 }
-                
-                .payslip-section {
-                    margin-bottom: 2mm;
+
+                .ps-info p {
+                    line-height: 1.4;
                 }
-                
-                .payslip-compact h4 { 
-                    font-size: 9pt; 
-                    margin: 2mm 0 1mm 0;
-                    text-decoration: underline;
+
+                .section {
+                    border-top: 1px solid #ccc;
+                    padding-top: 1.5mm;
+                    flex-shrink: 0;
+                }
+
+                .section-title {
                     font-weight: bold;
+                    text-decoration: underline;
+                    margin-bottom: 1mm;
                 }
-                
-                .payslip-table { 
-                    width: 100%; 
-                    border-collapse: collapse; 
+
+                .pay-table {
+                    width: 100%;
+                    border-collapse: collapse;
                 }
-                
-                .payslip-table td { 
-                    padding: 0.5mm 0; 
-                    font-size: 9pt;
+
+                .pay-table td {
+                    padding: 0.8mm 0;
                     vertical-align: top;
-                    line-height: 1.2;
+                    line-height: 1.35;
                 }
-                
-                .payslip-table .description {
-                    width: 65%;
+
+                .pay-table .desc {
+                    width: 68%;
                     padding-right: 2mm;
                 }
-                
-                .payslip-table .amount {
-                    width: 35%;
+
+                .pay-table .amt {
+                    width: 32%;
                     text-align: right;
                     white-space: nowrap;
                     font-weight: 600;
                 }
-                
-                /* Выделение наличных */
-                .cash-highlight {
-                    background-color: #fffacd !important;
-                    border: 1px solid #ffd700 !important;
+
+                .reason-cell {
+                    padding: 0.3mm 0 1mm 3mm !important;
+                    color: #444;
+                    line-height: 1.3;
                 }
-                
-                .cash-highlight td {
-                    padding: 1mm 2mm !important;
-                    font-size: 11pt !important;
-                    font-weight: bold !important;
+
+                .reason-label {
+                    font-weight: bold;
+                    color: #222;
                 }
-                
-                .cash-amount {
-                    color: #d4380d !important;
-                    font-size: 12pt !important;
+
+                .total-row td {
+                    border-top: 1px solid #999;
+                    padding-top: 1mm !important;
+                }
+
+                .highlight-section {
+                    background: #f0f0f0;
+                    padding: 2mm;
+                    border-radius: 2px;
+                    border-top: none !important;
+                }
+
+                .positive { color: #1a7a1a; }
+                .negative { color: #cc0000; }
+
+                .cash-row td {
+                    background: #fffbe6;
+                    padding: 1mm 1mm !important;
+                }
+
+                .cash-amt {
+                    color: #c05000 !important;
                     text-decoration: underline;
                 }
-                
-                .total-row {
-                    border-top: 1px solid #000;
-                    margin-top: 1mm;
-                }
-                
-                .total-row td {
-                    padding-top: 1mm !important;
-                    font-weight: bold;
-                }
-                
-                .highlighted {
-                    background-color: #f0f0f0;
-                    padding: 1mm;
-                    margin: 2mm 0;
-                }
-                
-                .final-total td {
-                    font-size: 10pt;
-                    font-weight: bold;
-                    padding: 1mm 0;
-                }
-                
-                .positive {
-                    color: green;
-                }
-                
-                .negative {
-                    color: red;
-                }
-                
+
+                /* Подпись всегда прижата к низу */
                 .signature-section {
                     margin-top: auto;
-                    padding-top: 2mm;
-                    border-top: 1px solid #999;
+                    border-top: 1px solid #aaa;
+                    padding-top: 1.5mm;
+                    flex-shrink: 0;
                 }
-                
-                .signature-section p {
-                    margin: 1mm 0;
-                    font-size: 8pt;
-                }
-                
-                .signature-line {
+
+                .sig-line {
                     display: flex;
                     justify-content: space-between;
-                    margin-top: 2mm;
-                    font-size: 8pt;
+                    margin-top: 1.5mm;
                 }
-                
-                @media print {
-                    body {
-                        margin: 0;
-                        padding: 0;
-                    }
-                    
-                    .no-print {
-                        display: none !important;
-                    }
-                    
-                    .page-container {
-                        page-break-after: always;
-                    }
-                    
-                    .page-container:last-child {
-                        page-break-after: auto;
-                    }
-                }
-                
+
                 .no-print {
-                    margin: 20px;
+                    margin: 15px;
                     text-align: center;
-                    padding: 20px;
+                    padding: 15px;
                     background: #f0f0f0;
-                    border-radius: 10px;
+                    border-radius: 8px;
+                    font-family: Arial, sans-serif;
                 }
-                
-                button {
-                    padding: 10px 20px;
-                    font-size: 16px;
-                    margin: 0 5px;
+
+                .no-print button {
+                    padding: 10px 25px;
+                    font-size: 15px;
+                    margin: 0 8px;
                     cursor: pointer;
                     border: none;
                     border-radius: 5px;
                     background: #667eea;
                     color: white;
                 }
-                
-                button:hover {
-                    background: #5a6edc;
-                }
-                
-                button.close {
-                    background: #dc3545;
-                }
-                
-                button.close:hover {
-                    background: #c82333;
+
+                .no-print button.close-btn { background: #dc3545; }
+
+                @media print {
+                    .no-print { display: none !important; }
+                    .page-container:last-child { page-break-after: auto; }
                 }
             </style>
         </head>
         <body>
             <div class="no-print">
-                <h2>Предварительный просмотр расчетных листов</h2>
-                <p>Всего листов: ${tableRows.length} (${Math.ceil(tableRows.length / 4)} страниц A4)</p>
+                <strong>Предварительный просмотр расчетных листов</strong><br>
+                <small>Всего листов: ${payslipCount} · Страниц A4: ${Math.ceil(payslipCount / 4)}</small><br><br>
                 <button onclick="window.print()">🖨️ Печать</button>
-                <button class="close" onclick="window.close()">❌ Закрыть</button>
+                <button class="close-btn" onclick="window.close()">✕ Закрыть</button>
             </div>
             ${allPayslipsHTML}
         </body>
@@ -4031,7 +4070,6 @@ async function fixManualAdvances() {
     `);
     printWindow.document.close();
 }
-
 
 // ========== ФУНКЦИИ ДЛЯ ВКЛАДКИ "ФОНД ОПЛАТЫ ТРУДА" ==========
 
