@@ -1,0 +1,120 @@
+* { box-sizing: border-box; }
+body { 
+  font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  margin: 0; background: #f4f6f8; color: #222;
+}
+.header {
+  background: #fff; padding: 12px 20px;
+  display: flex; justify-content: space-between; align-items: center;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.header-info { font-size: 14px; }
+.header-info .separator { color: #aaa; margin: 0 8px; }
+.header-actions { display: flex; align-items: center; gap: 12px; }
+.badge {
+  background: #007bff; color: #fff; border-radius: 12px;
+  padding: 2px 10px; font-size: 12px; font-weight: bold;
+}
+.btn-link { background: none; border: none; color: #007bff; cursor: pointer; }
+
+.auth-error { 
+  text-align: center; padding: 60px 20px;
+}
+
+main { padding: 20px; max-width: 900px; margin: 0 auto; }
+
+.scan-section { 
+  background: #fff; padding: 20px; border-radius: 8px;
+  margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.big-label { display: block; font-size: 16px; margin-bottom: 8px; color: #555; }
+#barcodeInput {
+  width: 100%; font-size: 24px; padding: 14px;
+  border: 2px solid #ddd; border-radius: 6px; outline: none;
+}
+#barcodeInput:focus { border-color: #007bff; }
+
+.feedback { margin-top: 16px; min-height: 80px; }
+.plate {
+  padding: 14px; border-radius: 6px; border-left: 5px solid;
+  display: flex; gap: 12px; align-items: flex-start;
+}
+.plate-green { background: #d4edda; border-color: #28a745; }
+.plate-orange { background: #fff3cd; border-color: #fd7e14; }
+.plate-blue { background: #d1ecf1; border-color: #17a2b8; }
+.plate-yellow { background: #f8d7da; border-color: #ffc107; }
+.plate-icon { font-size: 28px; }
+.plate-title { font-weight: bold; margin-bottom: 4px; }
+.plate-meta { font-size: 13px; color: #555; }
+
+.cart-section {
+  background: #fff; padding: 20px; border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+}
+.cart-items .empty { color: #888; text-align: center; padding: 20px; }
+.cart-item {
+  display: grid; grid-template-columns: 1fr 80px 90px 30px;
+  gap: 10px; align-items: center;
+  padding: 10px 0; border-bottom: 1px solid #eee;
+}
+.cart-item-name { font-weight: 500; }
+.cart-item-meta { font-size: 12px; color: #888; }
+.cart-item-qty { width: 70px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; }
+.cart-item-cost { text-align: right; font-weight: 500; }
+.cart-item-remove { 
+  background: none; border: none; color: #dc3545; 
+  cursor: pointer; font-size: 18px;
+}
+.cart-item-tag {
+  display: inline-block; padding: 1px 6px; border-radius: 3px;
+  font-size: 10px; margin-left: 6px; vertical-align: middle;
+}
+.cart-item-tag.green { background: #28a745; color: #fff; }
+.cart-item-tag.orange { background: #fd7e14; color: #fff; }
+.cart-item-tag.blue { background: #17a2b8; color: #fff; }
+.cart-item-tag.yellow { background: #ffc107; color: #000; }
+
+.cart-footer { 
+  margin-top: 20px; padding-top: 16px; border-top: 2px solid #eee;
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+}
+.totals { font-size: 14px; }
+.totals strong { font-size: 16px; }
+.muted { color: #888; font-size: 12px; }
+.cart-buttons { display: flex; gap: 10px; }
+
+.btn-primary, .btn-secondary {
+  padding: 10px 18px; border-radius: 6px; border: none;
+  cursor: pointer; font-size: 14px; font-weight: 500;
+}
+.btn-primary { background: #007bff; color: #fff; }
+.btn-primary:disabled { background: #aaa; cursor: not-allowed; }
+.btn-secondary { background: #e9ecef; color: #333; }
+
+.modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.modal-content {
+  background: #fff; padding: 24px; border-radius: 8px;
+  max-width: 480px; width: 90%;
+}
+.modal-content h3 { margin-top: 0; }
+.modal-content label { display: block; margin: 12px 0 4px; font-size: 13px; }
+.modal-content input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+.modal-buttons { 
+  margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;
+}
+.product-preview { 
+  background: #f4f6f8; padding: 10px; border-radius: 4px; margin: 10px 0;
+  font-size: 13px;
+}
+
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  padding: 12px 20px; border-radius: 6px; color: #fff;
+  background: #28a745; box-shadow: 0 4px 12px rgba(0,0,0,.2);
+  z-index: 200;
+}
+.toast.error { background: #dc3545; }

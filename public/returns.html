@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Повернення товару</title>
+  <link rel="stylesheet" href="returns.css">
+</head>
+<body>
+  <div class="header">
+    <div class="header-info">
+      <span id="employeeName">Завантаження...</span>
+      <span class="separator">•</span>
+      <span id="storeAddress">—</span>
+    </div>
+    <div class="header-actions">
+      <span id="cartBadge" class="badge">0</span>
+      <button id="logoutBtn" class="btn-link">Вихід</button>
+    </div>
+  </div>
+
+  <div id="authError" class="auth-error" style="display:none;">
+    <h2>Не визначено сотрудника або магазин</h2>
+    <p id="authErrorText">Спочатку відмітьтесь у зміні через головну сторінку.</p>
+    <a href="/" class="btn-primary">До сторінки змін</a>
+  </div>
+
+  <main id="mainArea" style="display:none;">
+    <section class="scan-section">
+      <label for="barcodeInput" class="big-label">Скануйте штрих-код</label>
+      <input 
+        type="text" 
+        id="barcodeInput" 
+        autocomplete="off"
+        autofocus
+        placeholder="або введіть вручну і натисніть Enter"
+      >
+      <div id="scanFeedback" class="feedback"></div>
+    </section>
+
+    <section class="cart-section">
+      <h3>Кошик повернення <span id="cartCount" class="muted">(0)</span></h3>
+      <div id="cartItems" class="cart-items">
+        <p class="empty">Кошик порожній. Скануйте перший товар.</p>
+      </div>
+      <div id="cartFooter" class="cart-footer" style="display:none;">
+        <div class="totals">
+          <div>Позицій: <strong id="totalCount">0</strong></div>
+          <div>Сума: <strong id="totalCost">0.00</strong> ₴</div>
+          <div class="muted" id="notInBaseInfo" style="display:none;">Не з бази: <span id="notInBaseCount">0</span></div>
+        </div>
+        <div class="cart-buttons">
+          <button id="clearBtn" class="btn-secondary">Очистити</button>
+          <button id="submitBtn" class="btn-primary">Відправити повернення</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Модалка для жёлтой плашки -->
+  <div id="manualModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <h3>Товар не знайдено в базі</h3>
+      <p>Штрих-код: <strong id="manualBarcode"></strong></p>
+      <p>Введіть дані товару вручну:</p>
+      <label>Назва товару *
+        <input type="text" id="manualName" required>
+      </label>
+      <label>Собівартість (необов'язково)
+        <input type="number" id="manualCost" step="0.01" min="0" placeholder="0">
+      </label>
+      <label>Кількість *
+        <input type="number" id="manualQty" step="0.001" min="0.001" value="1" required>
+      </label>
+      <div class="modal-buttons">
+        <button id="manualCancelBtn" class="btn-secondary">Скасувати</button>
+        <button id="manualOkBtn" class="btn-primary">Додати в кошик</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка для оранжевой/синей плашки (подтверждение) -->
+  <div id="confirmModal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <h3 id="confirmTitle">Підтвердити додавання</h3>
+      <p id="confirmText"></p>
+      <div class="product-preview" id="confirmProduct"></div>
+      <label>Кількість
+        <input type="number" id="confirmQty" step="0.001" min="0.001" value="1">
+      </label>
+      <div class="modal-buttons">
+        <button id="confirmCancelBtn" class="btn-secondary">Скасувати</button>
+        <button id="confirmOkBtn" class="btn-primary">Додати</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" style="display:none;"></div>
+
+  <script src="returns.js"></script>
+</body>
+</html>
