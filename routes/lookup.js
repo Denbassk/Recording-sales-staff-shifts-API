@@ -9,7 +9,6 @@ const bigquery = new BigQuery({
   projectId: 'family-market-analytics'
 });
 
-// Middleware: проверка JWT из cookie (как в твоём checkAuth)
 function checkAuthCookie(req, res, next) {
   const token = req.cookies.token;
   if (!token) return res.status(401).json({ success: false, message: "Нет токена." });
@@ -21,7 +20,6 @@ function checkAuthCookie(req, res, next) {
   }
 }
 
-// GET /lookup?barcode=XXX&store_address=YYY
 router.get('/lookup', checkAuthCookie, async (req, res) => {
   const { barcode, store_address } = req.query;
   
@@ -33,7 +31,7 @@ router.get('/lookup', checkAuthCookie, async (req, res) => {
     const query = `
       WITH
       in_store AS (
-        SELECT product_name, quantity, cost, unit
+        SELECT product_name, qty_in_stock, cost_price, retail_price
         FROM \`family-market-analytics.returns_system.stock_current\`
         WHERE barcode = @barcode AND store_address = @store_address
         LIMIT 1
@@ -41,31 +39,32 @@ router.get('/lookup', checkAuthCookie, async (req, res) => {
       in_network AS (
         SELECT 
           ANY_VALUE(product_name) AS product_name,
-          SUM(quantity) AS total_qty,
-          AVG(cost) AS avg_cost,
-          ANY_VALUE(unit) AS unit,
+          SUM(qty_in_stock) AS total_qty,
+          AVG(cost_price) AS avg_cost,
+          AVG(retail_price) AS avg_retail,
           COUNT(DISTINCT store_address) AS stores_count
         FROM \`family-market-analytics.returns_system.stock_current\`
         WHERE barcode = @barcode
       ),
       in_catalog AS (
-        SELECT product_name, last_cost AS cost
+        SELECT product_name, last_cost_price, last_retail_price
         FROM \`family-market-analytics.returns_system.barcode_catalog\`
         WHERE barcode = @barcode
         LIMIT 1
       )
       SELECT
         (SELECT product_name FROM in_store) AS store_name,
-        (SELECT quantity FROM in_store) AS store_qty,
-        (SELECT cost FROM in_store) AS store_cost,
-        (SELECT unit FROM in_store) AS store_unit,
+        (SELECT qty_in_stock FROM in_store) AS store_qty,
+        (SELECT cost_price FROM in_store) AS store_cost,
+        (SELECT retail_price FROM in_store) AS store_retail,
         (SELECT product_name FROM in_network) AS network_name,
         (SELECT total_qty FROM in_network) AS network_qty,
         (SELECT avg_cost FROM in_network) AS network_cost,
-        (SELECT unit FROM in_network) AS network_unit,
+        (SELECT avg_retail FROM in_network) AS network_retail,
         (SELECT stores_count FROM in_network) AS network_stores,
         (SELECT product_name FROM in_catalog) AS catalog_name,
-        (SELECT cost FROM in_catalog) AS catalog_cost
+        (SELECT last_cost_price FROM in_catalog) AS catalog_cost,
+        (SELECT last_retail_price FROM in_catalog) AS catalog_retail
     `;
 
     const [rows] = await bigquery.query({
@@ -76,22 +75,26 @@ router.get('/lookup', checkAuthCookie, async (req, res) => {
 
     const r = rows[0];
 
-    if (r.store_qty !== null) {
+    if (r.store_qty !== null && r.store_qty !== undefined) {
       return res.json({
         success: true, color: 'green', barcode,
         product_name: r.store_name,
-        cost: Number(r.store_cost), unit: r.store_unit,
-        stock_in_store: Number(r.store_qty), in_network: true
+        cost: Number(r.store_cost),
+        retail_price: Number(r.store_retail),
+        stock_in_store: Number(r.store_qty),
+        in_network: true
       });
     }
     if (r.network_stores > 0) {
       return res.json({
         success: true, color: 'orange', barcode,
         product_name: r.network_name,
-        cost: Number(r.network_cost), unit: r.network_unit,
+        cost: Number(r.network_cost),
+        retail_price: Number(r.network_retail),
         stock_in_store: 0,
         stock_in_network: Number(r.network_qty),
-        stores_count: Number(r.network_stores), in_network: true
+        stores_count: Number(r.network_stores),
+        in_network: true
       });
     }
     if (r.catalog_name) {
@@ -99,6 +102,7 @@ router.get('/lookup', checkAuthCookie, async (req, res) => {
         success: true, color: 'blue', barcode,
         product_name: r.catalog_name,
         cost: Number(r.catalog_cost),
+        retail_price: Number(r.catalog_retail),
         in_network: false, in_catalog: true
       });
     }
