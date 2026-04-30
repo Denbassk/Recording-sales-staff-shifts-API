@@ -176,12 +176,25 @@ router.get('/me-with-store', checkAuthCookie, async (req, res) => {
       }
     }
     
-    if (!storeId) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Магазин не определён. Сначала отметьтесь в смене.' 
-      });
-    }
+// Админы и бухгалтеры — без магазина (они работают в офисе)
+if (!storeId) {
+  if (employee.role === 'admin' || employee.role === 'accountant' || employee.role === 'curator') {
+    return res.json({
+      success: true,
+      employee: {
+        id: employee.id,
+        fullname: employee.fullname,
+        role: employee.role
+      },
+      store: null,
+      source: 'office'
+    });
+  }
+  return res.status(404).json({ 
+    success: false, 
+    error: 'Магазин не определён. Сначала отметьтесь в смене.' 
+  });
+}
     
     // Получаем адрес магазина
     const { data: store, error: storeError } = await supabase
