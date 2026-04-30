@@ -116,5 +116,103 @@ router.get('/lookup', checkAuthCookie, async (req, res) => {
     return res.status(500).json({ success: false, error: 'Lookup failed', detail: err.message });
   }
 });
+// GET /me-with-store - кто я и где работаю сегодня
+router.get('/me-with-store', checkAuthCookie, async (req, res) => {
+  const { createClient } = require('@supabase/supabase-js');
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+  
+  const employeeId = req.user.id;
+  const today = new Date().toISOString().split('T')[0];
+  
+  try {
+    // Информация о сотруднике
+    const { data: employee, error: empError } = await supabase
+      .from('employees')
+      .select('id, fullname, role')
+      .eq('id', employeeId)
+      .single();
+    
+    if (empError || !employee) {
+      return res.status(404).json({ success: false, error: 'Сотрудник не найден' });
+    }
+    
+    // 1. Сначала проверяем подмену на сегодня
+    const { data: substitution } = await supabase
+      .from('substitutions')
+      .select('worked_store_id')
+      .eq('employee_id', employeeId)
+      .eq('substitution_date', today)
+      .maybeSingle();
+    
+    let storeId = substitution?.worked_store_id || null;
+    let source = substitution ? 'substitution' : null;
+    
+    // 2. Если подмены нет — берём из сегодняшней смены
+    if (!storeId) {
+      const { data: shift } = await supabase
+        .from('shifts')
+        .select('store_id')
+        .eq('employee_id', employeeId)
+        .eq('shift_date', today)
+        .maybeSingle();
+      
+      if (shift) {
+        storeId = shift.store_id;
+        source = 'shift';
+      }
+    }
+    
+    // 3. Если смены нет — берём из постоянной привязки
+    if (!storeId) {
+      const { data: link } = await supabase
+        .from('employee_store')
+        .select('store_id')
+        .eq('employee_id', employeeId)
+        .maybeSingle();
+      
+      if (link) {
+        storeId = link.store_id;
+        source = 'permanent';
+      }
+    }
+    
+    if (!storeId) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Магазин не определён. Сначала отметьтесь в смене.' 
+      });
+    }
+    
+    // Получаем адрес магазина
+    const { data: store, error: storeError } = await supabase
+      .from('stores')
+      .select('id, name, address')
+      .eq('id', storeId)
+      .single();
+    
+    if (storeError || !store) {
+      return res.status(404).json({ success: false, error: 'Магазин не найден' });
+    }
+    
+    res.json({
+      success: true,
+      employee: {
+        id: employee.id,
+        fullname: employee.fullname,
+        role: employee.role
+      },
+      store: {
+        id: store.id,
+        name: store.name,
+        address: store.address
+      },
+      source: source  // 'substitution' | 'shift' | 'permanent'
+    });
+    
+  } catch (err) {
+    console.error('me-with-store error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 module.exports = router;
