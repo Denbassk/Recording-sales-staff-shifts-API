@@ -106,6 +106,24 @@ function setupEventListeners() {
   document.getElementById('confirmOkBtn').addEventListener('click', addConfirmedItem);
   document.getElementById('confirmCancelBtn').addEventListener('click', closeConfirmModal);
 }
+  // Допомога
+  const helpBtn = document.getElementById('helpBtn');
+  const helpModal = document.getElementById('helpModal');
+  const helpCloseBtn = document.getElementById('helpCloseBtn');
+  if (helpBtn) helpBtn.addEventListener('click', () => {
+    helpModal.style.display = 'flex';
+  });
+  if (helpCloseBtn) helpCloseBtn.addEventListener('click', () => {
+    helpModal.style.display = 'none';
+    focusInput();
+  });
+  // Закриття по кліку на фон
+  if (helpModal) helpModal.addEventListener('click', (e) => {
+    if (e.target === helpModal) {
+      helpModal.style.display = 'none';
+      focusInput();
+    }
+  });
 
 function focusInput() {
   document.getElementById('barcodeInput').focus();

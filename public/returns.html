@@ -16,6 +16,7 @@
     </div>
     <div class="header-actions">
       <span id="cartBadge" class="badge">0</span>
+      <button id="helpBtn" class="header-btn" title="Допомога">❓ Допомога</button>
       <button id="logoutBtn" class="btn-link">Вихід</button>
     </div>
   </div>
@@ -98,7 +99,80 @@
   </div>
 
   <div id="toast" class="toast" style="display:none;"></div>
+<div id="helpModal" class="modal" style="display:none;">
+  <div class="modal-content help-modal">
+    <div class="help-header">
+      <h2>📦 Як оформити повернення</h2>
+      <button class="modal-close" id="helpCloseBtn">✕</button>
+    </div>
+    <div class="help-body">
+      <div class="help-step">
+        <div class="help-step-num">1</div>
+        <div>
+          <h3>Перед початком</h3>
+          <p>Переконайтесь, що ви вже відмітилися в зміні (через ярлик «Зміна»). Без активної зміни сторінка повернень не відкриється.</p>
+        </div>
+      </div>
 
+      <div class="help-step">
+        <div class="help-step-num">2</div>
+        <div>
+          <h3>Скануйте товар</h3>
+          <p>Наведіть сканер на штрих-код товару — він автоматично потрапить у поле вводу і запуститься пошук. Курсор завжди стоїть у полі ШК — натискати нічого не треба.</p>
+          <p>Якщо ШК пошкоджений — введіть цифри вручну і натисніть <b>Enter</b>.</p>
+        </div>
+      </div>
+
+      <div class="help-step">
+        <div class="help-step-num">3</div>
+        <div>
+          <h3>Перевірте плашку статусу</h3>
+          <ul class="help-status-list">
+            <li><span class="badge-mini badge-green"></span> <b>Зелена — В наявності.</b> Товар є на залишку магазину. Додається в кошик з кількістю 1 автоматично.</li>
+            <li><span class="badge-mini badge-orange"></span> <b>Жовтогаряча — Не у нас.</b> Товар є у мережі, але не на залишку. З'явиться вікно підтвердження — введіть кількість і натисніть <b>OK</b>.</li>
+            <li><span class="badge-mini badge-blue"></span> <b>Синя — Хвіст.</b> Товар відомий системі, але зараз ніде немає на залишках. Підтвердьте кількість.</li>
+            <li><span class="badge-mini badge-yellow"></span> <b>Жовта — Не з бази.</b> Невідомий ШК. Введіть назву, ціну і кількість вручну.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="help-step">
+        <div class="help-step-num">4</div>
+        <div>
+          <h3>Перевірте кошик</h3>
+          <p>Усі додані позиції видно знизу. Кількість можна змінити прямо в полі. Видалити рядок — кнопка <b>✕</b>.</p>
+          <p>Якщо помилково додали зайве — натисніть <b>Очистити</b>, щоб скинути весь кошик.</p>
+        </div>
+      </div>
+
+      <div class="help-step">
+        <div class="help-step-num">5</div>
+        <div>
+          <h3>Відправте повернення</h3>
+          <p>Натисніть <b>Відправити повернення</b>. З'явиться зелене повідомлення з номером (наприклад, <code>RET-260501-005</code>). Це означає, що офіс уже бачить ваш список.</p>
+          <p>Після відправки кошик автоматично очищується. Можна продовжувати або закрити вкладку.</p>
+        </div>
+      </div>
+
+      <div class="help-step">
+        <div class="help-step-num">!</div>
+        <div>
+          <h3>Якщо щось пішло не так</h3>
+          <ul>
+            <li><b>«Немає зв'язку»</b> — перевірте інтернет, спробуйте ще раз.</li>
+            <li><b>«Невірний штрих-код»</b> — у штрих-коді мають бути 6-14 цифр без пробілів.</li>
+            <li><b>Помилка відправки</b> — кошик не очиститься, повторіть кнопкою <b>Відправити</b>.</li>
+            <li><b>Не відкрилась сторінка</b> — спочатку відмітьтесь в зміні через ярлик «Зміна».</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="help-tip">
+        💡 <b>Порада:</b> Один раз відсканований ШК додається у кошик окремим рядком. Якщо потрібно повернути 5 шт — скануйте 1 раз і поставте 5 у полі кількості, або скануйте 5 разів — як зручніше.
+      </div>
+    </div>
+  </div>
+</div>
   <script src="returns.js"></script>
 </body>
 </html>
