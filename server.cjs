@@ -43,8 +43,6 @@ app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 const lookupRouter = require('./routes/lookup');
 app.use('/', lookupRouter);
-const { router: backupRouter, performBackup } = require('./routes/backup');
-app.use('/', backupRouter);
 
 
 // Дефолтные лимиты карты (для fallback и обратной совместимости)
