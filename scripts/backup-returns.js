@@ -227,6 +227,19 @@ async function buildXlsx(returns) {
     console.log(`[Backup] Built XLSX: ${fileName} (${buffer.byteLength} bytes)`);
 
     const drive = getDrive();
+    // === ДИАГНОСТИКА ===
+try {
+  const folderInfo = await drive.files.get({
+    fileId: FOLDER_ID,
+    fields: 'id, name, mimeType, driveId, owners, permissions',
+    supportsAllDrives: true
+  });
+  console.log('[Diag] Folder info:', JSON.stringify(folderInfo.data, null, 2));
+} catch (e) {
+  console.log('[Diag] Folder access error:', e.message);
+}
+// === КОНЕЦ ДИАГНОСТИКИ ===
+
     const uploaded = await drive.files.create({
       requestBody: { name: fileName, parents: [FOLDER_ID] },
       media: {
