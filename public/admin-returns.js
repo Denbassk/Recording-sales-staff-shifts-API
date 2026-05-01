@@ -14,6 +14,17 @@ async function init() {
   }
   document.getElementById('user-name').textContent = me.employee.fullname + ' (' + me.employee.role + ')';
   document.getElementById('main').style.display = 'block';
+// Завантажити список магазинів у фільтр
+const storesResp = await fetch('/stores', {credentials:'include'}).then(r=>r.json()).catch(()=>null);
+if (storesResp?.success) {
+  const sel = document.getElementById('filter-store');
+  storesResp.stores.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = s.address;
+    sel.appendChild(opt);
+  });
+}
 
   // Початкові дати: останні 30 днів
   const today = new Date().toISOString().slice(0,10);

@@ -514,5 +514,22 @@ router.post('/returns/:id/archive', checkAuthCookie, requireAdmin, async (req, r
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET /stores — список активних магазинів для фільтрів
+router.get('/stores', checkAuthCookie, requireAdmin, async (req, res) => {
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const { data, error } = await supabase
+      .from('stores')
+      .select('id, name, address')
+      .eq('active', true)
+      .order('address');
+    if (error) throw error;
+    res.json({ success: true, stores: data });
+  } catch (err) {
+    console.error('GET /stores error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 module.exports = router;
