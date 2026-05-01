@@ -15,6 +15,11 @@ const KEEP_COPIES = 10;
 
 function getDrive() {
   const creds = JSON.parse(process.env.GCP_SA_KEY);
+  console.log('[Diag] client_email:', creds.client_email);
+  console.log('[Diag] private_key length:', creds.private_key?.length);
+  console.log('[Diag] private_key starts:', creds.private_key?.substring(0, 30));
+  console.log('[Diag] private_key ends:', creds.private_key?.substring(creds.private_key.length - 30));
+  console.log('[Diag] private_key_id:', creds.private_key_id);
   const auth = new google.auth.JWT(creds.client_email, null, creds.private_key,
     ['https://www.googleapis.com/auth/drive']);
   return google.drive({ version: 'v3', auth });
