@@ -13,16 +13,25 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 const FOLDER_ID = process.env.DRIVE_BACKUP_FOLDER_ID;
 const KEEP_COPIES = 10;
 
-function getDrive() {
+async function getDrive() {
   const creds = JSON.parse(process.env.GCP_SA_KEY);
   console.log('[Diag] client_email:', creds.client_email);
   console.log('[Diag] private_key length:', creds.private_key?.length);
-  console.log('[Diag] private_key starts:', creds.private_key?.substring(0, 30));
-  console.log('[Diag] private_key ends:', creds.private_key?.substring(creds.private_key.length - 30));
   console.log('[Diag] private_key_id:', creds.private_key_id);
-  const auth = new google.auth.JWT(creds.client_email, null, creds.private_key,
-    ['https://www.googleapis.com/auth/drive']);
-  return google.drive({ version: 'v3', auth });
+
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: creds.client_email,
+      private_key: creds.private_key,
+    },
+    scopes: ['https://www.googleapis.com/auth/drive'],
+  });
+
+  const authClient = await auth.getClient();
+  const token = await authClient.getAccessToken();
+  console.log('[Diag] Access token obtained:', token.token ? 'YES' : 'NO');
+
+  return google.drive({ version: 'v3', auth: authClient });
 }
 
 async function buildXlsx(returns) {
@@ -227,6 +236,8 @@ async function buildXlsx(returns) {
     console.log(`[Backup] Built XLSX: ${fileName} (${buffer.byteLength} bytes)`);
 
     const drive = getDrive();
+    const drive = await getDrive();
+
     // === ДИАГНОСТИКА ===
 try {
   const folderInfo = await drive.files.get({
