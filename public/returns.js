@@ -418,7 +418,7 @@ async function submitReturn() {
     if (!r.ok || !data.success) {
       throw new Error(data.error || 'Помилка відправки');
     }
-
+    playSubmitted();
     toast(`✅ Повернення ${data.return_number} відправлено`);
     cart = [];
     saveCart();
@@ -426,6 +426,7 @@ async function submitReturn() {
     focusInput();
   } catch (err) {
     console.error(err);
+    playSound('error');
     toast('❌ ' + err.message, true);
   } finally {
     isSubmitting = false;
@@ -464,22 +465,55 @@ function escapeHtml(s) {
 }
 
 // === Звуки (Web Audio API, без файлов) ===
+let _audioCtx = null;
+function _getAudioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e) { return null; }
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
 function playSound(type) {
+  const ctx = _getAudioCtx();
+  if (!ctx) return;
+
+  const presets = {
+    green:  { freq: 880, dur: 0.12, type: 'sine',     vol: 0.18 },
+    orange: { freq: 660, dur: 0.18, type: 'sine',     vol: 0.18 },
+    blue:   { freq: 660, dur: 0.18, type: 'sine',     vol: 0.18 },
+    yellow: { freq: 330, dur: 0.30, type: 'square',   vol: 0.15 },
+    error:  { freq: 200, dur: 0.40, type: 'sawtooth', vol: 0.18 }
+  };
+  const p = presets[type] || { freq: 440, dur: 0.15, type: 'sine', vol: 0.15 };
+
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    
-    const freq = { green: 880, orange: 660, blue: 660, yellow: 330, error: 220 }[type] || 440;
-    const dur = type === 'error' ? 0.4 : 0.15;
-    
-    osc.frequency.value = freq;
-    osc.type = 'sine';
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + dur);
+    osc.type = p.type;
+    osc.frequency.value = p.freq;
+    gain.gain.setValueAtTime(p.vol, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + p.dur);
+    osc.connect(gain).connect(ctx.destination);
     osc.start();
-    osc.stop(ctx.currentTime + dur);
-  } catch (e) {}
+    osc.stop(ctx.currentTime + p.dur);
+  } catch(e) { console.warn('Sound error:', e); }
+}
+
+// Звук відправки повернення (дві ноти підряд)
+function playSubmitted() {
+  playSound('green');
+  setTimeout(() => {
+    const ctx = _getAudioCtx();
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 1175;
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(); osc.stop(ctx.currentTime + 0.15);
+  }, 130);
 }
