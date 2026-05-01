@@ -235,7 +235,6 @@ async function buildXlsx(returns) {
     const fileName = `Возвраты_backup_${dateStr}.xlsx`;
     console.log(`[Backup] Built XLSX: ${fileName} (${buffer.byteLength} bytes)`);
 
-    const drive = getDrive();
     const drive = await getDrive();
 
     // === ДИАГНОСТИКА ===
