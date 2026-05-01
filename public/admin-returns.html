@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Адмін: Повернення</title>
+  <link rel="stylesheet" href="/admin-returns.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-left">
+      <span class="user-icon">🛡️</span>
+      <span id="user-name">Завантаження...</span>
+    </div>
+    <div class="header-right">
+      <button id="refresh-btn" class="btn-icon" title="Оновити">🔄</button>
+      <span id="auto-refresh-indicator" class="auto-indicator">●</span>
+      <a href="/" class="btn-link">Вихід</a>
+    </div>
+  </header>
+
+  <div id="auth-error" class="auth-error" style="display:none;">
+    <div class="error-card">
+      <h2>Доступ заборонено</h2>
+      <p>Ця сторінка доступна тільки адміністраторам та бухгалтерам.</p>
+      <a href="/" class="btn-primary">На головну</a>
+    </div>
+  </div>
+
+  <main id="main" style="display:none;">
+    <!-- Фільтри -->
+    <section class="filters-section">
+      <div class="filter-group">
+        <label>Період з</label>
+        <input type="date" id="filter-from">
+      </div>
+      <div class="filter-group">
+        <label>по</label>
+        <input type="date" id="filter-to">
+      </div>
+      <div class="filter-group">
+        <label>Магазин</label>
+        <select id="filter-store"><option value="">Всі</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Статус</label>
+        <select id="filter-archived">
+          <option value="false">Активні</option>
+          <option value="true">Архів</option>
+          <option value="">Всі</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Колір</label>
+        <select id="filter-lookup">
+          <option value="">Всі</option>
+          <option value="green">🟢 В наявності</option>
+          <option value="orange">🟠 У мережі</option>
+          <option value="blue">🔵 У каталозі</option>
+          <option value="yellow">🟡 Не з бази</option>
+        </select>
+      </div>
+      <button id="apply-filters" class="btn-primary">Застосувати</button>
+      <button id="export-btn" class="btn-secondary">📥 Експорт</button>
+    </section>
+
+    <!-- Вкладки -->
+    <section class="tabs-section">
+      <div class="tabs">
+        <button class="tab active" data-tab="list">Список повернень</button>
+        <button class="tab" data-tab="supplier">Зведення: постачальник</button>
+        <button class="tab" data-tab="sku">Зведення: SKU</button>
+        <button class="tab" data-tab="store">Зведення: магазин</button>
+        <button class="tab" data-tab="mismatch">🟡 Не з бази</button>
+      </div>
+
+      <div id="tab-list" class="tab-content active">
+        <div class="stats-bar">
+          <span>Повернень: <b id="stat-count">0</b></span>
+          <span>Позицій: <b id="stat-items">0</b></span>
+          <span>Сума: <b id="stat-total">0.00 ₴</b></span>
+        </div>
+        <div id="returns-list" class="returns-list"></div>
+      </div>
+
+      <div id="tab-supplier" class="tab-content">
+        <table class="summary-table">
+          <thead><tr><th>Постачальник</th><th>Кількість</th><th>Сума ₴</th><th>Повернень</th></tr></thead>
+          <tbody id="supplier-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="tab-sku" class="tab-content">
+        <table class="summary-table">
+          <thead><tr><th>SKU</th><th>Кількість</th><th>Сума ₴</th><th>Повернень</th></tr></thead>
+          <tbody id="sku-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="tab-store" class="tab-content">
+        <table class="summary-table">
+          <thead><tr><th>Магазин</th><th>Кількість</th><th>Сума ₴</th><th>Повернень</th></tr></thead>
+          <tbody id="store-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="tab-mismatch" class="tab-content">
+        <table class="summary-table">
+          <thead><tr><th>Дата</th><th>Магазин</th><th>ШК</th><th>Назва</th><th>К-сть</th><th>Ціна</th></tr></thead>
+          <tbody id="mismatch-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="/admin-returns.js"></script>
+</body>
+</html>
