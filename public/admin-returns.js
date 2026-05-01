@@ -152,191 +152,356 @@ function toggleItems(id) {
   document.getElementById('items-' + id).classList.toggle('open');
 }
 
-function exportXlsx() {
+async function exportXlsx() {
   if (!currentReturns.length) return toast('Немає даних для експорту', 'error');
 
   const from = document.getElementById('filter-from').value;
   const to = document.getElementById('filter-to').value;
-  const wb = XLSX.utils.book_new();
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Family Market'; wb.created = new Date();
 
   const fmtDate = d => {
     const dt = new Date(d);
-    return dt.toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return dt.toLocaleString('uk-UA', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
   };
   const fmtDateOnly = d => new Date(d).toLocaleDateString('uk-UA');
 
-  // ===== АРКУШ 1: ЗВЕДЕННЯ =====
-  const allItems = currentReturns.flatMap(r => r.return_items.map(it => ({...it, store: r.store_address, date: r.created_at, return_number: r.return_number})));
-  const totalSum = currentReturns.reduce((s,r)=>s+parseFloat(r.total_cost||0), 0);
-  const totalItems = allItems.length;
+  // ===== Стилі =====
+  const HEADER_FILL = { type:'pattern', pattern:'solid', fgColor:{ argb:'FF1E40AF' } };
+  const HEADER_FONT = { name:'Calibri', size:11, bold:true, color:{ argb:'FFFFFFFF' } };
+  const TITLE_FONT  = { name:'Calibri', size:14, bold:true, color:{ argb:'FF1E40AF' } };
+  const BORDER = {
+    top:    { style:'thin', color:{ argb:'FFB0B7C3' } },
+    left:   { style:'thin', color:{ argb:'FFB0B7C3' } },
+    bottom: { style:'thin', color:{ argb:'FFB0B7C3' } },
+    right:  { style:'thin', color:{ argb:'FFB0B7C3' } }
+  };
+  const CENTER = { vertical:'middle', horizontal:'center', wrapText:true };
+  const LEFT   = { vertical:'middle', horizontal:'left',   wrapText:true };
 
-  // Топ-10 постачальників
+  const STATUS_FILLS = {
+    green:  { type:'pattern', pattern:'solid', fgColor:{ argb:'FFD1FAE5' } },
+    orange: { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFED7AA' } },
+    blue:   { type:'pattern', pattern:'solid', fgColor:{ argb:'FFDBEAFE' } },
+    yellow: { type:'pattern', pattern:'solid', fgColor:{ argb:'FFFEF3C7' } }
+  };
+
+  // Помічник: оформити шапку з заданих колонок
+  function styleHeader(ws, rowNumber, colCount) {
+    const row = ws.getRow(rowNumber);
+    row.height = 26;
+    for (let c = 1; c <= colCount; c++) {
+      const cell = row.getCell(c);
+      cell.fill = HEADER_FILL;
+      cell.font = HEADER_FONT;
+      cell.alignment = CENTER;
+      cell.border = BORDER;
+    }
+  }
+
+  // Помічник: межі + вирівнювання для рядків даних, з визначенням, які колонки числові
+  function styleDataRows(ws, startRow, endRow, numericCols) {
+    for (let r = startRow; r <= endRow; r++) {
+      const row = ws.getRow(r);
+      row.eachCell({ includeEmpty:true }, (cell, colNumber) => {
+        cell.border = BORDER;
+        if (numericCols.includes(colNumber)) {
+          cell.alignment = { vertical:'middle', horizontal:'center' };
+        } else {
+          cell.alignment = LEFT;
+        }
+      });
+    }
+  }
+
+  // Дані для зведень
+  const allItems = currentReturns.flatMap(r => r.return_items.map(it => ({...it, store:r.store_address, date:r.created_at, return_number:r.return_number})));
+  const totalSum = currentReturns.reduce((s,r)=>s+parseFloat(r.total_cost||0), 0);
+
   const supplierMap = {};
   for (const it of allItems) {
     const k = (it.product_name||'').split(' ')[0] || 'Невідомо';
-    if (!supplierMap[k]) supplierMap[k] = { qty: 0, sum: 0 };
+    if (!supplierMap[k]) supplierMap[k] = { qty:0, sum:0, returns:new Set() };
     supplierMap[k].qty += parseFloat(it.quantity||0);
     supplierMap[k].sum += parseFloat(it.quantity||0) * parseFloat(it.cost_price||0);
+    supplierMap[k].returns.add(it.return_number);
   }
-  const topSuppliers = Object.entries(supplierMap).map(([k,v])=>[k, v.qty, v.sum]).sort((a,b)=>b[2]-a[2]).slice(0,10);
-
-  // Топ-10 магазинів
   const storeMap = {};
   for (const r of currentReturns) {
-    if (!storeMap[r.store_address]) storeMap[r.store_address] = { qty: 0, sum: 0, count: 0 };
+    if (!storeMap[r.store_address]) storeMap[r.store_address] = { qty:0, sum:0, count:0 };
     storeMap[r.store_address].sum += parseFloat(r.total_cost||0);
     storeMap[r.store_address].count += 1;
-    storeMap[r.store_address].qty += r.return_items.reduce((s,it)=>s+parseFloat(it.quantity||0), 0);
+    storeMap[r.store_address].qty += r.return_items.reduce((s,it)=>s+parseFloat(it.quantity||0),0);
   }
-  const topStores = Object.entries(storeMap).map(([k,v])=>[k, v.qty, v.sum, v.count]).sort((a,b)=>b[2]-a[2]).slice(0,10);
-
-  // Кольори
-  const colorMap = { green: 0, orange: 0, blue: 0, yellow: 0 };
+  const colorMap = { green:0, orange:0, blue:0, yellow:0 };
   for (const it of allItems) if (colorMap[it.lookup_status] !== undefined) colorMap[it.lookup_status]++;
 
-  const summaryData = [
-    ['ЗВЕДЕННЯ ПО ПОВЕРНЕННЯХ'],
-    [],
-    ['Період', `${from || '—'} — ${to || '—'}`],
-    ['Повернень', currentReturns.length],
-    ['Позицій', totalItems],
-    ['Сума, ₴', totalSum.toFixed(2)],
-    [],
-    ['РОЗПОДІЛ ПО СТАТУСАХ ШК'],
-    ['🟢 В наявності', colorMap.green],
-    ['🟠 У мережі', colorMap.orange],
-    ['🔵 У каталозі', colorMap.blue],
-    ['🟡 Не з бази', colorMap.yellow],
-    [],
-    ['ТОП-10 ПОСТАЧАЛЬНИКІВ'],
-    ['Постачальник', 'К-сть', 'Сума ₴'],
-    ...topSuppliers,
-    [],
-    ['ТОП-10 МАГАЗИНІВ'],
-    ['Магазин', 'К-сть', 'Сума ₴', 'Повернень'],
-    ...topStores
-  ];
-  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-  wsSummary['!cols'] = [{wch: 35}, {wch: 15}, {wch: 15}, {wch: 12}];
-  XLSX.utils.book_append_sheet(wb, wsSummary, 'Зведення');
+  // ============ АРКУШ 1: ЗВЕДЕННЯ ============
+  {
+    const ws = wb.addWorksheet('Зведення');
+    ws.columns = [{ width:35 },{ width:18 },{ width:18 },{ width:14 }];
 
-  // ===== АРКУШ 2: ВОЗВРАТЫ =====
-  const returnsHeader = ['Номер', 'Магазин', 'Сотрудник', 'Дата', 'Позицій', 'Сума ₴', 'Статус', 'Архів', 'Примітка'];
-  const returnsRows = currentReturns.map(r => [
-    r.return_number,
-    r.store_address,
-    r.employee_id,
-    fmtDate(r.created_at),
-    r.items_count,
-    parseFloat(r.total_cost||0),
-    r.status,
-    r.archived_at ? fmtDate(r.archived_at) : '',
-    r.notes || ''
-  ]);
-  const wsReturns = XLSX.utils.aoa_to_sheet([returnsHeader, ...returnsRows]);
-  wsReturns['!cols'] = [{wch:18},{wch:25},{wch:14},{wch:18},{wch:9},{wch:11},{wch:12},{wch:18},{wch:25}];
-  wsReturns['!freeze'] = { ySplit: 1 };
-  wsReturns['!autofilter'] = { ref: `A1:I${returnsRows.length+1}` };
-  // формат суми
-  for (let i = 2; i <= returnsRows.length+1; i++) {
-    const cell = wsReturns[`F${i}`];
-    if (cell) cell.z = '#,##0.00';
-  }
-  XLSX.utils.book_append_sheet(wb, wsReturns, 'Возвраты');
+    ws.getCell('A1').value = 'ЗВЕДЕННЯ ПО ПОВЕРНЕННЯХ';
+    ws.getCell('A1').font = TITLE_FONT;
+    ws.mergeCells('A1:D1');
+    ws.getRow(1).height = 28;
+    ws.getCell('A1').alignment = CENTER;
 
-  // ===== АРКУШ 3: ПОЗИЦІЇ =====
-  const itemsHeader = ['Номер', 'Магазин', 'Дата', 'ШК', 'Назва', 'К-сть', 'Ціна ₴', 'Сума ₴', 'Статус ШК'];
-  const itemsRows = [];
-  const colorRowsMap = { green: [], orange: [], blue: [], yellow: [] };
-  for (const r of currentReturns) {
-    for (const it of r.return_items) {
-      const qty = parseFloat(it.quantity||0);
-      const price = parseFloat(it.cost_price||0);
-      itemsRows.push([
-        r.return_number,
-        r.store_address,
-        fmtDate(r.created_at),
-        it.barcode,
-        it.product_name,
-        qty,
-        price,
-        qty * price,
-        it.lookup_status || ''
-      ]);
-      if (colorRowsMap[it.lookup_status]) colorRowsMap[it.lookup_status].push(itemsRows.length + 1);
-    }
-  }
-  const wsItems = XLSX.utils.aoa_to_sheet([itemsHeader, ...itemsRows]);
-  wsItems['!cols'] = [{wch:18},{wch:22},{wch:18},{wch:18},{wch:45},{wch:9},{wch:11},{wch:11},{wch:14}];
-  wsItems['!freeze'] = { ySplit: 1 };
-  wsItems['!autofilter'] = { ref: `A1:I${itemsRows.length+1}` };
-  // ШК як текст, числа
-  for (let i = 2; i <= itemsRows.length+1; i++) {
-    const bc = wsItems[`D${i}`];
-    if (bc) { bc.t = 's'; bc.z = '@'; }
-    ['F','G','H'].forEach(col => {
-      const c = wsItems[`${col}${i}`];
-      if (c) c.z = '#,##0.00';
+    const info = [
+      ['Період', `${from || '—'} — ${to || '—'}`],
+      ['Повернень', currentReturns.length],
+      ['Позицій', allItems.length],
+      ['Сума, ₴', Number(totalSum.toFixed(2))]
+    ];
+    info.forEach((row, i) => {
+      const r = ws.getRow(3 + i);
+      r.getCell(1).value = row[0]; r.getCell(2).value = row[1];
+      r.getCell(1).alignment = LEFT;
+      r.getCell(2).alignment = CENTER;
+      r.getCell(1).border = BORDER; r.getCell(2).border = BORDER;
+      r.getCell(1).font = { bold:true };
+    });
+
+    ws.getCell('A8').value = 'РОЗПОДІЛ ПО СТАТУСАХ ШК';
+    ws.getCell('A8').font = TITLE_FONT;
+    ws.mergeCells('A8:D8');
+    ws.getCell('A8').alignment = CENTER;
+
+    const statusRows = [
+      ['🟢 В наявності','green', colorMap.green],
+      ['🟠 У мережі','orange', colorMap.orange],
+      ['🔵 У каталозі','blue', colorMap.blue],
+      ['🟡 Не з бази','yellow', colorMap.yellow]
+    ];
+    statusRows.forEach((row, i) => {
+      const r = ws.getRow(9 + i);
+      r.getCell(1).value = row[0]; r.getCell(2).value = row[2];
+      r.getCell(1).fill = STATUS_FILLS[row[1]];
+      r.getCell(1).alignment = LEFT;
+      r.getCell(2).alignment = CENTER;
+      r.getCell(1).border = BORDER; r.getCell(2).border = BORDER;
+    });
+
+    // Топ-10 постачальників
+    const topSupRow = 14;
+    ws.getCell(`A${topSupRow}`).value = 'ТОП-10 ПОСТАЧАЛЬНИКІВ';
+    ws.getCell(`A${topSupRow}`).font = TITLE_FONT;
+    ws.mergeCells(`A${topSupRow}:D${topSupRow}`);
+    ws.getCell(`A${topSupRow}`).alignment = CENTER;
+    ws.getRow(topSupRow + 1).values = ['Постачальник','К-сть','Сума ₴','Повернень'];
+    styleHeader(ws, topSupRow + 1, 4);
+    const topSup = Object.entries(supplierMap).map(([k,v])=>[k, Number(v.qty.toFixed(2)), Number(v.sum.toFixed(2)), v.returns.size]).sort((a,b)=>b[2]-a[2]).slice(0,10);
+    topSup.forEach((row,i) => ws.getRow(topSupRow + 2 + i).values = row);
+    if (topSup.length) styleDataRows(ws, topSupRow + 2, topSupRow + 1 + topSup.length, [2,3,4]);
+
+    // Топ-10 магазинів
+    const topStoreRow = topSupRow + 2 + topSup.length + 1;
+    ws.getCell(`A${topStoreRow}`).value = 'ТОП-10 МАГАЗИНІВ';
+    ws.getCell(`A${topStoreRow}`).font = TITLE_FONT;
+    ws.mergeCells(`A${topStoreRow}:D${topStoreRow}`);
+    ws.getCell(`A${topStoreRow}`).alignment = CENTER;
+    ws.getRow(topStoreRow + 1).values = ['Магазин','К-сть','Сума ₴','Повернень'];
+    styleHeader(ws, topStoreRow + 1, 4);
+    const topStore = Object.entries(storeMap).map(([k,v])=>[k, Number(v.qty.toFixed(2)), Number(v.sum.toFixed(2)), v.count]).sort((a,b)=>b[2]-a[2]).slice(0,10);
+    topStore.forEach((row,i) => ws.getRow(topStoreRow + 2 + i).values = row);
+    if (topStore.length) styleDataRows(ws, topStoreRow + 2, topStoreRow + 1 + topStore.length, [2,3,4]);
+
+    // Формат чисел
+    [topSupRow + 2, topStoreRow + 2].forEach(start => {
+      const end = ws.rowCount;
+      for (let r = start; r <= end; r++) {
+        const c = ws.getRow(r).getCell(3);
+        if (c.value !== null && c.value !== undefined) c.numFmt = '#,##0.00';
+      }
     });
   }
-  XLSX.utils.book_append_sheet(wb, wsItems, 'Позиції');
 
-  // ===== АРКУШ 4: ПО ПОСТАЧАЛЬНИКУ =====
-  const supplierAll = Object.entries(supplierMap).map(([k,v])=>{
-    const returnsCount = new Set(allItems.filter(it=>(it.product_name||'').split(' ')[0]===k).map(it=>it.return_number)).size;
-    return [k, v.qty, v.sum, returnsCount];
-  }).sort((a,b)=>b[2]-a[2]);
-  const wsSup = XLSX.utils.aoa_to_sheet([['Постачальник','К-сть','Сума ₴','Повернень'], ...supplierAll]);
-  wsSup['!cols'] = [{wch:30},{wch:12},{wch:14},{wch:12}];
-  wsSup['!freeze'] = { ySplit: 1 };
-  wsSup['!autofilter'] = { ref: `A1:D${supplierAll.length+1}` };
-  XLSX.utils.book_append_sheet(wb, wsSup, 'По постачальнику');
+  // ============ АРКУШ 2: ВОЗВРАТЫ ============
+  {
+    const ws = wb.addWorksheet('Возвраты');
+    ws.columns = [
+      { header:'Номер', key:'num', width:18 },
+      { header:'Магазин', key:'store', width:25 },
+      { header:'Сотрудник', key:'emp', width:14 },
+      { header:'Дата', key:'date', width:18 },
+      { header:'Позицій', key:'items', width:10 },
+      { header:'Сума ₴', key:'sum', width:12 },
+      { header:'Статус', key:'status', width:12 },
+      { header:'Архів', key:'arch', width:18 },
+      { header:'Примітка', key:'notes', width:25 }
+    ];
+    styleHeader(ws, 1, 9);
+    ws.views = [{ state:'frozen', ySplit:1 }];
+    ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:9 } };
 
-  // ===== АРКУШ 5: ПО МАГАЗИНУ =====
-  const storeAll = Object.entries(storeMap).map(([k,v])=>[k, v.qty, v.sum, v.count]).sort((a,b)=>b[2]-a[2]);
-  const wsStore = XLSX.utils.aoa_to_sheet([['Магазин','К-сть','Сума ₴','Повернень'], ...storeAll]);
-  wsStore['!cols'] = [{wch:30},{wch:12},{wch:14},{wch:12}];
-  wsStore['!freeze'] = { ySplit: 1 };
-  wsStore['!autofilter'] = { ref: `A1:D${storeAll.length+1}` };
-  XLSX.utils.book_append_sheet(wb, wsStore, 'По магазину');
-
-  // ===== АРКУШ 6: ПО SKU =====
-  const skuMap = {};
-  for (const it of allItems) {
-    const k = it.barcode + '|' + it.product_name;
-    if (!skuMap[k]) skuMap[k] = { barcode: it.barcode, name: it.product_name, qty: 0, sum: 0, returns: new Set() };
-    skuMap[k].qty += parseFloat(it.quantity||0);
-    skuMap[k].sum += parseFloat(it.quantity||0) * parseFloat(it.cost_price||0);
-    skuMap[k].returns.add(it.return_number);
+    currentReturns.forEach(r => {
+      ws.addRow({
+        num: r.return_number,
+        store: r.store_address,
+        emp: r.employee_id,
+        date: fmtDate(r.created_at),
+        items: r.items_count,
+        sum: Number(parseFloat(r.total_cost||0).toFixed(2)),
+        status: r.status,
+        arch: r.archived_at ? fmtDate(r.archived_at) : '',
+        notes: r.notes || ''
+      });
+    });
+    if (currentReturns.length) {
+      styleDataRows(ws, 2, currentReturns.length + 1, [4,5,6,7,8]);
+      for (let r = 2; r <= currentReturns.length + 1; r++) {
+        ws.getRow(r).getCell(6).numFmt = '#,##0.00';
+      }
+    }
   }
-  const skuRows = Object.values(skuMap).map(s=>[s.barcode, s.name, s.qty, s.sum, s.returns.size]).sort((a,b)=>b[3]-a[3]);
-  const wsSku = XLSX.utils.aoa_to_sheet([['ШК','Назва','К-сть','Сума ₴','Повернень'], ...skuRows]);
-  wsSku['!cols'] = [{wch:18},{wch:45},{wch:12},{wch:14},{wch:12}];
-  wsSku['!freeze'] = { ySplit: 1 };
-  wsSku['!autofilter'] = { ref: `A1:E${skuRows.length+1}` };
-  for (let i = 2; i <= skuRows.length+1; i++) {
-    const bc = wsSku[`A${i}`];
-    if (bc) { bc.t = 's'; bc.z = '@'; }
-  }
-  XLSX.utils.book_append_sheet(wb, wsSku, 'По SKU');
 
-  // ===== АРКУШ 7: НЕ З БАЗИ =====
-  const mismatchRows = allItems
-    .filter(it => it.lookup_status === 'yellow')
-    .map(it => [fmtDateOnly(it.date), it.store, it.barcode, it.product_name, parseFloat(it.quantity||0), parseFloat(it.cost_price||0)]);
-  const wsMis = XLSX.utils.aoa_to_sheet([['Дата','Магазин','ШК','Назва','К-сть','Ціна ₴'], ...mismatchRows]);
-  wsMis['!cols'] = [{wch:12},{wch:25},{wch:18},{wch:45},{wch:9},{wch:11}];
-  wsMis['!freeze'] = { ySplit: 1 };
-  if (mismatchRows.length) wsMis['!autofilter'] = { ref: `A1:F${mismatchRows.length+1}` };
-  for (let i = 2; i <= mismatchRows.length+1; i++) {
-    const bc = wsMis[`C${i}`];
-    if (bc) { bc.t = 's'; bc.z = '@'; }
-  }
-  XLSX.utils.book_append_sheet(wb, wsMis, 'Не з бази');
+  // ============ АРКУШ 3: ПОЗИЦІЇ ============
+  {
+    const ws = wb.addWorksheet('Позиції');
+    ws.columns = [
+      { header:'Номер', width:18 },
+      { header:'Магазин', width:22 },
+      { header:'Дата', width:18 },
+      { header:'ШК', width:18 },
+      { header:'Назва', width:45 },
+      { header:'К-сть', width:9 },
+      { header:'Ціна ₴', width:11 },
+      { header:'Сума ₴', width:11 },
+      { header:'Статус ШК', width:14 }
+    ];
+    styleHeader(ws, 1, 9);
+    ws.views = [{ state:'frozen', ySplit:1 }];
 
-  // Назва файлу з періодом
+    let cnt = 0;
+    for (const r of currentReturns) {
+      for (const it of r.return_items) {
+        const qty = parseFloat(it.quantity||0);
+        const price = parseFloat(it.cost_price||0);
+        const row = ws.addRow([
+          r.return_number, r.store_address, fmtDate(r.created_at),
+          it.barcode, it.product_name,
+          Number(qty.toFixed(2)), Number(price.toFixed(2)), Number((qty*price).toFixed(2)),
+          it.lookup_status || ''
+        ]);
+        row.getCell(4).numFmt = '@';
+        row.getCell(6).numFmt = '#,##0.00';
+        row.getCell(7).numFmt = '#,##0.00';
+        row.getCell(8).numFmt = '#,##0.00';
+        if (STATUS_FILLS[it.lookup_status]) row.getCell(9).fill = STATUS_FILLS[it.lookup_status];
+        cnt++;
+      }
+    }
+    if (cnt) {
+      styleDataRows(ws, 2, cnt + 1, [3,4,6,7,8,9]);
+      ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:9 } };
+    }
+  }
+
+  // ============ АРКУШ 4: ПО ПОСТАЧАЛЬНИКУ ============
+  {
+    const ws = wb.addWorksheet('По постачальнику');
+    ws.columns = [
+      { header:'Постачальник', width:30 },
+      { header:'К-сть', width:12 },
+      { header:'Сума ₴', width:14 },
+      { header:'Повернень', width:12 }
+    ];
+    styleHeader(ws, 1, 4);
+    ws.views = [{ state:'frozen', ySplit:1 }];
+    const rows = Object.entries(supplierMap).map(([k,v])=>[k, Number(v.qty.toFixed(2)), Number(v.sum.toFixed(2)), v.returns.size]).sort((a,b)=>b[2]-a[2]);
+    rows.forEach(r => ws.addRow(r));
+    if (rows.length) {
+      styleDataRows(ws, 2, rows.length + 1, [2,3,4]);
+      for (let r = 2; r <= rows.length + 1; r++) ws.getRow(r).getCell(3).numFmt = '#,##0.00';
+      ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:4 } };
+    }
+  }
+
+  // ============ АРКУШ 5: ПО МАГАЗИНУ ============
+  {
+    const ws = wb.addWorksheet('По магазину');
+    ws.columns = [
+      { header:'Магазин', width:30 },
+      { header:'К-сть', width:12 },
+      { header:'Сума ₴', width:14 },
+      { header:'Повернень', width:12 }
+    ];
+    styleHeader(ws, 1, 4);
+    ws.views = [{ state:'frozen', ySplit:1 }];
+    const rows = Object.entries(storeMap).map(([k,v])=>[k, Number(v.qty.toFixed(2)), Number(v.sum.toFixed(2)), v.count]).sort((a,b)=>b[2]-a[2]);
+    rows.forEach(r => ws.addRow(r));
+    if (rows.length) {
+      styleDataRows(ws, 2, rows.length + 1, [2,3,4]);
+      for (let r = 2; r <= rows.length + 1; r++) ws.getRow(r).getCell(3).numFmt = '#,##0.00';
+      ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:4 } };
+    }
+  }
+
+  // ============ АРКУШ 6: ПО SKU ============
+  {
+    const ws = wb.addWorksheet('По SKU');
+    ws.columns = [
+      { header:'ШК', width:18 },
+      { header:'Назва', width:45 },
+      { header:'К-сть', width:12 },
+      { header:'Сума ₴', width:14 },
+      { header:'Повернень', width:12 }
+    ];
+    styleHeader(ws, 1, 5);
+    ws.views = [{ state:'frozen', ySplit:1 }];
+    const skuMap = {};
+    for (const it of allItems) {
+      const k = it.barcode + '|' + it.product_name;
+      if (!skuMap[k]) skuMap[k] = { barcode:it.barcode, name:it.product_name, qty:0, sum:0, returns:new Set() };
+      skuMap[k].qty += parseFloat(it.quantity||0);
+      skuMap[k].sum += parseFloat(it.quantity||0) * parseFloat(it.cost_price||0);
+      skuMap[k].returns.add(it.return_number);
+    }
+    const rows = Object.values(skuMap).map(s=>[s.barcode, s.name, Number(s.qty.toFixed(2)), Number(s.sum.toFixed(2)), s.returns.size]).sort((a,b)=>b[3]-a[3]);
+    rows.forEach(r => {
+      const row = ws.addRow(r);
+      row.getCell(1).numFmt = '@';
+    });
+    if (rows.length) {
+      styleDataRows(ws, 2, rows.length + 1, [1,3,4,5]);
+      for (let r = 2; r <= rows.length + 1; r++) ws.getRow(r).getCell(4).numFmt = '#,##0.00';
+      ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:5 } };
+    }
+  }
+
+  // ============ АРКУШ 7: НЕ З БАЗИ ============
+  {
+    const ws = wb.addWorksheet('Не з бази');
+    ws.columns = [
+      { header:'Дата', width:12 },
+      { header:'Магазин', width:25 },
+      { header:'ШК', width:18 },
+      { header:'Назва', width:45 },
+      { header:'К-сть', width:9 },
+      { header:'Ціна ₴', width:11 }
+    ];
+    styleHeader(ws, 1, 6);
+    ws.views = [{ state:'frozen', ySplit:1 }];
+    const rows = allItems.filter(it => it.lookup_status === 'yellow').map(it => [
+      fmtDateOnly(it.date), it.store, it.barcode, it.product_name,
+      Number(parseFloat(it.quantity||0).toFixed(2)), Number(parseFloat(it.cost_price||0).toFixed(2))
+    ]);
+    rows.forEach(r => {
+      const row = ws.addRow(r);
+      row.getCell(3).numFmt = '@';
+      row.getCell(5).numFmt = '#,##0.00';
+      row.getCell(6).numFmt = '#,##0.00';
+    });
+    if (rows.length) {
+      styleDataRows(ws, 2, rows.length + 1, [1,3,5,6]);
+      ws.autoFilter = { from:{ row:1, column:1 }, to:{ row:1, column:6 } };
+    }
+  }
+
+  // Збереження
+  const buf = await wb.xlsx.writeBuffer();
   const fname = `Возвраты_${from || 'all'}_${to || 'all'}.xlsx`;
-  XLSX.writeFile(wb, fname);
+  saveAs(new Blob([buf], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fname);
   toast(`Експорт готовий: ${currentReturns.length} повернень`, 'success');
 }
 
