@@ -44,11 +44,6 @@ app.use(express.static(path.join(__dirname, "public")));
 const lookupRouter = require('./routes/lookup');
 app.use('/', lookupRouter);
 
-// 🆕 Backup роут
-const { router: backupRouter, performBackup } = require('./routes/backup');
-app.use('/', backupRouter);
-app.use('/', lookupRouter);
-
 
 // Дефолтные лимиты карты (для fallback и обратной совместимости)
 const DEFAULT_LIMITS = {
@@ -4177,25 +4172,6 @@ const backupInterval = setInterval(async () => {
 
 // Также делаем backup при старте сервера (через 30 секунд)
 setTimeout(createAutoBackup, 30000);
-
-// 🆕 Cron для бекапу повернень: щонеділі 23:30 Київ
-setInterval(async () => {
-  try {
-    const now = new Date();
-    const kyiv = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Kyiv' }));
-    if (kyiv.getDay() === 0 && kyiv.getHours() === 23 && kyiv.getMinutes() >= 30 && kyiv.getMinutes() < 35) {
-      const flagKey = `returns-backup-${kyiv.getFullYear()}-${kyiv.getMonth()}-${kyiv.getDate()}`;
-      if (global._lastReturnsBackupFlag !== flagKey) {
-        global._lastReturnsBackupFlag = flagKey;
-        console.log('[ReturnsBackup] Starting weekly backup...');
-        const r = await performBackup();
-        console.log('[ReturnsBackup] Done:', r);
-      }
-    }
-  } catch (e) {
-    console.error('[ReturnsBackup] cron error:', e);
-  }
-}, 60 * 1000);
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
