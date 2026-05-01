@@ -381,5 +381,138 @@ router.post('/returns', checkAuthCookie, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// ============ АДМІН-ЕНДПОІНТИ ============
+
+// Middleware: тільки admin/accountant/curator
+function requireAdmin(req, res, next) {
+  const role = req.user?.role;
+  if (!['admin', 'accountant', 'curator'].includes(role)) {
+    return res.status(403).json({ success: false, error: 'Доступ заборонено' });
+  }
+  next();
+}
+
+// GET /returns — список повернень з фільтрами
+router.get('/returns', checkAuthCookie, requireAdmin, async (req, res) => {
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+    const { from, to, store_id, status, lookup_status, archived } = req.query;
+
+    let query = supabase
+      .from('returns')
+      .select('*, return_items(*)')
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (from) query = query.gte('created_at', from);
+    if (to) query = query.lte('created_at', to + 'T23:59:59');
+    if (store_id) query = query.eq('store_id', parseInt(store_id));
+    if (status) query = query.eq('status', status);
+    if (archived === 'true') query = query.not('archived_at', 'is', null);
+    if (archived === 'false') query = query.is('archived_at', null);
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    // Фільтр lookup_status застосовуємо вручну (по позиціях)
+    let filtered = data;
+    if (lookup_status) {
+      filtered = data.filter(r => 
+        r.return_items.some(it => it.lookup_status === lookup_status)
+      );
+    }
+
+    res.json({ success: true, returns: filtered, count: filtered.length });
+  } catch (err) {
+    console.error('GET /returns error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /returns/summary?group_by=supplier|sku|store
+router.get('/returns/summary', checkAuthCookie, requireAdmin, async (req, res) => {
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+    const { group_by = 'supplier', from, to } = req.query;
+
+    let query = supabase
+      .from('returns')
+      .select('id, store_id, store_address, total_cost, items_count, created_at, return_items(barcode, product_name, quantity, cost_price, lookup_status)')
+      .is('archived_at', null);
+
+    if (from) query = query.gte('created_at', from);
+    if (to) query = query.lte('created_at', to + 'T23:59:59');
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const groups = {};
+    for (const ret of data) {
+      for (const item of ret.return_items) {
+        let key;
+        if (group_by === 'supplier') {
+          key = (item.product_name || '').split(' ')[0] || 'Невідомо';
+        } else if (group_by === 'sku') {
+          key = item.barcode + ' | ' + item.product_name;
+        } else if (group_by === 'store') {
+          key = ret.store_address;
+        } else {
+          key = 'Все';
+        }
+        if (!groups[key]) {
+          groups[key] = { key, qty: 0, total: 0, returns: new Set() };
+        }
+        groups[key].qty += parseFloat(item.quantity || 0);
+        groups[key].total += parseFloat(item.quantity || 0) * parseFloat(item.cost_price || 0);
+        groups[key].returns.add(ret.id);
+      }
+    }
+
+    const summary = Object.values(groups).map(g => ({
+      key: g.key,
+      qty: Math.round(g.qty * 100) / 100,
+      total: Math.round(g.total * 100) / 100,
+      returns_count: g.returns.size
+    })).sort((a, b) => b.total - a.total);
+
+    res.json({ success: true, group_by, summary });
+  } catch (err) {
+    console.error('GET /returns/summary error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /returns/:id/archive
+router.post('/returns/:id/archive', checkAuthCookie, requireAdmin, async (req, res) => {
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ success: false, error: 'Невірний id' });
+
+    const { data, error } = await supabase
+      .from('returns')
+      .update({
+        archived_at: new Date().toISOString(),
+        processed_by: req.user.id,
+        processed_at: new Date().toISOString(),
+        status: 'archived'
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, return: data });
+  } catch (err) {
+    console.error('POST /returns/:id/archive error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 module.exports = router;
