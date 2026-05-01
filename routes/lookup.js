@@ -28,12 +28,42 @@ router.get('/lookup', checkAuthCookie, async (req, res) => {
   }
 
   try {
+    // 1. Знайти всі аліаси магазину (поточна назва + старі назви, активні на сьогодні)
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+    const today = new Date().toISOString().slice(0, 10);
+    let storeAddresses = [String(store_address)];
+
+    // Знайти store_id по поточній адресі
+    const { data: storeRow } = await supabase
+      .from('stores')
+      .select('id')
+      .eq('address', store_address)
+      .maybeSingle();
+
+    if (storeRow) {
+      const { data: aliases } = await supabase
+        .from('store_address_aliases')
+        .select('alias_address, valid_from, valid_to')
+        .eq('store_id', storeRow.id);
+
+      if (aliases?.length) {
+        const active = aliases
+          .filter(a => (!a.valid_from || a.valid_from <= today) && (!a.valid_to || a.valid_to >= today))
+          .map(a => a.alias_address);
+        storeAddresses = Array.from(new Set([store_address, ...active]));
+      }
+    }
+
+    // 2. BigQuery з пошуком по масиву адрес
     const query = `
       WITH
       in_store AS (
         SELECT product_name, qty_in_stock, cost_price, retail_price
         FROM \`family-market-analytics.returns_system.stock_current\`
-        WHERE barcode = @barcode AND store_address = @store_address
+        WHERE barcode = @barcode AND store_address IN UNNEST(@store_addresses)
+        ORDER BY qty_in_stock DESC
         LIMIT 1
       ),
       in_network AS (
@@ -69,7 +99,14 @@ router.get('/lookup', checkAuthCookie, async (req, res) => {
 
     const [rows] = await bigquery.query({
       query,
-      params: { barcode: String(barcode), store_address: String(store_address) },
+      params: { 
+        barcode: String(barcode), 
+        store_addresses: storeAddresses
+      },
+      types: {
+        barcode: 'STRING',
+        store_addresses: ['STRING']
+      },
       location: 'EU'
     });
 
