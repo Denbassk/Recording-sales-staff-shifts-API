@@ -4,7 +4,14 @@ const { google } = require('googleapis');
 const { Readable } = require('stream');
 const { createClient } = require('@supabase/supabase-js');
 
-const REQUIRED = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'GCP_SA_KEY', 'DRIVE_BACKUP_FOLDER_ID'];
+const REQUIRED = [
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'GOOGLE_REFRESH_TOKEN',
+  'DRIVE_BACKUP_FOLDER_ID'
+];
 for (const k of REQUIRED) {
   if (!process.env[k]) { console.error(`Missing env: ${k}`); process.exit(1); }
 }
