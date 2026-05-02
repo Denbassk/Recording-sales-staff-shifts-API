@@ -5,7 +5,8 @@
 **Production URL:** https://shifts-api.fly.dev  
 **Хостинг:** Fly.io (app: `shifts-api`)  
 **БД:** Supabase (`pdiminbulbzlywvnowta.supabase.co`)  
-**Локальная папка:** `D:\Shifts-api\Shifts-api`
+**Аналитика:** BigQuery (`family-market-analytics.returns_system`)  
+**Локальная папка проекта:** `D:\Shifts-api\Shifts-api`
 
 ---
 
@@ -18,6 +19,7 @@
 - Учёт смен продавцов (открытие/закрытие смены, кассовые операции).
 - Загрузка дневной выручки из Excel-файлов (cash register).
 - Учёт возвратов товаров с архивацией и экспортом.
+- Lookup штрихкодов через BigQuery (каталог из выгрузок 1С).
 - Админ-панель для отчётов и управления.
 - Расчёт зарплаты с учётом авансов, штрафов, недостач, бонусов.
 - Автоматический еженедельный бекап возвратов в Google Drive.
@@ -29,6 +31,7 @@
 **Backend:**
 - Node.js 20, Express
 - `@supabase/supabase-js` — клиент Supabase
+- `@google-cloud/bigquery` — lookup ШК
 - `exceljs` — генерация XLSX
 - `googleapis` — интеграция с Google Drive
 - `xlsx` — парсинг входящих Excel-файлов
@@ -47,6 +50,10 @@
 - `return_items` — позиции возвратов
 - `shifts`, `cash_operations`, `salary_*` — смены и зарплатная логика
 
+**Аналитика и lookup:**
+- BigQuery (`family-market-analytics.returns_system.stock_current` и `barcode_catalog`)
+- Локальный Python-скрипт `upload_stock.py` для заливки выгрузок из 1С
+
 **Деплой:**
 - Production: Fly.io (`fly deploy --app shifts-api`)
 - CI: GitHub Actions (`.github/workflows/fly-deploy.yml`)
@@ -55,11 +62,13 @@
 
 ## 3. Структура файлов
 
+### Основной проект (Git)
+
 ```
 D:\Shifts-api\Shifts-api\
-├── server.cjs                  # Главный сервер (Express, все роуты, cron)
+├── server.cjs                  # Главный сервер (Express, все роуты)
 ├── routes/
-│   └── lookup.js               # Lookup-роутер (поиск сотрудников/магазинов)
+│   └── lookup.js               # Lookup-роутер (поиск сотрудников/магазинов/ШК)
 ├── scripts/
 │   └── backup-returns.js       # Standalone скрипт еженедельного бекапа
 ├── .github/workflows/
@@ -71,8 +80,20 @@ D:\Shifts-api\Shifts-api\
 │   ├── script.js
 │   └── ...
 ├── package.json
-└── fly.toml
+├── fly.toml
+└── STATE.md                    # этот файл
 ```
+
+### Локальные инструменты (НЕ в Git)
+
+```
+D:\Shifts-api\
+├── upload_stock.py                                       # загрузка остатков в BigQuery
+└── credentials/
+    └── family-market-analytics-23fbcbcee571c.json        # ключ service account
+```
+
+⚠️ Папка `credentials/` и `upload_stock.py` лежат **снаружи Git-проекта** и не должны попасть в репозиторий. Проверить `.gitignore`.
 
 ---
 
@@ -88,7 +109,7 @@ D:\Shifts-api\Shifts-api\
 | `JWT_SECRET` | Подпись JWT-токенов |
 | `PORT` | 3000 |
 | `NODE_ENV` | production |
-| `GCP_SA_KEY` | (legacy, не используется в коде) JSON service account |
+| `GCP_SA_KEY` | JSON service account (для BigQuery lookup ШК) |
 
 Просмотр: `fly secrets list --app shifts-api`  
 Установка: `fly secrets set KEY="value" --app shifts-api`
@@ -104,7 +125,7 @@ D:\Shifts-api\Shifts-api\
 | `GOOGLE_REFRESH_TOKEN` | Refresh token владельца папки `femelimarket6@gmail.com` |
 | `DRIVE_BACKUP_FOLDER_ID` | `1qnNKBm35wA_TPTuGd0HcSyz9r1ieDdg2` |
 
-Управление: https://github.com/Denbassk/Recording-sales-staff-shifts-API/settings/secrets/actions
+Управление: https://github.com/Denbassk/recording-sales-staff-shifts-API/settings/secrets/actions
 
 ---
 
@@ -116,8 +137,10 @@ D:\Shifts-api\Shifts-api\
 | 10 | Возвраты (CRUD, нумерация, архив) | ✅ Готово |
 | 10.5 | Help-modal на странице `returns.html` | ✅ Готово |
 | 11 | Еженедельный бекап возвратов в Google Drive | ✅ Готово (2 мая 2026) |
+| — | Очистка тестовых данных в Supabase | ✅ Готово (2 мая 2026) |
 | 7 | Админ-панель: фильтры, сводка, архивирование, экспорт, автообновление | ⏳ В работе |
 | — | Проверка корректности нумерации возвратов | ⏳ TODO |
+| — | Автоматизация `upload_stock.py` | ⏳ TODO |
 
 ---
 
@@ -187,9 +210,9 @@ CREATE TABLE store_address_aliases (
 ### Авторизация
 
 - **OAuth refresh token** от аккаунта `femelimarket6@gmail.com` (владелец папки).
-- Service account `promo-analysis@family-market-analytics.iam.gserviceaccount.com` НЕ используется (не имеет storage quota в обычном Gmail).
+- Service account `promo-analysis@family-market-analytics.iam.gserviceaccount.com` НЕ используется для Drive (нет storage quota в обычном Gmail). Но используется для BigQuery (см. раздел 9).
 - OAuth client: `backup-script-web` (Web application) в проекте `family-market-analytics`.
-- OAuth consent screen: **In production** (refresh_token не истекает).
+- OAuth consent screen: **In production** (refresh_token не истекает через 7 дней).
 - Authorized redirect URI: `https://developers.google.com/oauthplayground`
 
 ### Хранение
@@ -215,9 +238,132 @@ CREATE TABLE store_address_aliases (
 
 ---
 
-## 9. Известные проблемы и их решения
+## 9. Загрузка остатков склада в BigQuery
 
-### 9.1. Выручка магазина = 0.00 после переименования
+### Назначение
+
+Скрипт `upload_stock.py` загружает Excel-файлы "Состояние склада" (выгрузка из 1С) в BigQuery. На основе этих данных в приложении работает **lookup штрихкодов** при оформлении возврата — когда сотрудник сканирует ШК, система подтягивает название товара, себестоимость и розничную цену.
+
+### Расположение
+
+```
+D:\Shifts-api\upload_stock.py
+D:\Shifts-api\credentials\family-market-analytics-23fbcbcee571c.json
+```
+
+⚠️ Скрипт лежит вне основной папки проекта (`D:\Shifts-api\`, а не `D:\Shifts-api\Shifts-api\`) — это локальный инструмент, в Git не коммитится.
+
+### Технологический стек
+
+- Python 3 с `tkinter` (GUI выбор файлов)
+- `pandas` + `openpyxl` — чтение XLSX
+- `google-cloud-bigquery` + `pyarrow` + `db-dtypes` — заливка в BQ
+
+Установка зависимостей (один раз):
+```bash
+pip install pandas openpyxl google-cloud-bigquery pyarrow db-dtypes
+```
+
+### Куда грузит
+
+- **Project:** `family-market-analytics`
+- **Dataset:** `returns_system` (location: EU)
+- **Таблицы:**
+  - `stock_current` — снимок остатков на момент загрузки. Поля: `barcode`, `product_name`, `qty_in_stock`, `store_address`, `cost_price`, `total_cost`, `retail_price`, `total_retail`, `qty_sold`, `loaded_at`.
+  - `barcode_catalog` — накопительный справочник всех штрихкодов с историей. Поля: `barcode`, `product_name`, `first_seen_at`, `last_seen_at`, `last_cost_price`, `last_retail_price`. Обновляется автоматически через MERGE после каждой загрузки.
+
+При первом запуске скрипт сам создаёт датасет и обе таблицы (`ensure_infrastructure`).
+
+### Авторизация
+
+- Service account: `promo-analysis@family-market-analytics.iam.gserviceaccount.com`
+- Ключ JSON: `D:\Shifts-api\credentials\family-market-analytics-23fbcbcee571c.json`
+- Переменная окружения `GOOGLE_APPLICATION_CREDENTIALS` устанавливается прямо в скрипте.
+
+⚠️ **Не удаляйте этот ключ из Google Cloud** — он используется и тут, и для BigQuery lookup из `server.cjs` (через секрет `GCP_SA_KEY` в Fly).
+
+### Запуск
+
+```powershell
+cd D:\Shifts-api
+python upload_stock.py
+```
+
+### Сценарии работы
+
+После запуска показывается текущая статистика и предлагается выбор:
+
+1. **Новый срез (truncate)** — удаляет всё содержимое `stock_current` и загружает свежие файлы. Используется при еженедельной/ежемесячной полной выгрузке.
+2. **Дозагрузка (append)** — добавляет к существующим данным.
+3. **Только статистика** — просто показывает что сейчас в БД.
+
+Если таблица пустая — режим автоматически `truncate`.
+
+### Логика чтения Excel
+
+- Открывается окно выбора файлов (Tkinter, можно несколько за раз).
+- Скрипт автоматически ищет строку с заголовками в первых 10 строках листа (нужно из-за "шапок" в 1С-отчётах).
+- Заголовки маппятся через `COLUMN_MAP` (например `Кол-во на складе` → `qty_in_stock`).
+- Читаются все листы файла, объединяются в один DataFrame.
+- Фильтруются строки без штрихкода.
+- Штрихкоды приводятся к строке и зачищаются от `.0`.
+
+### Что делать, если в файле новые названия колонок
+
+Если в логах видно:
+```
+📋 Первые 3 строки barcode: [None, None, None]
+📋 Строк после фильтрации: 0
+```
+— значит маппинг не сработал. Откройте файл, посмотрите названия колонок, добавьте новый паттерн в `COLUMN_MAP` в начале скрипта:
+
+```python
+COLUMN_MAP = {
+    ...
+    'новое название': 'barcode',
+}
+```
+
+Поиск идёт по подстроке в нижнем регистре.
+
+### Как проверить, что данные доехали
+
+В Google Cloud Console: https://console.cloud.google.com/bigquery?project=family-market-analytics
+
+SQL-запрос (в BQ console):
+```sql
+SELECT store_address, COUNT(*) AS positions, COUNT(DISTINCT barcode) AS unique_skus
+FROM `family-market-analytics.returns_system.stock_current`
+GROUP BY store_address
+ORDER BY store_address;
+```
+
+### Связь с приложением
+
+Когда сотрудник на странице `returns.html` сканирует штрихкод, бекенд (`server.cjs` → роут lookup) делает запрос в **`barcode_catalog`** (а не в `stock_current`). Каталог — сводный справочник всех ШК с последней известной ценой. Это удобнее, чем `stock_current`:
+- товара может уже не быть на складе, но возврат всё равно нужно оформить;
+- не нужно фильтровать по магазину;
+- одна запись на один ШК.
+
+`stock_current` используется для аналитики "что сейчас на складе по магазинам".
+
+### Когда запускать
+
+- **После каждой выгрузки остатков из 1С** (обычно раз в неделю).
+- В `truncate`-режиме, чтобы `stock_current` отражал актуальную картину.
+- `barcode_catalog` обновится автоматически.
+
+### Известные нюансы
+
+1. **Скрипт интерактивный** — требует ввода с клавиатуры. Без модификации в cron не пойдёт.
+2. **GUI Tkinter** — на серверах без display не запустится. Только локально.
+3. **Service account ключ хранится локально** — при переустановке Windows скопируйте папку `credentials/` или создайте новый ключ в Google Cloud Console: IAM → Service Accounts → `promo-analysis@...` → Keys → Add Key → JSON.
+
+---
+
+## 10. Известные проблемы и их решения
+
+### 10.1. Выручка магазина = 0.00 после переименования
 
 **Симптом:** в `daily_revenue` записан 0.00 для дня, хотя касса была сдана.
 
@@ -238,7 +384,7 @@ VALUES (<ID>, '<точное_название_из_Excel>', '<дата_с>', NUL
 
 После добавления алиаса значение в `daily_revenue` обновится при повторной загрузке (UPSERT по `store_id, revenue_date`).
 
-### 9.2. Ошибка `ON CONFLICT DO UPDATE command cannot affect row a second time`
+### 10.2. Ошибка `ON CONFLICT DO UPDATE command cannot affect row a second time`
 
 **Симптом:** загрузка кассы падает с этой ошибкой.
 
@@ -263,7 +409,7 @@ DELETE FROM store_address_aliases
 WHERE store_id = <ID> AND alias_address = '<лишнее_название>';
 ```
 
-### 9.3. Сервер не стартует на Fly.io ("instance refused connection")
+### 10.3. Сервер не стартует на Fly.io ("instance refused connection")
 
 **Симптом:** `fly deploy` проходит, но сайт не открывается, в логах прокси:  
 `error.message="instance refused connection. is your app listening on 0.0.0.0:3000?"`
@@ -278,7 +424,7 @@ WHERE store_id = <ID> AND alias_address = '<лишнее_название>';
 
 2. **Отсутствуют npm-пакеты** — добавили `require()`, но не сделали `npm install --save`.
    ```bash
-   cat package.json   # проверить dependencies
+   cat package.json
    npm install <package> --save
    git add package.json package-lock.json
    git commit -m "Add missing dependency"
@@ -289,7 +435,7 @@ WHERE store_id = <ID> AND alias_address = '<лишнее_название>';
    ```powershell
    cd D:\Shifts-api\Shifts-api
    node -c server.cjs
-   node -c routes/backup.js   # если используется
+   node -c routes/lookup.js
    ```
 
 4. **Откат последнего деплоя (если нужно срочно):**
@@ -307,7 +453,7 @@ WHERE store_id = <ID> AND alias_address = '<лишнее_название>';
    ```
    Должен вернуться `200 OK` или `302`.
 
-### 9.4. Бекап падает с `Service Accounts do not have storage quota`
+### 10.4. Бекап падает с `Service Accounts do not have storage quota`
 
 **Симптом:** в логах GitHub Actions при запуске backup workflow.
 
@@ -315,15 +461,14 @@ WHERE store_id = <ID> AND alias_address = '<лишнее_название>';
 
 **Решение:** переключить авторизацию на OAuth refresh token (УЖЕ СДЕЛАНО). Если случайно вернётся к service account — см. функцию `getDrive()` в `scripts/backup-returns.js`, она должна использовать `OAuth2` + `setCredentials({ refresh_token })`, а НЕ `GoogleAuth({ credentials })`.
 
-### 9.5. Бекап падает с `invalid_grant` или `Token has been expired or revoked`
+### 10.5. Бекап падает с `invalid_grant` или `Token has been expired or revoked`
 
 **Симптом:** в логах GitHub Actions при попытке получить access_token.
 
 **Причины:**
-
 - Сменился пароль `femelimarket6@gmail.com`.
 - Доступ отозван в https://myaccount.google.com/permissions.
-- OAuth consent screen вернули в Testing (но мы публиковали в Production — не должно случиться).
+- OAuth consent screen вернули в Testing.
 
 **Решение — перегенерировать refresh_token:**
 
@@ -335,54 +480,92 @@ WHERE store_id = <ID> AND alias_address = '<лишнее_название>';
 6. На GitHub: Settings → Secrets → `GOOGLE_REFRESH_TOKEN` → Update → вставить новое значение.
 7. Запустить workflow вручную, проверить.
 
-### 9.6. Ошибка `redirect_uri_mismatch` в OAuth Playground
-
-**Симптом:** при нажатии Authorize APIs.
+### 10.6. Ошибка `redirect_uri_mismatch` в OAuth Playground
 
 **Причины:**
-
-1. В OAuth client (Google Cloud Console) тип **Desktop app** вместо **Web application** — у Desktop нет поля Authorized redirect URIs. Нужно создать новый Web application.
+1. В OAuth client тип **Desktop app** вместо **Web application** — у Desktop нет поля Authorized redirect URIs.
 2. В Authorized redirect URIs не добавлен `https://developers.google.com/oauthplayground` (без слэша на конце).
-3. Galочка "Use your own OAuth credentials" в шестерёнке Playground не включена → подставляется дефолтный client_id.
+3. Галочка "Use your own OAuth credentials" в шестерёнке Playground не включена → подставляется дефолтный client_id.
 
 **Решение:**
 
 - Проверить в https://console.cloud.google.com/apis/credentials, что `backup-script-web` имеет тип **Web application**.
-- В этом client добавить redirect URI: `https://developers.google.com/oauthplayground`.
+- Добавить redirect URI: `https://developers.google.com/oauthplayground`.
 - Подождать 1–5 минут после Save.
-- В Playground убедиться, что в адресной строке после Authorize APIs стоит **ваш** `client_id`, а не `407408718192...`.
+- В Playground убедиться, что в адресной строке после Authorize APIs стоит **ваш** `client_id`.
 
-### 9.7. Возвраты выгружаются неправильно (нумерация)
+### 10.7. Lookup штрихкода в `returns.html` ничего не находит
+
+**Симптом:** при сканировании ШК товар не подтягивается, статус "не з бази" (yellow).
+
+**Причины и решения:**
+
+1. **ШК ещё не загружен в `barcode_catalog`** — товар никогда не был в выгрузках 1С. Решение: ничего не делать, `lookup_status: yellow` — нормальная ситуация для редких/новых товаров. Сотрудник вводит название и цену вручную.
+
+2. **`barcode_catalog` пуст или устарел** — давно не запускали `upload_stock.py`. Проверить:
+   ```sql
+   SELECT COUNT(*) FROM `family-market-analytics.returns_system.barcode_catalog`;
+   SELECT MAX(last_seen_at) FROM `family-market-analytics.returns_system.barcode_catalog`;
+   ```
+   Если пусто или давно — запустить `upload_stock.py`.
+
+3. **На Fly не настроен `GCP_SA_KEY`** — сервер не может ходить в BigQuery. Проверить:
+   ```bash
+   fly secrets list --app shifts-api | findstr GCP_SA_KEY
+   ```
+   В логах при попытке lookup будет ошибка `Could not load default credentials`.
+
+### 10.8. `upload_stock.py` загружает 0 строк
+
+**Симптом:** в выводе скрипта:
+```
+📋 Первые 3 строки barcode: [None, None, None]
+📋 Строк после фильтрации: 0
+```
+
+**Причина:** заголовки в Excel-файле не маппятся на стандартные имена.
+
+**Решение:** открыть файл, посмотреть точные названия колонок, добавить в `COLUMN_MAP` в `upload_stock.py`:
+
+```python
+COLUMN_MAP = {
+    ...
+    'новый_заголовок': 'barcode',
+    'другое_название': 'qty_in_stock',
+}
+```
+
+### 10.9. Возвраты выгружаются неправильно (нумерация)
 
 **Статус:** требует проверки.
 
-**Что проверить:** запустить SQL-запрос на дубли/пропуски номеров возвратов:
+**Что проверить:**
 
 ```sql
 -- Дубликаты номеров
 SELECT return_number, COUNT(*)
 FROM returns
-WHERE archived = false
+WHERE status != 'archived'
 GROUP BY return_number
 HAVING COUNT(*) > 1;
 
--- Пропуски в нумерации (для конкретного store)
+-- Все номера за конкретный день
 SELECT return_number FROM returns
-WHERE store_id = <ID> AND archived = false
+WHERE created_at::date = '2026-05-02'
 ORDER BY return_number;
 ```
 
-### 9.8. Браузерные ошибки от расширений (Zotero, SingleFile и т.п.)
+**Известный факт:** были случаи пропусков в нумерации (`RET-260501-001`, `RET-260501-003` без `002`). Скорее всего, удалили промежуточный возврат, а счётчик считается по `MAX(NNN)+1` по дню — пропуск остаётся. Если для бухгалтерии нужна строгая последовательность — нужно править логику в `server.cjs`.
+
+### 10.10. Браузерные ошибки от расширений (Zotero, SingleFile и т.п.)
 
 **Симптом:** в DevTools Console куча красных строк типа `Identifier 'X' has already been declared` от файлов `zotero_config.js`, `inject.js`, `singlefile.js`.
 
-**Причина:** это ошибки браузерных расширений, к приложению отношения не имеют.
+**Причина:** ошибки браузерных расширений, к приложению отношения не имеют.
 
 **Решение:** игнорировать. Для чистой проверки открывать сайт в режиме инкогнито (Ctrl+Shift+N).
 
-### 9.9. Заблокированные запросы `play.google.com/log`
-
-**Симптом:** в Console красные строки `ERR_BLOCKED_BY_CLIENT` к `play.google.com/log`.
+### 10.11. Заблокированные запросы `play.google.com/log`
 
 **Причина:** AdBlock блокирует телеметрию Google. К приложению отношения не имеет.
 
@@ -390,7 +573,7 @@ ORDER BY return_number;
 
 ---
 
-## 10. Типовые операции
+## 11. Типовые операции
 
 ### Деплой нового кода на Fly
 
@@ -420,12 +603,20 @@ git push
 fly deploy --app shifts-api
 ```
 
-### Запуск бекапа вручную
+### Запуск бекапа возвратов вручную
 
 1. https://github.com/Denbassk/Recording-sales-staff-shifts-API/actions
 2. Слева → **Weekly Returns Backup** → справа **Run workflow** → **Run workflow**.
 3. Подождать 30–60 секунд.
 4. Проверить логи (зелёная галочка) и папку Drive.
+
+### Загрузка остатков в BigQuery
+
+```powershell
+cd D:\Shifts-api
+python upload_stock.py
+# выбрать файлы в окне → выбрать режим (1=truncate, 2=append) → готово
+```
 
 ### Просмотр Fly secrets
 
@@ -435,18 +626,39 @@ fly secrets set KEY="value" --app shifts-api
 fly secrets unset KEY --app shifts-api
 ```
 
-### Проверка Supabase данных (выручка магазина 38)
+### Проверка Supabase данных
 
 ```sql
+-- Выручка магазина 38
 SELECT revenue_date, revenue, updated_at
 FROM daily_revenue
 WHERE store_id = 38
 ORDER BY revenue_date DESC LIMIT 10;
+
+-- Все возвраты за месяц
+SELECT return_number, store_address, total_cost, status, created_at
+FROM returns
+WHERE created_at >= '2026-05-01'
+ORDER BY created_at DESC;
+```
+
+### Проверка BigQuery
+
+```sql
+-- Размер каталога
+SELECT COUNT(*) AS total_skus,
+       MAX(last_seen_at) AS latest_update
+FROM `family-market-analytics.returns_system.barcode_catalog`;
+
+-- Остатки по магазинам
+SELECT store_address, COUNT(*) AS positions
+FROM `family-market-analytics.returns_system.stock_current`
+GROUP BY store_address ORDER BY store_address;
 ```
 
 ---
 
-## 11. Важные ссылки
+## 12. Важные ссылки
 
 - **Production:** https://shifts-api.fly.dev/
 - **Admin returns:** https://shifts-api.fly.dev/admin-returns.html
@@ -456,32 +668,36 @@ ORDER BY revenue_date DESC LIMIT 10;
 - **Supabase Dashboard:** https://supabase.com/dashboard/project/pdiminbulbzlywvnowta
 - **Fly Dashboard:** https://fly.io/apps/shifts-api
 - **Google Cloud (OAuth):** https://console.cloud.google.com/apis/credentials?project=family-market-analytics
+- **Google Cloud (Service Accounts):** https://console.cloud.google.com/iam-admin/serviceaccounts?project=family-market-analytics
+- **BigQuery (остатки и каталог ШК):** https://console.cloud.google.com/bigquery?project=family-market-analytics
 - **Google Drive (бекапы):** https://drive.google.com/drive/folders/1qnNKBm35wA_TPTuGd0HcSyz9r1ieDdg2
 - **OAuth Playground:** https://developers.google.com/oauthplayground/
 
 ---
 
-## 12. Контакты и доступы
+## 13. Контакты и доступы
 
 - **Разработчик:** Denbassk (GitHub)
 - **Владелец Drive-папки бекапов:** `femelimarket6@gmail.com` (Фэмэли Маркет)
 - **Google Cloud проект:** `family-market-analytics`
-- **Service account (legacy):** `promo-analysis@family-market-analytics.iam.gserviceaccount.com`
+- **Service account:** `promo-analysis@family-market-analytics.iam.gserviceaccount.com`
+  - Используется для: BigQuery (lookup ШК + загрузка остатков из `upload_stock.py`).
+  - НЕ используется для: Drive backup (там OAuth refresh token).
 
 ---
 
-## 13. TODO / Roadmap
+## 14. TODO / Roadmap
 
 - [ ] **Этап 7** — доработать админ-панель: фильтры по дате/магазину/постачальнику, сводка по периоду, архивирование возвратов, экспорт XLSX, автообновление каждые N минут.
-- [ ] Проверить нумерацию возвратов (см. раздел 9.7).
-- [ ] Удалить из Fly secrets неиспользуемый `GCP_SA_KEY` (опционально).
-- [ ] Удалить service account `promo-analysis@...` из шеринга папки Drive (опционально, не используется).
+- [ ] Проверить нумерацию возвратов (см. раздел 10.9).
+- [ ] Автоматизировать `upload_stock.py` — сделать неинтерактивную версию для Windows Task Scheduler или перенести в Cloud Run + Cloud Scheduler.
 - [ ] Добавить мониторинг — уведомление в Telegram/email при падении бекапа (workflow notify on failure).
 - [ ] Документация по расчёту зарплаты (отдельный файл `SALARY_LOGIC.md`).
+- [ ] Удалить service account `promo-analysis@...` из шеринга папки Drive-бекапов (опционально, не используется там).
 
 ---
 
-## 14. История значимых изменений
+## 15. История значимых изменений
 
 | Дата | Что |
 |---|---|
@@ -490,6 +706,7 @@ ORDER BY revenue_date DESC LIMIT 10;
 | 2026-05-01 | Попытка добавить backup-роут в `server.cjs` → откачено (не запускался). |
 | 2026-05-02 | Этап 11 завершён: бекап работает через GitHub Actions + OAuth refresh token. Первый успешный файл `Возвраты_backup_02-05-2026.xlsx` в Drive. |
 | 2026-05-02 | OAuth consent screen опубликован (In Production). |
+| 2026-05-02 | Удалены тестовые возвраты (id 6, 7) и их позиции из Supabase. БД готова к боевому использованию. |
 
 ---
 
