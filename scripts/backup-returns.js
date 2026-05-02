@@ -14,24 +14,24 @@ const FOLDER_ID = process.env.DRIVE_BACKUP_FOLDER_ID;
 const KEEP_COPIES = 10;
 
 async function getDrive() {
-  const creds = JSON.parse(process.env.GCP_SA_KEY);
-  console.log('[Diag] client_email:', creds.client_email);
-  console.log('[Diag] private_key length:', creds.private_key?.length);
-  console.log('[Diag] private_key_id:', creds.private_key_id);
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
 
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: creds.client_email,
-      private_key: creds.private_key,
-    },
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error('Missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REFRESH_TOKEN');
+  }
 
-  const authClient = await auth.getClient();
-  const token = await authClient.getAccessToken();
-  console.log('[Diag] Access token obtained:', token.token ? 'YES' : 'NO');
+  console.log('[Diag] OAuth client_id:', clientId.substring(0, 25) + '...');
+  console.log('[Diag] refresh_token length:', refreshToken.length);
 
-  return google.drive({ version: 'v3', auth: authClient });
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+
+  const { token } = await oauth2Client.getAccessToken();
+  console.log('[Diag] OAuth access token obtained:', token ? 'YES' : 'NO');
+
+  return google.drive({ version: 'v3', auth: oauth2Client });
 }
 
 async function buildXlsx(returns) {
