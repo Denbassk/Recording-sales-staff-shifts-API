@@ -30,16 +30,21 @@
 
   <main id="mainArea" style="display:none;">
     <section class="scan-section">
-      <label for="barcodeInput" class="big-label">Скануйте штрих-код</label>
-      <input 
-        type="text" 
-        id="barcodeInput" 
-        autocomplete="off"
-        autofocus
-        placeholder="або введіть вручну і натисніть Enter"
-      >
-      <div id="scanFeedback" class="feedback"></div>
-    </section>
+  <label for="barcodeInput" class="big-label">Скануйте штрих-код</label>
+  <input 
+    type="text" 
+    id="barcodeInput" 
+    autocomplete="off"
+    autofocus
+    placeholder="або введіть вручну і натисніть Enter"
+  >
+  <div class="scan-actions">
+    <button id="searchByNameBtn" class="btn-secondary" type="button">
+      🔍 Пошук за назвою
+    </button>
+  </div>
+  <div id="scanFeedback" class="feedback"></div>
+</section>
 
     <section class="cart-section">
       <h3>Кошик повернення <span id="cartCount" class="muted">(0)</span></h3>
@@ -97,6 +102,39 @@
       </div>
     </div>
   </div>
+<!-- Модалка количества (для зелёного товара) -->
+<div id="qtyModal" class="modal" style="display:none;">
+  <div class="modal-content">
+    <h3 id="qtyModalTitle">Вкажіть кількість</h3>
+    <div class="product-preview" id="qtyProduct"></div>
+    <label>Кількість
+      <div class="qty-controls">
+        <button type="button" class="qty-btn" id="qtyMinusBtn">−</button>
+        <input type="number" id="qtyValue" step="0.001" min="0.001" value="1">
+        <button type="button" class="qty-btn" id="qtyPlusBtn">+</button>
+      </div>
+    </label>
+    <div class="qty-hint" id="qtyHint"></div>
+    <div class="modal-buttons">
+      <button id="qtyCancelBtn" class="btn-secondary">Скасувати</button>
+      <button id="qtyOkBtn" class="btn-primary">Додати в кошик</button>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка поиска по названию -->
+<div id="searchModal" class="modal" style="display:none;">
+  <div class="modal-content modal-search">
+    <h3>🔍 Пошук товару за назвою</h3>
+    <p class="muted">Введіть мінімум 3 символи. Шукаємо у вашому магазині, потім у мережі.</p>
+    <input type="text" id="searchInput" autocomplete="off" 
+           placeholder="Назва товару (наприклад: морш, кока, хліб)">
+    <div id="searchResults" class="search-results"></div>
+    <div class="modal-buttons">
+      <button id="searchCancelBtn" class="btn-secondary">Закрити</button>
+    </div>
+  </div>
+</div>
 
   <div id="toast" class="toast" style="display:none;"></div>
 <div id="helpModal" class="modal" style="display:none;">

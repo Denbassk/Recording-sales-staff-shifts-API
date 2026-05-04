@@ -114,6 +114,31 @@ function setupEventListeners() {
   // Модалка подтверждения (оранж/синяя)
   document.getElementById('confirmOkBtn').addEventListener('click', addConfirmedItem);
   document.getElementById('confirmCancelBtn').addEventListener('click', closeConfirmModal);
+  // Модалка количества (зелёный)
+  document.getElementById('qtyOkBtn').addEventListener('click', addQtyItem);
+  document.getElementById('qtyCancelBtn').addEventListener('click', closeQtyModal);
+  document.getElementById('qtyMinusBtn').addEventListener('click', () => adjustQty(-1));
+  document.getElementById('qtyPlusBtn').addEventListener('click', () => adjustQty(1));
+  document.getElementById('qtyValue').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); addQtyItem(); }
+  });
+
+  // Поиск по названию
+  document.getElementById('searchByNameBtn').addEventListener('click', openSearchModal);
+  document.getElementById('searchCancelBtn').addEventListener('click', closeSearchModal);
+  const searchInput = document.getElementById('searchInput');
+  searchInput.addEventListener('input', (e) => {
+    clearTimeout(searchDebounceTimer);
+    const q = e.target.value;
+    searchDebounceTimer = setTimeout(() => performSearch(q), 300);
+  });
+  // Закрытие по клику на фон
+  document.getElementById('searchModal').addEventListener('click', (e) => {
+    if (e.target.id === 'searchModal') closeSearchModal();
+  });
+  document.getElementById('qtyModal').addEventListener('click', (e) => {
+    if (e.target.id === 'qtyModal') closeQtyModal();
+  });
 
   // Допомога
   const helpBtn = document.getElementById('helpBtn');
@@ -189,24 +214,25 @@ function handleLookupResult(data) {
   const { color, barcode, product_name, cost, stock_in_store, stock_in_network, stores_count } = data;
 
   if (color === 'green') {
-    // Сразу добавляем в корзину с количеством 1
-    addToCart({
-      barcode, product_name,
-      cost_price: cost,
-      quantity: 1,
-      lookup_status: 'green',
-      stock_at_scan: stock_in_store
-    });
-
-    showFeedback({
-      color: 'green',
-      icon: '✅',
-      title: product_name,
-      meta: `Залишок: ${stock_in_store} • Собівартість: ${cost.toFixed(2)} ₴`
-    });
-    playSound('green');
-    return;
-  }
+  pendingScan = {
+    barcode, product_name,
+    cost_price: cost,
+    lookup_status: 'green',
+    stock_at_scan: stock_in_store
+  };
+  openQtyModal({
+    title: '✅ В наявності',
+    productHtml: `<div><strong>${escapeHtml(product_name)}</strong></div>
+                  <div>Залишок: ${stock_in_store} • Собівартість: ${cost.toFixed(2)} ₴</div>`,
+    barcode
+  });
+  showFeedback({
+    color: 'green', icon: '✅', title: product_name,
+    meta: `Залишок: ${stock_in_store} • Собівартість: ${cost.toFixed(2)} ₴`
+  });
+  playSound('green');
+  return;
+}
 
   if (color === 'orange') {
     // Подтверждение: товар в сети, не у нас
@@ -335,6 +361,135 @@ function closeManualModal() {
   document.getElementById('manualModal').style.display = 'none';
   pendingScan = null;
   focusInput();
+}
+// === Модалка количества (универсальная для green/orange/blue) ===
+function openQtyModal({ title, productHtml, barcode }) {
+  document.getElementById('qtyModalTitle').textContent = title;
+  document.getElementById('qtyProduct').innerHTML = productHtml;
+  
+  const isWeight = isWeightBarcode(barcode);
+  const qtyInput = document.getElementById('qtyValue');
+  qtyInput.value = isWeight ? '0.100' : '1';
+  qtyInput.step = isWeight ? '0.001' : '1';
+  
+  const hint = document.getElementById('qtyHint');
+  hint.textContent = isWeight 
+    ? '⚖️ Ваговий товар — введіть кілограми (напр. 0.350)' 
+    : 'Натисніть + або − для зміни. Можна ввести вручну.';
+  
+  document.getElementById('qtyModal').style.display = 'flex';
+  setTimeout(() => { qtyInput.focus(); qtyInput.select(); }, 50);
+}
+
+function closeQtyModal() {
+  document.getElementById('qtyModal').style.display = 'none';
+  pendingScan = null;
+  focusInput();
+}
+
+function addQtyItem() {
+  if (!pendingScan) return;
+  const qty = parseFloat(document.getElementById('qtyValue').value);
+  if (!qty || qty <= 0) {
+    alert('Введіть кількість більше 0');
+    return;
+  }
+  addToCart({ ...pendingScan, quantity: qty });
+  closeQtyModal();
+}
+
+function isWeightBarcode(bc) {
+  // Внутренние весовые EAN-13 в Украине обычно начинаются на "2" 
+  // или содержат 13 цифр и начинаются на 20-29
+  return typeof bc === 'string' && bc.length === 13 && bc.startsWith('2');
+}
+
+function adjustQty(delta) {
+  const input = document.getElementById('qtyValue');
+  const step = parseFloat(input.step) || 1;
+  const current = parseFloat(input.value) || 0;
+  const next = Math.max(step, current + delta);
+  input.value = step < 1 ? next.toFixed(3) : Math.round(next).toString();
+}
+
+// === Поиск по названию ===
+let searchDebounceTimer = null;
+
+function openSearchModal() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchResults').innerHTML = 
+    '<div class="search-empty">Введіть мінімум 3 символи для пошуку</div>';
+  document.getElementById('searchModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('searchInput').focus(), 50);
+}
+
+function closeSearchModal() {
+  document.getElementById('searchModal').style.display = 'none';
+  focusInput();
+}
+
+async function performSearch(query) {
+  const resultsEl = document.getElementById('searchResults');
+  if (query.trim().length < 3) {
+    resultsEl.innerHTML = '<div class="search-empty">Введіть мінімум 3 символи</div>';
+    return;
+  }
+  resultsEl.innerHTML = '<div class="search-loading">⏳ Шукаємо...</div>';
+  try {
+    const url = `${API}/search-product?q=${encodeURIComponent(query)}&store_address=${encodeURIComponent(store.address)}`;
+    const r = await fetch(url, { credentials: 'include' });
+    const data = await r.json();
+    if (!r.ok || !data.success) {
+      resultsEl.innerHTML = `<div class="search-empty">Помилка: ${escapeHtml(data.error || 'невідома')}</div>`;
+      return;
+    }
+    if (data.results.length === 0) {
+      resultsEl.innerHTML = '<div class="search-empty">Нічого не знайдено</div>';
+      return;
+    }
+    resultsEl.innerHTML = data.results.map((item, idx) => `
+      <div class="search-result-item" data-idx="${idx}">
+        <div>
+          <div class="search-result-name">
+            <span class="search-result-color ${item.color}">${tagLabel(item.color)}</span>
+            ${escapeHtml(item.product_name)}
+          </div>
+          <div class="search-result-meta">
+            ${item.barcode}
+            ${item.color === 'green' ? ` • Залишок: ${item.stock}` : ''}
+            ${item.color === 'orange' ? ` • В мережі: ${item.stock} шт у ${item.stores_count} магазинах` : ''}
+          </div>
+        </div>
+        <div class="search-result-price">${(item.cost || 0).toFixed(2)} ₴</div>
+      </div>
+    `).join('');
+    // Привязываем клики
+    resultsEl.querySelectorAll('.search-result-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.idx);
+        const item = data.results[idx];
+        selectSearchResult(item);
+      });
+    });
+  } catch (err) {
+    console.error(err);
+    resultsEl.innerHTML = '<div class="search-empty">Помилка з\'єднання</div>';
+  }
+}
+
+function selectSearchResult(item) {
+  closeSearchModal();
+  // Эмулируем результат /lookup и прокидываем в обычный обработчик
+  handleLookupResult({
+    color: item.color,
+    barcode: item.barcode,
+    product_name: item.product_name,
+    cost: item.cost,
+    retail_price: item.retail_price,
+    stock_in_store: item.color === 'green' ? item.stock : 0,
+    stock_in_network: item.color === 'orange' ? item.stock : 0,
+    stores_count: item.stores_count || 0
+  });
 }
 
 // === Корзина ===

@@ -568,5 +568,123 @@ router.get('/stores', checkAuthCookie, requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+// GET /search-product — поиск товара по названию
+router.get('/search-product', checkAuthCookie, async (req, res) => {
+  const { q, store_address } = req.query;
+  
+  if (!q || q.trim().length < 3) {
+    return res.json({ success: true, results: [] });
+  }
+  if (!store_address) {
+    return res.status(400).json({ success: false, error: 'store_address required' });
+  }
+
+  try {
+    // Найти алиасы магазина (та же логика, что в /lookup)
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+    const today = new Date().toISOString().slice(0, 10);
+    let storeAddresses = [String(store_address)];
+
+    const { data: storeRow } = await supabase
+      .from('stores').select('id').eq('address', store_address).maybeSingle();
+
+    if (storeRow) {
+      const { data: aliases } = await supabase
+        .from('store_address_aliases')
+        .select('alias_address, valid_from, valid_to')
+        .eq('store_id', storeRow.id);
+      if (aliases?.length) {
+        const active = aliases
+          .filter(a => (!a.valid_from || a.valid_from <= today) && (!a.valid_to || a.valid_to >= today))
+          .map(a => a.alias_address);
+        storeAddresses = Array.from(new Set([store_address, ...active]));
+      }
+    }
+
+    const searchPattern = '%' + q.trim().toLowerCase() + '%';
+
+    // Ищем сначала в текущем магазине (green), потом в сети (orange), потом в каталоге (blue)
+    const query = `
+      WITH store_results AS (
+        SELECT 
+          barcode,
+          ANY_VALUE(product_name) AS product_name,
+          AVG(cost_price) AS cost,
+          AVG(retail_price) AS retail_price,
+          SUM(qty_in_stock) AS stock_in_store,
+          'green' AS color
+        FROM \`family-market-analytics.returns_system.stock_current\`
+        WHERE store_address IN UNNEST(@store_addresses)
+          AND LOWER(product_name) LIKE @pattern
+        GROUP BY barcode
+        LIMIT 15
+      ),
+      network_results AS (
+        SELECT
+          barcode,
+          ANY_VALUE(product_name) AS product_name,
+          AVG(cost_price) AS cost,
+          AVG(retail_price) AS retail_price,
+          SUM(qty_in_stock) AS stock_in_network,
+          COUNT(DISTINCT store_address) AS stores_count,
+          'orange' AS color
+        FROM \`family-market-analytics.returns_system.stock_current\`
+        WHERE LOWER(product_name) LIKE @pattern
+          AND barcode NOT IN (SELECT barcode FROM store_results)
+        GROUP BY barcode
+        LIMIT 15
+      ),
+      catalog_results AS (
+        SELECT
+          barcode,
+          product_name,
+          last_cost_price AS cost,
+          last_retail_price AS retail_price,
+          CAST(NULL AS INT64) AS stock,
+          CAST(NULL AS INT64) AS stores_count,
+          'blue' AS color
+        FROM \`family-market-analytics.returns_system.barcode_catalog\`
+        WHERE LOWER(product_name) LIKE @pattern
+          AND barcode NOT IN (SELECT barcode FROM store_results)
+          AND barcode NOT IN (SELECT barcode FROM network_results)
+        LIMIT 10
+      )
+      SELECT barcode, product_name, cost, retail_price, 
+             stock_in_store AS stock, CAST(NULL AS INT64) AS stores_count, color 
+      FROM store_results
+      UNION ALL
+      SELECT barcode, product_name, cost, retail_price, 
+             stock_in_network AS stock, stores_count, color 
+      FROM network_results
+      UNION ALL
+      SELECT barcode, product_name, cost, retail_price, stock, stores_count, color 
+      FROM catalog_results
+      LIMIT 25
+    `;
+
+    const [rows] = await bigquery.query({
+      query,
+      params: { pattern: searchPattern, store_addresses: storeAddresses },
+      types: { pattern: 'STRING', store_addresses: ['STRING'] },
+      location: 'EU'
+    });
+
+    const results = rows.map(r => ({
+      barcode: r.barcode,
+      product_name: r.product_name,
+      cost: r.cost !== null ? Number(r.cost) : 0,
+      retail_price: r.retail_price !== null ? Number(r.retail_price) : 0,
+      stock: r.stock !== null ? Number(r.stock) : 0,
+      stores_count: r.stores_count !== null ? Number(r.stores_count) : 0,
+      color: r.color
+    }));
+
+    res.json({ success: true, results, count: results.length });
+  } catch (err) {
+    console.error('search-product error:', err);
+    res.status(500).json({ success: false, error: 'Search failed', detail: err.message });
+  }
+});
 
 module.exports = router;
