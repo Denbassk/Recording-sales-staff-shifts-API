@@ -632,49 +632,34 @@ main {
   text-align: center;
 }
 
-/* === Поиск по названию === */
-.modal-search { max-width: 600px; width: 90%; }
-#searchInput {
-  width: 100%;
-  padding: 14px;
-  font-size: 18px;
-  border: 2px solid #2c5fa8;
-  border-radius: 8px;
-  margin: 12px 0;
-}
-.search-results {
-  max-height: 400px;
-  overflow-y: auto;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  margin-bottom: 12px;
-}
-.search-result-item {
-  padding: 12px;
-  border-bottom: 1px solid #eee;
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-.search-result-item:hover { background: #f0f7ff; }
-.search-result-item:last-child { border-bottom: none; }
-.search-result-name { font-weight: 600; }
-.search-result-meta { font-size: 12px; color: #666; margin-top: 2px; }
-.search-result-price { font-weight: 700; color: #2c5fa8; white-space: nowrap; }
-.search-result-color {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 11px;
-  font-weight: 600;
-  margin-right: 6px;
-}
-.search-result-color.green  { background: #d4edda; color: #155724; }
-.search-result-color.orange { background: #fff3cd; color: #856404; }
-.search-result-color.blue   { background: #d1ecf1; color: #0c5460; }
-.search-empty, .search-loading {
+/* === Inline-поиск по названию (как поле сканера, ниже) === */
+.search-section {
+  background: #fff;
+  border-radius: 12px;
   padding: 20px;
-  text-align: center;
-  color: #999;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.search-section input {
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 22px;
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  outline: none;
+  font-family: monospace;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+.search-section input:focus {
+  border-color: #2c5fa8;
+}
+.search-results-inline {
+  margin-top: 12px;
+  max-height: 350px;
+  overflow-y: auto;
+  border-radius: 6px;
+}
+.search-results-inline:empty {
+  display: none;
 }

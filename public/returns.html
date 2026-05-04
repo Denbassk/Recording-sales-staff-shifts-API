@@ -38,12 +38,18 @@
     autofocus
     placeholder="або введіть вручну і натисніть Enter"
   >
-  <div class="scan-actions">
-    <button id="searchByNameBtn" class="btn-secondary" type="button">
-      🔍 Пошук за назвою
-    </button>
-  </div>
   <div id="scanFeedback" class="feedback"></div>
+</section>
+
+<section class="search-section">
+  <label for="searchInput" class="big-label">🔍 Пошук за назвою</label>
+  <input 
+    type="text" 
+    id="searchInput" 
+    autocomplete="off"
+    placeholder="введіть назву товару (мінімум 3 символи)"
+  >
+  <div id="searchResults" class="search-results-inline"></div>
 </section>
 
     <section class="cart-section">
@@ -122,19 +128,6 @@
   </div>
 </div>
 
-<!-- Модалка поиска по названию -->
-<div id="searchModal" class="modal" style="display:none;">
-  <div class="modal-content modal-search">
-    <h3>🔍 Пошук товару за назвою</h3>
-    <p class="muted">Введіть мінімум 3 символи. Шукаємо у вашому магазині, потім у мережі.</p>
-    <input type="text" id="searchInput" autocomplete="off" 
-           placeholder="Назва товару (наприклад: морш, кока, хліб)">
-    <div id="searchResults" class="search-results"></div>
-    <div class="modal-buttons">
-      <button id="searchCancelBtn" class="btn-secondary">Закрити</button>
-    </div>
-  </div>
-</div>
 
   <div id="toast" class="toast" style="display:none;"></div>
 <div id="helpModal" class="modal" style="display:none;">
@@ -153,13 +146,13 @@
       </div>
 
       <div class="help-step">
-        <div class="help-step-num">2</div>
-        <div>
-          <h3>Скануйте товар</h3>
-          <p>Наведіть сканер на штрих-код товару — він автоматично потрапить у поле вводу і запуститься пошук. Курсор завжди стоїть у полі ШК — натискати нічого не треба.</p>
-          <p>Якщо ШК пошкоджений — введіть цифри вручну і натисніть <b>Enter</b>.</p>
-        </div>
-      </div>
+  <div class="help-step-num">2</div>
+  <div>
+    <h3>Знайдіть товар — є 2 способи</h3>
+    <p><b>Спосіб 1 — за штрих-кодом (основний).</b> Наведіть сканер на штрих-код товару — він автоматично потрапить у поле вводу і запуститься пошук. Курсор завжди стоїть у полі ШК — натискати нічого не треба. Якщо ШК пошкоджений — введіть цифри вручну і натисніть <b>Enter</b>.</p>
+    <p><b>Спосіб 2 — за назвою.</b> Якщо штрих-код не читається або відсутній — використовуйте поле <b>«🔍 Пошук за назвою»</b> нижче. Введіть мінімум 3 літери (наприклад, «морш», «кока», «хліб») — система покаже відповідні товари. Клікніть на потрібний — і він додасться в кошик так само, як зісканований.</p>
+  </div>
+</div>
 
       <div class="help-step">
         <div class="help-step-num">3</div>
@@ -173,9 +166,18 @@
           </ul>
         </div>
       </div>
+<div class="help-step">
+  <div class="help-step-num">4</div>
+  <div>
+    <h3>Вкажіть кількість</h3>
+    <p>Після того як товар знайдено — з'явиться вікно з його назвою, ціною і полем <b>«Кількість»</b>. За замовчуванням стоїть <b>1</b>.</p>
+    <p>Кнопки <b>+</b> і <b>−</b> змінюють кількість на 1. Можна ввести значення вручну, наприклад <b>5</b>, і натиснути Enter.</p>
+    <p>Для вагового товару (штрих-код починається на «2») система автоматично перемикається на дробний крок — вводьте кілограми, наприклад <b>0.350</b>.</p>
+  </div>
+</div>
 
       <div class="help-step">
-        <div class="help-step-num">4</div>
+        <div class="help-step-num">5</div>
         <div>
           <h3>Перевірте кошик</h3>
           <p>Усі додані позиції видно знизу. Кількість можна змінити прямо в полі. Видалити рядок — кнопка <b>✕</b>.</p>
@@ -184,7 +186,7 @@
       </div>
 
       <div class="help-step">
-        <div class="help-step-num">5</div>
+        <div class="help-step-num">6</div>
         <div>
           <h3>Відправте повернення</h3>
           <p>Натисніть <b>Відправити повернення</b>. З'явиться зелене повідомлення з номером (наприклад, <code>RET-260501-005</code>). Це означає, що офіс уже бачить ваш список.</p>

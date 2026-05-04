@@ -123,22 +123,21 @@ function setupEventListeners() {
     if (e.key === 'Enter') { e.preventDefault(); addQtyItem(); }
   });
 
-  // Поиск по названию
-  document.getElementById('searchByNameBtn').addEventListener('click', openSearchModal);
-  document.getElementById('searchCancelBtn').addEventListener('click', closeSearchModal);
-  const searchInput = document.getElementById('searchInput');
-  searchInput.addEventListener('input', (e) => {
-    clearTimeout(searchDebounceTimer);
-    const q = e.target.value;
-    searchDebounceTimer = setTimeout(() => performSearch(q), 200);
-  });
-  // Закрытие по клику на фон
-  document.getElementById('searchModal').addEventListener('click', (e) => {
-    if (e.target.id === 'searchModal') closeSearchModal();
-  });
-  document.getElementById('qtyModal').addEventListener('click', (e) => {
-    if (e.target.id === 'qtyModal') closeQtyModal();
-  });
+// Поиск по названию (inline)
+const searchInput = document.getElementById('searchInput');
+searchInput.addEventListener('input', (e) => {
+  clearTimeout(searchDebounceTimer);
+  const q = e.target.value;
+  searchDebounceTimer = setTimeout(() => performSearch(q), 300);
+});
+// Очистка результатов при потере фокуса с пустым полем
+searchInput.addEventListener('blur', () => {
+  setTimeout(() => {
+    if (!searchInput.value.trim()) {
+      document.getElementById('searchResults').innerHTML = '';
+    }
+  }, 200);
+});
 
   // Допомога
   const helpBtn = document.getElementById('helpBtn');
@@ -415,18 +414,7 @@ function adjustQty(delta) {
 // === Поиск по названию ===
 let searchDebounceTimer = null;
 
-function openSearchModal() {
-  document.getElementById('searchInput').value = '';
-  document.getElementById('searchResults').innerHTML = 
-    '<div class="search-empty">Введіть мінімум 3 символи для пошуку</div>';
-  document.getElementById('searchModal').style.display = 'flex';
-  setTimeout(() => document.getElementById('searchInput').focus(), 50);
-}
 
-function closeSearchModal() {
-  document.getElementById('searchModal').style.display = 'none';
-  focusInput();
-}
 
 async function performSearch(query) {
   const resultsEl = document.getElementById('searchResults');
@@ -478,7 +466,9 @@ async function performSearch(query) {
 }
 
 function selectSearchResult(item) {
-  closeSearchModal();
+  // Очищаем поле поиска и результаты
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchResults').innerHTML = '';
   // Эмулируем результат /lookup и прокидываем в обычный обработчик
   handleLookupResult({
     color: item.color,
