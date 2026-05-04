@@ -52,9 +52,18 @@ async function loadUserAndStore() {
 }
 
 function showAuthError(msg) {
-  document.getElementById('authErrorText').textContent = msg;
-  document.getElementById('authError').style.display = 'block';
-  document.getElementById('mainArea').style.display = 'none';
+  const errorTextEl = document.getElementById('authErrorText');
+  const errorBlockEl = document.getElementById('authError');
+  const mainAreaEl = document.getElementById('mainArea');
+
+  if (errorTextEl) errorTextEl.textContent = msg;
+  if (errorBlockEl) errorBlockEl.style.display = 'block';
+  if (mainAreaEl) mainAreaEl.style.display = 'none';
+
+  // Если на странице нет специального блока ошибки — выведем alert
+  if (!errorTextEl && !errorBlockEl) {
+    alert(msg);
+  }
 }
 
 // === Обработчики ===
@@ -105,7 +114,7 @@ function setupEventListeners() {
   // Модалка подтверждения (оранж/синяя)
   document.getElementById('confirmOkBtn').addEventListener('click', addConfirmedItem);
   document.getElementById('confirmCancelBtn').addEventListener('click', closeConfirmModal);
-}
+
   // Допомога
   const helpBtn = document.getElementById('helpBtn');
   const helpModal = document.getElementById('helpModal');
@@ -124,6 +133,7 @@ function setupEventListeners() {
       focusInput();
     }
   });
+}
 
 function focusInput() {
   document.getElementById('barcodeInput').focus();
