@@ -130,7 +130,7 @@ function setupEventListeners() {
   searchInput.addEventListener('input', (e) => {
     clearTimeout(searchDebounceTimer);
     const q = e.target.value;
-    searchDebounceTimer = setTimeout(() => performSearch(q), 300);
+    searchDebounceTimer = setTimeout(() => performSearch(q), 200);
   });
   // Закрытие по клику на фон
   document.getElementById('searchModal').addEventListener('click', (e) => {
@@ -602,11 +602,13 @@ async function submitReturn() {
       throw new Error(data.error || 'Помилка відправки');
     }
     playSubmitted();
-    toast(`✅ Повернення ${data.return_number} відправлено`);
-    cart = [];
-    saveCart();
-    renderCart();
-    focusInput();
+  toast(`✅ Повернення ${data.return_number} відправлено`);
+  cart = [];
+  saveCart();
+  renderCart();
+  document.getElementById('scanFeedback').innerHTML = '';  // ← очистить плашку
+  focusInput();
+
   } catch (err) {
     console.error(err);
     playSound('error');
