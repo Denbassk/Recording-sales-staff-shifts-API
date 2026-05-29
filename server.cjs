@@ -382,7 +382,7 @@ app.post("/login", async (req, res) => {
 
   const token = jwt.sign({ id: employee.id, role: employee.role }, process.env.JWT_SECRET, { expiresIn: '8h' });
   const isProduction = process.env.NODE_ENV === 'production';
-  res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'strict' : 'lax' });
+  res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'strict' : 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
   return res.json({ success: true, message: responseMessage, store: storeAddress, role: employee.role });
 });
 
