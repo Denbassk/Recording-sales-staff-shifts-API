@@ -304,6 +304,33 @@ function calculateDailyPay(revenue, numSellers, isSenior = false, fixedRate = nu
     bonusDetails: bonusDetails
   };
 }
+// --- ПЛАВАЮЩАЯ СТАВКА (Блок 1 новых правил, с 16.07.2026) ---
+const { NEW_RULES_START, rateFromAvgRevenue, previousMonthBounds, averageDailyRevenue, isNewRulesDate } = require('./payroll/floating-rate.cjs');
+
+// Среднедневной выторг магазина за пред. месяц -> ставка (800/900/1000).
+// Возвращает Map(store_id -> { avg, days, rate, periodFrom, periodTo }). Старый расчёт не затрагивает.
+async function getStoreFloatingRates(dateStr, storeIds) {
+  const result = new Map();
+  if (!storeIds || storeIds.length === 0) return result;
+  const { start, end } = previousMonthBounds(dateStr);
+  const { data, error } = await supabase.from('daily_revenue')
+    .select('store_id, revenue, revenue_date')
+    .in('store_id', storeIds)
+    .gte('revenue_date', start)
+    .lte('revenue_date', end);
+  if (error) console.error('[Плавающая ставка] Ошибка выборки daily_revenue пред. месяца:', error);
+  const byStore = new Map();
+  (data || []).forEach(r => {
+    if (!byStore.has(r.store_id)) byStore.set(r.store_id, []);
+    byStore.get(r.store_id).push(r);
+  });
+  storeIds.forEach(id => {
+    const { avg, days } = averageDailyRevenue(byStore.get(id) || []);
+    result.set(id, { avg, days, rate: rateFromAvgRevenue(avg), periodFrom: start, periodTo: end });
+  });
+  return result;
+}
+
 // --- ОСНОВНЫЕ API ЭНДПОИНТЫ ---
 app.get("/employees", async (req, res) => {
   const { data, error } = await supabase.from('employees').select('fullname').eq('active', true);
@@ -656,6 +683,11 @@ shifts.forEach(shift => {
             }
             // ================= КОНЕЦ БЛОКА ЗАЩИТЫ ================
 
+            // Плавающие ставки (новые правила с 16.07.2026): среднедневной выторг пред. месяца по магазину.
+            // Для дат до 16.07 floatingRates пустой -> работает прежний расчёт, ничего не меняется.
+            const isNewRulesDay = isNewRulesDate(date);
+            const floatingRates = isNewRulesDay ? await getStoreFloatingRates(date, uniqueStoreIds) : new Map();
+
             const calculations = [];
             for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
                 let revenue = 0;
@@ -705,6 +737,16 @@ for (const employee of storeEmployees) {
             console.log(`[Полевая] ${employee.employee_name}: не привязан → 975 грн`);
         }
         
+    } else if (isNewRulesDay && hasRevenue) {
+        // Новые правила с 16.07.2026: плавающая ставка по среднедневному выторгу пред. месяца.
+        // Процент от кассы (минус ДЛ Солюшн) и доп.бонусы начисляются отдельным месячным расчётом.
+        const fr = floatingRates.get(employee.store_id) || { rate: rateFromAvgRevenue(0), avg: 0, days: 0, periodFrom: '', periodTo: '' };
+        payDetails = {
+            baseRate: fr.rate,
+            bonus: 0,
+            totalPay: fr.rate,
+            bonusDetails: `Плавающая ставка ${fr.rate} грн/смена (среднедневной выторг ${fr.periodFrom}...${fr.periodTo}: ${Math.round(fr.avg)} грн, дней: ${fr.days}). Процент и доп.бонусы — месячным расчётом.`
+        };
     } else if (hasRevenue) {
         payDetails = calculateDailyPay(revenue, numSellers, false);
         
