@@ -675,15 +675,39 @@ const numSellers = storeEmployees.length;
 for (const employee of storeEmployees) {
     const isSenior = employee.employee_id.startsWith('SProd');
     const fixedRate = employee.fixed_rate || null;
+    const workDate = new Date(date);
+    const newRulesDate = new Date('2026-07-01');
+    const isNewRules = workDate >= newRulesDate;
+    
+    // Полевая-магазин (store_id = 38) — специальные правила с 1.07.2026
+    const POLEVAYA_STORE_ID = 38;
+    const isPolevayaStore = employee.store_id === POLEVAYA_STORE_ID;
+    const isPolevayaAttached = employee.employee_id.startsWith('Prod38_');
+    
     let payDetails;
     
     if (fixedRate && fixedRate > 0) {
-        // Фиксированная ставка — не зависит от выручки
+        // Явно заданная фикс ставка — всегда приоритет
         payDetails = calculateDailyPay(0, 0, false, fixedRate);
+        
     } else if (isSenior) {
         payDetails = calculateDailyPay(0, 0, true);
+        
+    } else if (isNewRules && isPolevayaStore) {
+        // Новые правила с 1.07.2026 для Полевая-магазин
+        if (isPolevayaAttached) {
+            // Привязан к Полевой → фикс 1200 грн
+            payDetails = calculateDailyPay(0, 0, false, 1200);
+            console.log(`[Полевая] ${employee.employee_name}: привязан → фикс 1200 грн`);
+        } else {
+            // Не привязан, просто работает здесь → 975 грн
+            payDetails = calculateDailyPay(0, 0, false, 975);
+            console.log(`[Полевая] ${employee.employee_name}: не привязан → 975 грн`);
+        }
+        
     } else if (hasRevenue) {
         payDetails = calculateDailyPay(revenue, numSellers, false);
+        
     } else {
         payDetails = { baseRate: 0, bonus: 0, totalPay: 0, bonusDetails: 'Нет выручки' };
     }

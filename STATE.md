@@ -711,3 +711,350 @@ GROUP BY store_address ORDER BY store_address;
 ---
 
 *Файл поддерживается вручную. Обновлять при значимых изменениях архитектуры или решении новых проблем.*
+# STATE.md — Recording Sales Staff Shifts API
+
+**Последнее обновление:** 04.05.2026
+**Репозиторий:** https://github.com/Denbassk/Recording-sales-staff-shifts-API
+**Production URL:** https://shifts-api.fly.dev
+**Хостинг:** Fly.io (app: `shifts-api`, org: `personal`, region: `otp`)
+**Supabase DB:** pdiminbulbzlywvnowta.supabase.co
+**Локальная папка:** `D:\Shifts-api\Shifts-api`
+**Разработчик:** Denbassk (denbassk@gmail.com)
+**Drive folder owner:** femelimarket6@gmail.com
+
+---
+
+## 1. Назначение проекта
+
+Веб-приложение для управления сетью магазинов "Family Market":
+- Учёт смен сотрудников (продавцы, старшие продавцы, админы, бухгалтеры, кураторы).
+- Загрузка ежедневной выручки магазинов из Excel-файлов.
+- Оформление возвратов товара продавцами (со сканером штрих-кода или поиском по названию).
+- Расчёт зарплат, бонусов, штрафов, недостач.
+- Админ-панель: фильтры, сводки, экспорт XLSX, архивация.
+- Еженедельный автоматический бэкап возвратов в Google Drive.
+
+---
+
+## 2. Технологический стек
+
+**Backend:** Node.js 20, Express, jsonwebtoken, cookie-parser, exceljs, xlsx, googleapis, @google-cloud/bigquery, @supabase/supabase-js.
+
+**Frontend:** plain HTML/CSS/JS (без фреймворков), Web Audio API для звуков сканирования.
+
+**Базы данных:**
+- **Supabase (Postgres)** — основная БД: employees, stores, store_address_aliases, daily_revenue, shifts, substitutions, employee_store, returns, return_items, devices, salary_*, cash_operations, card_limit_*, advance_manual_adjustments.
+- **BigQuery** (`family-market-analytics.returns_system`) — товарный каталог: `stock_current` (текущие остатки по магазинам), `barcode_catalog` (исторический каталог SKU).
+
+**Аутентификация:** JWT в httpOnly cookie. Вход — логин/пароль + опциональный device_key.
+
+**Хостинг и CI/CD:**
+- Fly.io (production deploy).
+- GitHub Actions (`fly-deploy.yml` — деплой при push в main; `backup-returns.yml` — еженедельный бэкап).
+
+---
+
+## 3. Структура файлов
+
+Copy
+D:\Shifts-api\Shifts-api\ (Git-репозиторий) ├── server.cjs Главный сервер Express ├── routes/ │ └── lookup.js /lookup, /search-product, /me-with-store, /returns, /returns/summary, /returns/:id/archive, /stores ├── scripts/ │ └── backup-returns.js Еженедельный бэкап → Google Drive (OAuth) ├── public/ │ ├── index.html, script.js Логин, отметка смены │ ├── returns.html, returns.js, returns.css Страница продавца │ ├── admin-returns.html Админ-панель возвратов │ ├── favicon.svg │ └── ... ├── .github/workflows/ │ ├── fly-deploy.yml Деплой при push в main │ └── backup-returns.yml cron 30 20 * * 0 (Sun 23:30 Kyiv) ├── package.json, package-lock.json ├── fly.toml app=shifts-api, port=3000, region=otp ├── Dockerfile └── STATE.md (этот файл)
+
+D:\Shifts-api\ (вне Git) ├── upload_stock.py Загрузка остатков → BigQuery (Tkinter, ручной запуск) └── credentials/ └── family-market-analytics-23fbcbcee571c.json Service-account ключ для BigQuery (НЕ коммитить)
+
+D:\Shifts-api\Shifts-api\Returns.bat (untracked, локальный) Открывает Chrome на /returns.html с device_key из device.json
+
+Copy
+---
+
+## 4. Переменные окружения
+
+### Fly.io secrets (production)
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `JWT_SECRET`
+- `GCP_SA_KEY` — JSON service-account для BigQuery (НЕ для Drive — Drive переехал на OAuth).
+- `PORT=3000`, `NODE_ENV=production`
+
+Управление: `flyctl secrets list -a shifts-api`, `flyctl secrets set KEY=value -a shifts-api`.
+
+### GitHub Actions secrets
+- `FLY_API_TOKEN` — токен для деплоя на Fly (см. раздел 12 — может протухать!).
+- Для backup-returns.yml: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `DRIVE_BACKUP_FOLDER_ID = 1qnNKBm35wA_TPTuGd0HcSyz9r1ieDdg2`.
+
+---
+
+## 5. Бизнес-константы
+
+```js
+const COMPANY_TAX_RATE = 0.22;   // ЕСВ
+const MAX_MANUAL_BONUS = 10000;
+const MAX_PENALTY = 5000;
+const MAX_SHORTAGE = 10000;
+const MIN_YEAR = 2024;
+6. Аутентификация и device-flow
+Роли (employees.role)
+seller — продавец (доступ к /returns.html через device).
+admin, accountant, curator — офис (без store, доступ к /admin-returns.html).
+Логика смены (server.cjs /login)
+Найти сотрудника по fullname + password + active=true (с нормализацией ё/е).
+Для seller: получить store_id через device_key (из таблицы devices) → employee_store (постоянная привязка) → если ничего, ошибка.
+Старшие продавцы (id начинается на SProd) могут работать без device_key → магазин определяется в день смены.
+Если за сегодня нет смены в shifts — создать. Если есть — вернуть сообщение «Смена уже зафиксирована».
+Выдать JWT в httpOnly cookie (срок жизни долгий — пока пользователь не разлогинится).
+Device-authorization flow (КРИТИЧНО для понимания)
+device.json рядом с Returns.bat содержит:
+
+Copy{ "device_key": "dev_e40d41637125c0e24f2d43e5bfd3d943" }
+Сам по себе device.json НЕ логинит. Это просто параметр, который передаётся в ?device=KEY при открытии главной страницы. Цепочка:
+
+Returns.bat открывает https://shifts-api.fly.dev/returns.html?device=KEY (если у device.json есть ключ) или просто /returns.html (если нет).
+Скрипт script.js (на главной странице, НЕ на returns.html!) читает ?device=KEY из URL и сохраняет в localStorage.
+Когда продавец вводит логин/пароль — script.js отправляет device_key вместе с формой логина на /login.
+Сервер находит магазин по device_key → создаёт смену → выдаёт JWT-cookie.
+После этого Returns.bat может открывать /returns.html напрямую — cookie уже есть, страница загрузится.
+На рабочих ПК продавцов cookie живёт месяцами, поэтому Returns.bat "просто работает". Но на свежем ПК без cookie /returns.html вернёт 401 — нужно сначала зайти на главную страницу с ?device=KEY и ввести пароль.
+
+Таблица devices
+39 записей (по одной на магазин). Поля: id, device_key, store_id, name, active. Магазин 19 (Качановская): dev_e40d41637125c0e24f2d43e5bfd3d943.
+
+Запрос для просмотра:
+
+CopySELECT d.id, d.device_key, d.store_id, s.address, d.name, d.active
+FROM devices d LEFT JOIN stores s ON s.id = d.store_id ORDER BY d.id;
+7. Алиасы адресов магазинов
+Таблица store_address_aliases: store_id, alias_address, valid_from, valid_to.
+
+Используется когда магазин переезжает или меняет название — старые названия из Excel-файлов выручки и BigQuery должны корректно мапиться на текущий store_id.
+
+Пример (store_id=38, Полевая):
+
+alias_address	valid_from	valid_to
+Полевая 83	NULL	2026-04-30
+Полевая-магазин	2026-05-01	NULL
+Полевая-Магазин	2026-05-01	NULL
+Логика lookup в /upload-revenue-file и /lookup:
+
+Прямое сравнение с stores.address.
+Если не совпало — поиск в store_address_aliases с учётом valid_from <= today <= valid_to.
+Нормализация: trim, замена non-breaking spaces, унификация дефисов.
+⚠️ Не должно быть пересекающихся периодов для одного store_id — иначе ON CONFLICT DO UPDATE упадёт с ошибкой.
+
+8. Возвраты — продавец (Stage 7.1, 7.2)
+Страница /returns.html
+Два независимых поля для поиска товара (одинаковый размер):
+
+Сканер штрих-кода — verbose поле, фокус всегда здесь по умолчанию. Сканер эмулирует клавиатуру + Enter. Также можно ввести цифры вручную.
+🔍 Пошук за назвою — inline-поле под сканером. Минимум 3 символа, debounce 300мс, до 25 результатов в выпадающем списке прямо под полем.
+Цвета результатов поиска (lookup_status)
+🟢 green — товар на остатке текущего магазина (с учётом алиасов). Показывается название, себестоимость, остаток.
+🟠 orange — товара нет в магазине, но есть в сети. Усреднённая себестоимость, кол-во магазинов сети.
+🔵 blue — товар известен системе (из barcode_catalog), но нигде нет на остатках. Последняя зафиксированная цена.
+🟡 yellow — товар не найден нигде. Открывается модалка ручного ввода названия и цены.
+Модалка количества (Stage 7.1)
+После успешного поиска (любой цвет, кроме yellow) открывается модалка:
+
+Название товара, цена, остаток.
+Поле «Кількість» с кнопками + / −.
+Шаг ввода: 1 для штучных товаров, 0.001 для весовых (штрих-код длиной 13 цифр и начинается на 2).
+Кнопки «Скасувати» / «Додати в кошик».
+Enter в поле количества = добавление в корзину.
+Корзина
+Сохраняется в localStorage (восстанавливается после перезагрузки).
+Можно менять количество прямо в строке.
+Кнопка ✕ удаляет позицию.
+При отправке POST /returns создаётся возврат в Supabase: получает номер RET-YYMMDD-NNN через RPC generate_return_number().
+Returns.bat
+Copy@echo off
+chcp 65001 >nul
+title Family Market - Повернення
+... читает device.json → открывает Chrome с ?device=KEY
+Файл лежит на ПК продавца, не в Git (untracked).
+
+9. Возвраты — админ-панель
+Страница /admin-returns.html. Доступ для ролей admin, accountant, curator.
+
+Фильтры: период (з / по), магазин, статус (Активні / Архів / Всі), колір (lookup_status), пошук.
+
+Вкладки:
+
+Список повернень — табличный вид всех возвратов с позициями.
+Зведення: постачальник / SKU / магазин — агрегированная статистика.
+Не з бази — отдельный фильтр для yellow-позиций (требуют донабивания в каталог).
+Действия: «В архів» (статус=archived, archived_at=now), «Експорт» (XLSX).
+
+Endpoints (см. routes/lookup.js):
+
+GET /returns — список с фильтрами.
+GET /returns/summary?group_by=supplier|sku|store — сводки.
+POST /returns/:id/archive — архивация.
+GET /stores — список активных магазинов для фильтров.
+10. Еженедельный бэкап возвратов
+Скрипт: scripts/backup-returns.js Workflow: .github/workflows/backup-returns.yml Расписание: cron 30 20 * * 0 → воскресенье 20:30 UTC = 23:30 Kyiv. Drive folder: "БЭКАПЫ Возвраты по магазинам" (ID 1qnNKBm35wA_TPTuGd0HcSyz9r1ieDdg2). Имена файлов: Возвраты_backup_DD-MM-YYYY.xlsx. Хранится последние 10 копий, остальные удаляются автоматически. Авторизация: OAuth refresh token аккаунта femelimarket6@gmail.com. Токен живёт долго (после publish app → In production), но может протухнуть при смене пароля или revoke.
+
+Ручной запуск: Actions → Weekly Returns Backup → Run workflow.
+
+Если бэкап упал с invalid_grant: значит refresh_token инвалидирован, нужно пересоздать через OAuth Playground (см. историю чата 1-2 мая 2026).
+
+11. Загрузка остатков склада в BigQuery
+Скрипт: D:\Shifts-api\upload_stock.py (вне Git!) Зависимости: pip install pandas openpyxl google-cloud-bigquery pyarrow db-dtypes Service-account: promo-analysis@family-market-analytics.iam.gserviceaccount.com, ключ в D:\Shifts-api\credentials\family-market-analytics-23fbcbcee571c.json.
+
+Запуск:
+
+Copycd D:\Shifts-api
+python upload_stock.py
+Tkinter-диалог → выбор Excel → режим (truncate / append / stats) → загрузка в BigQuery dataset family-market-analytics.returns_system:
+
+stock_current — barcode, product_name, qty_in_stock, store_address, cost_price, total_cost, retail_price, total_retail, qty_sold, loaded_at.
+barcode_catalog — barcode, product_name, first_seen_at, last_seen_at, last_cost_price, last_retail_price.
+MERGE на каждой загрузке (incremental update).
+
+Маппинг колонок: в скрипте константа COLUMN_MAP (case-insensitive substring). Если в новом Excel колонки названы иначе — править этот словарь.
+
+Используется в: /lookup и /search-product (для поиска по названию). В barcode_catalog обращается lookup для blue-статусов (товар известен, но нет на остатках).
+
+12. ⚠️ КРИТИЧНО: Обновление FLY_API_TOKEN
+Симптом: все деплои на Fly падают с ошибкой:
+
+CopyError: no access token available. Please login with 'flyctl auth login'
+Причина: токен в GitHub secret FLY_API_TOKEN истёк, удалён или инвалидирован сменой пароля. По умолчанию Fly создаёт токены на 1 год.
+
+⚠️ Особенность аккаунта: в Fly наш аккаунт привязан к организации с SSO, поэтому personal access tokens создавать через веб-интерфейс нельзя — будет ошибка "Access Tokens cannot be created for your account because an organization you are a member of requires SSO".
+
+Решение — создать org-token через flyctl:
+
+Copyflyctl auth login                                    # SSO в браузере
+flyctl orgs list                                     # узнать slug организации (у нас 'personal')
+flyctl tokens create org personal --name "github-actions-deploy" --expiry 8760h
+Параметр --expiry 8760h = 1 год. Можно поставить больше (87600h = 10 лет) или убрать совсем.
+
+Команда выведет в консоль строку, начинающуюся с FlyV1 fm2_.... Скопировать целиком и вставить в GitHub secret FLY_API_TOKEN: https://github.com/Denbassk/Recording-sales-staff-shifts-API/settings/secrets/actions → найти FLY_API_TOKEN → Update value.
+
+После обновления — Re-run упавший workflow или сделать пустой коммит:
+
+Copygit commit --allow-empty -m "Trigger redeploy"
+git push
+13. ⚠️ Принудительный передеплой (если кеш не обновляется)
+Симптом: GitHub Actions показывает зелёный деплой, но в production старая версия файлов (например, кнопка/модалка не появляется после изменений).
+
+Решение — задеплоить локально с --no-cache:
+
+Copycd D:\Shifts-api\Shifts-api
+flyctl deploy --remote-only --no-cache
+--remote-only = билд на серверах Fly (Docker локально не нужен). --no-cache = игнорирует все закешированные Docker layer'ы.
+
+После деплоя — обязательно проверить браузер с Ctrl+F5 или в инкогнито:
+
+Copy// в DevTools Console
+fetch('/returns.html', {cache: 'no-cache'}).then(r=>r.text()).then(t =>
+  console.log(t.includes('searchByNameBtn') ? 'YES ✅' : 'NO ❌'));
+Если YES — значит файл на сервере свежий, проблема была в кеше браузера. Очистить через DevTools → Application → Clear site data.
+
+14. Известные проблемы и решения
+Проблема	Причина	Решение
+Все деплои падают no access token	FLY_API_TOKEN протух	Раздел 12
+Деплой зелёный, но изменений нет	Кеш Fly или браузера	Раздел 13 + Ctrl+F5
+/returns.html — белая страница	Нет JWT cookie	Залогиниться на /?device=KEY или RDP в магазин
+/me-with-store 401	Cookie протух/удалён	Залогиниться заново
+Магазин получил 0 выручки после переименования	Нет алиаса в store_address_aliases	Добавить алиас с valid_from
+ON CONFLICT DO UPDATE при добавлении алиаса	Пересекающиеся периоды	Закрыть старый алиас (valid_to = ...), потом открывать новый
+Бэкап упал invalid_grant	refresh_token инвалидирован	Пересоздать в OAuth Playground (см. историю 1.05.2026)
+upload_stock.py загружает 0 строк	Изменились названия колонок в Excel	Поправить COLUMN_MAP
+Поиск по названию медленный (1-2 сек)	LIKE без индекса по миллиону строк	Норма. Для ускорения — кластеризация product_name_lower (см. TODO)
+Дубли возвратов RET-YYMMDD-NNN	Race condition при одновременной отправке	Использует sequence в generate_return_number() — теоретически безопасно
+15. Типовые операции
+Деплой
+Copygit add -A
+git commit -m "..."
+git push                          # GitHub Actions автоматически
+# Или принудительно:
+flyctl deploy --remote-only --no-cache
+Откат
+Copygit revert HEAD
+git push
+# Или прямой rollback на Fly:
+flyctl releases -a shifts-api
+flyctl releases rollback <version>
+Ручной бэкап возвратов
+GitHub Actions → Weekly Returns Backup → Run workflow.
+
+Ручная загрузка остатков
+Copycd D:\Shifts-api && python upload_stock.py
+Просмотр Fly secrets
+Copyflyctl secrets list -a shifts-api
+SQL-чистка тестовых данных
+CopyBEGIN;
+DELETE FROM return_items WHERE return_id IN (...);
+DELETE FROM returns WHERE id IN (...);
+DELETE FROM shifts WHERE id IN (...);
+SELECT COUNT(*) FROM ...;  -- проверка
+COMMIT;
+Создать тестовую смену для админа
+CopyINSERT INTO shifts (employee_id, store_id, shift_date)
+VALUES ('ADMIN_DB', 19, CURRENT_DATE)
+RETURNING id;
+16. Важные ссылки
+Production: https://shifts-api.fly.dev/
+Returns (продавец): https://shifts-api.fly.dev/returns.html
+Admin returns: https://shifts-api.fly.dev/admin-returns.html
+GitHub repo: https://github.com/Denbassk/Recording-sales-staff-shifts-API
+GitHub Actions: https://github.com/Denbassk/Recording-sales-staff-shifts-API/actions
+GitHub Secrets: https://github.com/Denbassk/Recording-sales-staff-shifts-API/settings/secrets/actions
+Supabase: https://supabase.com/dashboard/project/pdiminbulbzlywvnowta
+Fly.io app: https://fly.io/apps/shifts-api
+Fly.io tokens: https://fly.io/user/personal_access_tokens
+Google Cloud Console: https://console.cloud.google.com/apis/credentials?project=family-market-analytics
+BigQuery: https://console.cloud.google.com/bigquery?project=family-market-analytics
+OAuth Playground: https://developers.google.com/oauthplayground/
+Drive backup folder: https://drive.google.com/drive/folders/1qnNKBm35wA_TPTuGd0HcSyz9r1ieDdg2
+17. Прогресс этапов
+✅ Stage 1-6: базовый функционал (auth, смены, выручка, зарплаты).
+✅ Stage 7 (returns — продавец): сканер, lookup, корзина, отправка.
+✅ Stage 7.1: модалка количества с +/−, поддержка весовых.
+✅ Stage 7.2: inline-поиск по названию, обновлённая «Допомога».
+✅ Stage 8: админ-панель возвратов (фильтры, сводки, экспорт, архивация).
+✅ Stage 10.5: help-modal на странице продавца.
+✅ Stage 11: еженедельный бэкап в Google Drive (OAuth refresh token).
+✅ STATE.md: документация проекта.
+18. TODO / Roadmap
+🔜 Проверить нумерацию возвратов на пропуски (например, RET-260501-002 был пропущен).
+🔜 Удалить из Fly secrets неиспользуемый GCP_SA_KEY для Drive (BigQuery-ключ оставить!).
+🔜 Удалить service-account promo-analysis@… из sharing Drive folder (после теста — больше не нужен).
+🔜 Ускорить поиск по названию: добавить колонку product_name_lower в stock_current + кластеризация в BigQuery (3-5x speedup).
+🔜 Реализовать настоящий device-only login (без пароля): сейчас device_key только привязывает магазин при стандартном логине. Полезно для kiosk-режима.
+🔜 Документировать payroll calculation в STATE.md (сейчас не описан).
+🔜 Non-interactive версия upload_stock.py для Cloud Scheduler / cron.
+🔜 Мониторинг: Fly logs alerts, Supabase usage, BigQuery costs.
+🔜 Ротация JWT secret (раз в год).
+19. История изменений
+Дата	Событие
+2026-04-30	Переименование магазина 38 (Полевая 83 → Полевая-магазин). Добавлен алиас.
+2026-05-01	Конфликт пересекающихся периодов алиасов — исправлено.
+2026-05-01	Тестовые возвраты RET-260501-001/003 (на ПК продавца через RDP).
+2026-05-02	Stage 11 завершён: бэкап через OAuth refresh token.
+2026-05-02	Тестовые возвраты удалены, sequence не сбрасывался.
+2026-05-02	OAuth consent screen переведён в "In production" — refresh_token long-lived.
+2026-05-02	Создан STATE.md, добавлено описание upload_stock.py.
+2026-05-04	Все деплои упали — диагностика → FLY_API_TOKEN протух.
+2026-05-04	FLY_API_TOKEN восстановлен через flyctl tokens create org personal.
+2026-05-04	Принудительный передеплой flyctl deploy --remote-only --no-cache.
+2026-05-04	Stage 7.1: модалка количества + кнопки +/− + весовые товары.
+2026-05-04	Stage 7.2: inline-поиск по названию (endpoint /search-product), обновлённая Допомога.
+2026-05-04	Багфиксы: showAuthError (null safety), scanFeedback clear after submit.
+2026-05-04	Полное тестирование цепочки сканер→lookup→quantity→cart→submit→admin.
+2026-05-04	STATE.md полностью переписан (этот файл).
+20. Контакты
+Разработчик: Denbassk (denbassk@gmail.com)
+Drive owner / Google account: femelimarket6@gmail.com
+Google Cloud project: family-market-analytics
+Fly organization: personal (Фома Бурма)
+Copy
+---
+
+После замены — закоммитьте:
+
+```powershell
+cd D:\Shifts-api\Shifts-api
+git add STATE.md
+git commit -m "Update STATE.md: Stage 7.1+7.2, FLY_API_TOKEN, device-flow, force redeploy"
+git push
