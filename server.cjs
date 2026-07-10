@@ -306,6 +306,7 @@ function calculateDailyPay(revenue, numSellers, isSenior = false, fixedRate = nu
 }
 // --- ПЛАВАЮЩАЯ СТАВКА (Блок 1 новых правил, с 16.07.2026) ---
 const { NEW_RULES_START, rateFromAvgRevenue, previousMonthBounds, averageDailyRevenue, isNewRulesDate } = require('./payroll/floating-rate.cjs');
+const extras = require('./payroll/extras.cjs');
 
 // Среднедневной выторг магазина за пред. месяц -> ставка (800/900/1000).
 // Возвращает Map(store_id -> { avg, days, rate, periodFrom, periodTo }). Старый расчёт не затрагивает.
@@ -792,6 +793,45 @@ for (const employee of storeEmployees) {
         } catch(error) {
             console.error(`Ошибка при расчете ЗП за ${date}:`, error);
             res.status(500).json({ success: false, error: `Внутренняя ошибка сервера при расчете ЗП.` });
+        }
+    });
+});
+
+
+// --- ПЕРЕСЧЁТ EXTRAS (Блок 2 процент + Блок 3 доп.бонусы), новые правила с 16.07.2026 ---
+// Идемпотентно: агрегаты BigQuery (ДЛ/пакеты/кофе/кулинария) + касса/смены → доли продавцам,
+// пишет в payroll_calculations и пересобирает total_pay = base_rate + процент + бонусы.
+// Только даты >= NEW_RULES_START; требует, чтобы ставка (/calculate-payroll) уже была посчитана.
+app.post('/calculate-payroll-extras', checkAuth, canManagePayroll, async (req, res) => {
+    let { startDate, endDate, date } = req.body;
+    if (date && !startDate) { startDate = date; endDate = date; }
+    if (!endDate) endDate = startDate;
+    const v1 = validateDate(startDate), v2 = validateDate(endDate);
+    if (!v1.valid || !v2.valid) return res.status(400).json({ success: false, error: 'Некорректные даты' });
+    const from = startDate < NEW_RULES_START ? NEW_RULES_START : startDate;
+    const to = endDate;
+    if (from > to) return res.json({ success: true, updated: 0, message: `Нет дат >= ${NEW_RULES_START} в диапазоне` });
+
+    return withLock(`extras_${from}_${to}`, async () => {
+        try {
+            const { rows, unmatched } = await extras.buildExtrasRows({ supabase, from, to });
+            let updated = 0, skippedNoBase = 0;
+            for (const r of rows) {
+                if (r.total_pay == null) { skippedNoBase++; continue; }
+                const { error } = await supabase.from('payroll_calculations').update({
+                    sales_percent: r.sales_percent, bag_bonus: r.bag_bonus, coffee_bonus: r.coffee_bonus,
+                    culinary_bonus: r.culinary_bonus, dl_sales_deducted: r.dl_sales_deducted,
+                    adjusted_cash: r.adjusted_cash, total_pay: r.total_pay,
+                    extras_source: 'calculate-payroll-extras', extras_updated_at: new Date().toISOString()
+                }).eq('employee_id', r.employee_id).eq('work_date', r.work_date);
+                if (error) console.error(`[extras] ${r.employee_id} ${r.work_date}:`, error.message);
+                else updated++;
+            }
+            await logFinancialOperation('calculate_payroll_extras', { from, to, updated, skippedNoBase }, req.user.id);
+            res.json({ success: true, period: { from, to }, updated, skippedNoBase, unmatched });
+        } catch (e) {
+            console.error('Ошибка пересчёта extras:', e);
+            res.status(500).json({ success: false, error: 'Ошибка пересчёта extras: ' + e.message });
         }
     });
 });
