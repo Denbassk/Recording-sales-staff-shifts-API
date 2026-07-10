@@ -5,783 +5,119 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Расчет зарплаты - Система управления</title>
 
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23c0392b'/></svg>">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.7.0/dist/tabler-icons.min.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-            color: #333;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-        }
-
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px 30px;
-            text-align: center;
-        }
-
-        .header h1 {
-            font-size: 28px;
-            font-weight: 600;
-            margin-bottom: 5px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-        }
-
-        .header p {
-            font-size: 14px;
-            opacity: 0.9;
-        }
-
-        .content {
-            padding: 20px;
-        }
-
-        .tab-navigation {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
-    border-bottom: 2px solid #e0e0e0;
-    padding-bottom: 0;
+:root{
+  --brand:#c0392b;--brand-d:#a02b1e;--brand-ghost:#fbeceb;
+  --anthra:#3c4048;--anthra-2:#4a4f59;
+  --bg:#eef0f3;--surface:#ffffff;--surface-2:#f6f7f9;--surface-3:#eef0f3;
+  --text:#20242b;--text-2:#5c626c;--muted:#9299a3;
+  --border:#e3e6ea;--border-strong:#cdd2d8;
+  --ok:#1c7a37;--ok-bg:#e8f2ea;--warn:#9a6100;--warn-bg:#fbf1df;--dgr:#b3261e;--dgr-bg:#fbeae8;
+  --radius:8px;--shadow:0 1px 2px rgba(20,24,31,.04),0 4px 16px rgba(20,24,31,.06);
 }
-
-.tab-button {
-    padding: 12px 25px;
-    background: transparent;
-    border: none;
-    border-bottom: 3px solid transparent;
-    cursor: pointer;
-    font-size: 15px;
-    font-weight: 500;
-    color: #666;
-    transition: all 0.3s ease;
-    position: relative;
-    top: 2px;
+[data-theme="dark"]{
+  --bg:#141619;--surface:#1e2024;--surface-2:#25272c;--surface-3:#2b2e34;
+  --text:#e8eaed;--text-2:#a7adb6;--muted:#79808a;
+  --border:#31353b;--border-strong:#424750;
+  --anthra:#22252a;--anthra-2:#2b2f35;
+  --ok:#4ccb6e;--ok-bg:#123020;--warn:#e0a63a;--warn-bg:#2f2610;--dgr:#f0857d;--dgr-bg:#361814;--brand-ghost:#37201d;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.35);
 }
-
-.tab-button:hover {
-    color: #667eea;
-    background: rgba(102, 126, 234, 0.05);
-}
-
-.tab-button.active {
-    color: #667eea;
-    border-bottom-color: #667eea;
-    background: rgba(102, 126, 234, 0.08);
-}
-
-.tab-content {
-    display: none;
-    animation: fadeIn 0.3s ease;
-}
-
-.tab-content.active {
-    display: block;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-        .control-panel {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-bottom: 15px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-
-        .control-row {
-            display: flex;
-            gap: 15px;
-            align-items: center;
-            flex-wrap: wrap;
-            margin-bottom: 10px;
-        }
-
-        .control-row:last-child {
-            margin-bottom: 0;
-        }
-
-        .control-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        label {
-            font-weight: 700;
-            color: #2c3e50;
-            font-size: 14px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        input[type="date"],
-        input[type="number"],
-        input[type="text"],
-        select {
-            padding: 10px 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 15px;
-            transition: all 0.3s ease;
-            background: white;
-            min-width: 150px;
-        }
-
-        input[type="date"]:focus,
-        input[type="number"]:focus,
-        input[type="text"]:focus,
-        select:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        input[type="file"] {
-            padding: 10px;
-            border: 2px dashed #667eea;
-            border-radius: 8px;
-            background: white;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        input[type="file"]:hover {
-            background: rgba(102, 126, 234, 0.05);
-        }
-
-        button {
-            padding: 12px 25px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 15px;
-            font-weight: 700;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        button:active {
-            transform: translateY(0);
-        }
-
-        button.success {
-            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-            box-shadow: 0 4px 15px rgba(17, 153, 142, 0.3);
-            color: white;
-            font-weight: 700;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        button.success:hover {
-            box-shadow: 0 6px 20px rgba(17, 153, 142, 0.4);
-        }
-
-        button.danger {
-            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-            box-shadow: 0 4px 15px rgba(235, 51, 73, 0.3);
-            color: white;
-            font-weight: 700;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        button.secondary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            font-weight: 700;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-        }
-        
-        button.secondary:hover {
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-        }
-        
-        table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0;
-            margin: 15px 0;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-
-        th {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            font-weight: 600;
-            padding: 12px;
-            text-align: left;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        td {
-            padding: 10px 12px;
-            border-bottom: 1px solid #f0f0f0;
-            font-size: 13px;
-            vertical-align: middle;
-        }
-
-        tr:hover {
-            background: rgba(102, 126, 234, 0.05);
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-        
-        tr.summary-row {
-            font-weight: bold;
-        }
-        
-        tr.summary-row:hover {
-            background-color: #e9ecef;
-        }
-
-        .status {
-            padding: 15px 20px;
-            margin: 20px 0;
-            border-radius: 8px;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            animation: slideDown 0.3s ease;
-        }
-
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .status::before {
-            font-size: 20px;
-        }
-
-        .status.success {
-            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-            color: #155724;
-            border: 1px solid #b1dfbb;
-        }
-
-        .status.success::before {
-            content: "✅";
-        }
-
-        .status.error {
-            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
-            color: #721c24;
-            border: 1px solid #f1b0b7;
-        }
-
-        .status.error::before {
-            content: "❌";
-        }
-
-        .status.info {
-            background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
-            color: #0c5460;
-            border: 1px solid #abdde5;
-        }
-
-        .status.info::before {
-            content: "ℹ️";
-        }
-
-        .status.warning {
-            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
-            color: #856404;
-            border: 1px solid #ffeaa7;
-        }
-
-        .status.warning::before {
-            content: "⚠️";
-        }
-
-        .summary-panel {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            padding: 15px 20px;
-            border-radius: 10px;
-            margin-top: 15px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-
-        .summary-panel h3 {
-            margin: 0 0 15px 0;
-            color: #333;
-            font-size: 18px;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 8px;
-        }
-
-        .summary-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(0,0,0,0.05);
-        }
-
-        .summary-row:last-child {
-            border-bottom: none;
-            font-weight: 700;
-            font-size: 16px;
-            color: #667eea;
-            padding-top: 12px;
-        }
-
-        .summary-label {
-            font-weight: 500;
-            color: #666;
-        }
-
-        .summary-value {
-            font-weight: 600;
-            color: #333;
-        }
-
-        .loader {
-            display: none;
-            width: 50px;
-            height: 50px;
-            border: 5px solid #f3f3f3;
-            border-top: 5px solid #667eea;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin: 30px auto;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .badge.success {
-            background: #d4edda;
-            color: #155724;
-        }
-		
-		.badge.warning {
-            background: #fff3cd;
-            color: #856404;
-        }
-        
-        .form-hint {
-            font-size: 12px;
-            color: #6c757d;
-            padding-left: 2px;
-        }
-
-        @media (max-width: 768px) {
-            .control-row {
-                flex-direction: column;
-                align-items: stretch;
-            }
-
-            .tab-button {
-                padding: 10px 15px;
-                font-size: 14px;
-            }
-
-            table {
-                font-size: 12px;
-            }
-
-            th, td {
-                padding: 10px;
-            }
-        }
-        
-        .compact-controls {
-            padding: 10px 15px !important;
-            margin-bottom: 10px !important;
-        }
-        
-        .compact-controls .control-group label {
-            font-size: 12px;
-            margin-bottom: 2px;
-        }
-        
-        .compact-controls input,
-        .compact-controls select,
-        .compact-controls button {
-            padding: 8px 12px;
-            font-size: 14px;
-        }
-        
-        .compact-controls button {
-            padding: 8px 15px;
-            font-size: 13px;
-        }
-        
-        .compact-summary {
-            padding: 12px 20px !important;
-            margin-top: 10px !important;
-        }
-        
-        .summary-inline {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 20px;
-            font-size: 15px;
-        }
-        
-        .summary-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .summary-item strong {
-            color: #667eea;
-        }
-        
-        .summary-divider {
-            color: #ccc;
-            font-size: 20px;
-        }
-        
-        #back-to-top-btn {
-            display: none;
-            position: fixed;
-            bottom: 20px;
-            right: 30px;
-            z-index: 99;
-            border: none;
-            outline: none;
-            background-color: #667eea;
-            color: white;
-            cursor: pointer;
-            padding: 15px;
-            border-radius: 50%;
-            font-size: 18px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            width: 50px;
-            height: 50px;
-            line-height: 20px;
-            text-align: center;
-        }
-
-        #back-to-top-btn:hover {
-            background-color: #5a6edc;
-        }
-
-        .table-container {
-            overflow: auto; 
-            max-height: calc(100vh - 280px);
-            -webkit-overflow-scrolling: touch;
-            position: relative;
-        }
-        
-        .monthly-report-head {
-            position: sticky;
-            top: 0;
-            z-index: 10;
-            background: white;
-        }
-        
-        .monthly-report-head tr:first-child th {
-            position: sticky;
-            top: 0;
-            z-index: 12;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 48px;
-            line-height: 48px;
-            padding: 0 15px;
-        }
-        
-        .monthly-report-head tr:last-child th {
-            position: sticky;
-            top: 48px;
-            z-index: 11;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-top: none;
-            margin-top: -1px;
-            height: 48px;
-            line-height: 48px;
-            padding: 0 15px;
-        }
-        
-        .monthly-report-head tr {
-            border: none;
-            margin: 0;
-            padding: 0;
-        }
-        
-        .monthly-report-head {
-            border-collapse: collapse;
-        }
-        
-        thead th {
-            position: -webkit-sticky;
-            position: sticky;
-            top: 0;
-            z-index: 1; 
-        }
-        
-        #monthlyReportContent, #fotReportContent {
-            max-height: none;
-            overflow: visible;
-        }
-        
-        .adjustment-input {
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 4px 8px;
-            transition: all 0.2s ease;
-        }
-        
-        .adjustment-input:focus {
-            border-color: #667eea;
-            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
-            outline: none;
-        }
-
-        tr.has-final-calc {
-            background-color: rgba(40, 167, 69, 0.05);
-        }
-
-        tr.has-final-calc:hover {
-            background-color: rgba(40, 167, 69, 0.1);
-        }
-
-        .advance-payment[data-fixed="true"] {
-            background-color: #fff3cd;
-            font-weight: bold;
-        }
-
-        .card-remainder.has-value {
-            color: #28a745;
-            font-weight: bold;
-        }
-
-        .cash-payout.has-value strong {
-            color: #007bff;
-        }
-
-        #monthlyReportTable {
-            position: relative;
-        }
-
-        #monthlyReportTable tbody td {
-            background-color: white;
-        }
-
-        #monthlyReportTable th:first-child,
-        #monthlyReportTable td:first-child {
-            min-width: 200px !important;
-            max-width: 250px !important;
-        }
-
-        #monthlyReportTable tbody td:first-child {
-            position: sticky;
-            left: 0;
-            z-index: 5;
-            background-color: white !important;
-            background-image: none !important;
-            opacity: 1 !important;
-            border-right: 2px solid #dee2e6;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-        }
-
-        #monthlyReportTable th:nth-child(2),
-        #monthlyReportTable td:nth-child(2) {
-            min-width: 150px !important;
-            max-width: 200px !important;
-        }
-
-        #monthlyReportTable tbody td:nth-child(2) {
-            position: sticky;
-            left: 200px;
-            z-index: 4;
-            background-color: white !important;
-            background-image: none !important;
-            opacity: 1 !important;
-            border-right: 2px solid #dee2e6;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-        }
-
-        #monthlyReportTable thead tr:first-child th:first-child {
-            position: sticky;
-            left: 0;
-            z-index: 26 !important;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            opacity: 1 !important;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-        }
-
-        #monthlyReportTable thead tr:first-child th:nth-child(2) {
-            position: sticky;
-            left: 200px;
-            z-index: 25 !important;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            opacity: 1 !important;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-        }
-
-        #monthlyReportTable thead tr:last-child th:first-child {
-            position: sticky;
-            left: 200px;
-            z-index: 24 !important;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        }
-
-        #monthlyReportTable tbody tr:hover td:first-child,
-        #monthlyReportTable tbody tr:hover td:nth-child(2) {
-            background-color: #f0f2f5 !important;
-            opacity: 1 !important;
-        }
-
-        #monthlyReportTable tbody tr.has-final-calc td:first-child,
-        #monthlyReportTable tbody tr.has-final-calc td:nth-child(2) {
-            background-color: #e8f5e9 !important;
-            opacity: 1 !important;
-        }
-
-        #monthlyReportTable tbody tr.has-final-calc:hover td:first-child,
-        #monthlyReportTable tbody tr.has-final-calc:hover td:nth-child(2) {
-            background-color: #c8e6c9 !important;
-            opacity: 1 !important;
-        }
-
-        #monthlyReportTable th:nth-child(3),
-        #monthlyReportTable td:nth-child(3) {
-            padding-left: 25px !important;
-        }
-
-        #monthlyReportTable thead tr:first-child th[colspan] {
-            position: relative;
-            z-index: 10;
-        }
-
-        .control-section {
-            background: #f8f9fa;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 8px;
-            border: 1px solid #dee2e6;
-        }
-
-        .section-title {
-            margin: 0 0 12px 0;
-            font-size: 15px;
-            color: #2c3e50;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #667eea;
-        }
-
-        .control-section .control-row {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-
-        .control-section button {
-            flex: 0 0 auto;
-            white-space: nowrap;
-        }
-
-        button.primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            font-weight: 700;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        button.warning {
-            background: linear-gradient(135deg, #ffa726 0%, #ff9800 100%);
-            color: white;
-            font-weight: 700;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        button.warning:hover {
-            box-shadow: 0 6px 20px rgba(255, 152, 0, 0.4);
-        }
-
-        .admin-only {
-            background: #fff3cd;
-            border: 1px solid #ffc107;
-        }
-
-        @media (max-width: 1200px) {
-            .control-section .control-row {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            
-            .control-section button {
-                width: 100%;
-            }
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translate(-50%, -60%);
-            }
-            to {
-                opacity: 1;
-                transform: translate(-50%, -50%);
-            }
-        }
-
-        @keyframes fadeOut {
-            from {
-                opacity: 1;
-                transform: translate(-50%, -50%);
-            }
-            to {
-                opacity: 0;
-                transform: translate(-50%, -40%);
-            }
-        }
-    </style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:10px;font-size:14px;line-height:1.5}
+.container{max-width:1760px;margin:0 auto;background:var(--surface);border:.5px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.header{display:flex;align-items:center;gap:12px;background:var(--anthra);color:#eceef1;padding:12px 20px}
+.header .brand-mark{width:26px;height:26px;border-radius:6px;background:var(--brand);display:flex;align-items:center;justify-content:center;color:#fff;font-size:15px}
+.header h1{font-size:16px;font-weight:500;margin:0;text-shadow:none;letter-spacing:.2px}
+.header p{display:none}
+.header .sp{flex:1}
+.theme-toggle{background:var(--anthra-2);color:#eceef1;border:.5px solid rgba(255,255,255,.14);border-radius:8px;width:34px;height:34px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px}
+.theme-toggle:hover{background:#565b66}
+.content{padding:18px 20px 26px}
+.tab-navigation{display:flex;gap:2px;margin-bottom:20px;border-bottom:.5px solid var(--border);flex-wrap:wrap}
+.tab-button{background:none;border:none;border-bottom:2px solid transparent;color:var(--text-2);padding:9px 14px;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border-radius:0}
+.tab-button:hover{color:var(--text)}
+.tab-button.active{color:var(--brand);border-bottom-color:var(--brand);font-weight:500}
+.tab-content{display:none}
+.tab-content.active{display:block}
+.control-panel{background:var(--surface-2);border:.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:18px}
+.control-row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+.control-group{display:flex;flex-direction:column;gap:5px}
+.control-group label{font-size:12px;color:var(--text-2);font-weight:500}
+.control-section{padding:10px 0;border-top:.5px solid var(--border)}
+.control-section:first-child{border-top:none;padding-top:0}
+.section-title{font-size:12px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px}
+.form-hint{font-size:11px;color:var(--muted)}
+label{color:var(--text-2)}
+input,select{font-family:inherit;font-size:13px;color:var(--text);background:var(--surface);border:.5px solid var(--border-strong);border-radius:8px;padding:8px 10px;height:36px;outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-ghost)}
+input[type=file]{padding:6px 8px;height:auto}
+input:disabled{background:var(--surface-3);color:var(--muted)}
+button{font-family:inherit;font-size:14px;font-weight:500;color:var(--text);background:var(--surface);border:.5px solid var(--border-strong);border-radius:8px;padding:8px 14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:background .15s,border-color .15s,transform .05s}
+button:hover{background:var(--surface-3)}
+button:active{transform:scale(.98)}
+button.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+button.primary:hover{background:var(--brand-d)}
+button.success{background:var(--surface);border-color:var(--border-strong);color:var(--text)}
+button.secondary{background:var(--surface);border-color:var(--border);color:var(--text-2)}
+button.secondary:hover{color:var(--text)}
+button.warning{background:var(--surface);border-color:var(--border-strong);color:var(--warn)}
+button.danger{background:var(--surface);border-color:var(--border);color:var(--dgr)}
+button.danger:hover{background:var(--dgr-bg)}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.toolbar .push{margin-left:auto}
+.status{border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:14px;border:.5px solid var(--border)}
+.status.info{background:var(--surface-2);color:var(--text-2)}
+.status.success{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.status.error{background:var(--dgr-bg);color:var(--dgr);border-color:var(--dgr)}
+.status.warning{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.table-container{overflow:auto;max-height:calc(100vh - 200px);border:.5px solid var(--border);border-radius:12px;background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:var(--surface-2);color:var(--text-2);font-weight:500;text-align:left;padding:10px 8px;border-bottom:.5px solid var(--border);white-space:nowrap;position:sticky;top:0;z-index:2}
+td{padding:9px 8px;border-bottom:.5px solid var(--border);color:var(--text)}
+tr:hover td{background:var(--surface-2)}
+tr.has-final-calc td{background:var(--surface-2)}
+.adjustment-input{height:30px;padding:5px 7px}
+.lock-box{display:inline-flex;gap:6px;align-items:center;margin-left:8px}
+.row-status{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px}
+.row-status.locked{background:var(--ok-bg);color:var(--ok);border:.5px solid var(--ok)}
+.unlock-btn{border:.5px solid var(--border-strong);background:var(--surface);color:var(--text-2);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.unlock-btn:hover{background:var(--surface-3);color:var(--text)}
+#monthlyReportTable.reasons-collapsed .col-reason{display:none}
+.grp-prem-head,.grp-deprem-head{white-space:nowrap}
+.wizard{display:flex;align-items:flex-start;margin:0 0 18px}
+.wstep{display:flex;flex-direction:column;align-items:center;gap:5px;width:64px}
+.wdot{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;border:.5px solid var(--border-strong);background:var(--surface);color:var(--text-2)}
+.wstep.done .wdot{background:var(--anthra);border-color:var(--anthra);color:#fff}
+.wstep.cur .wdot{background:var(--brand);border-color:var(--brand);color:#fff;font-weight:500}
+.wstep small{font-size:11px;color:var(--text-2);text-align:center}
+.wstep.cur small{color:var(--brand);font-weight:500}
+.wline{flex:1;height:.5px;background:var(--border);margin-top:13px}
+.summary-panel{background:var(--surface-2);border:.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.summary-panel h3{font-size:14px;font-weight:500;margin-bottom:10px}
+.summary-row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px}
+.summary-label{color:var(--text-2)}.summary-value{font-weight:500}
+.compact-summary{padding:10px 14px}
+.compact-controls{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start}
+.compact-controls>.control-section{border:.5px solid var(--border);border-radius:10px;background:var(--surface);padding:11px 12px;margin:0}
+.compact-controls>.control-section:nth-child(1){grid-column:1/-1;border:none;background:none;padding:0 2px 12px;border-bottom:.5px solid var(--border);border-radius:0}
+.compact-controls>.control-section:nth-child(5),.compact-controls>.control-section:nth-child(6){grid-column:4}
+.compact-controls .control-row{flex-direction:column;align-items:stretch;gap:7px}
+.compact-controls>.control-section:nth-child(1) .control-row{flex-direction:row;flex-wrap:wrap;align-items:flex-end;gap:12px}
+.compact-controls .control-row button{justify-content:flex-start;width:100%}
+.compact-controls .section-title{margin-bottom:9px}
+#monthlyReportTable td:first-child,#monthlyReportTable thead th:first-child{position:sticky;left:0;background:var(--surface);z-index:1}
+#monthlyReportTable thead th:first-child{z-index:3}
+#monthlyReportTable tr:hover td:first-child{background:var(--surface-2)}
+.summary-inline{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.summary-divider{color:var(--border-strong)}
+.loader{display:none;width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite;margin:16px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+#back-to-top-btn{position:fixed;right:22px;bottom:22px;width:40px;height:40px;border-radius:50%;background:var(--anthra);color:#fff;border:none;font-size:18px;cursor:pointer;display:none;z-index:50;align-items:center;justify-content:center}
+
+</style>
 
     <style media="print">
         @page {
@@ -810,18 +146,21 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>💰 Система расчета заработной платы</h1>
-            <p>Автоматизированный расчет и учет заработной платы сотрудников</p>
+            <span class="brand-mark"><i class="ti ti-building-store"></i></span>
+            <h1>Family Market — расчёт зарплаты</h1>
+            <span class="sp"></span>
+            <button class="theme-toggle" id="themeToggle" title="Светлая / тёмная тема" onclick="toggleTheme()"><i class="ti ti-moon"></i></button>
+
         </div>
 
 <div class="content">
             <div class="tab-navigation">
-                <button class="tab-button active" onclick="switchTab('revenue', this)">📊 Загрузка выручки</button>
-                <button class="tab-button" onclick="switchTab('payroll', this)">💵 Расчет зарплаты</button>
-                <button class="tab-button" onclick="switchTab('report', this)">📈 Отчет за месяц</button>
-                <button id="fot-tab-button" class="tab-button" onclick="switchTab('fot', this)" style="display: none;">💼 Фонд оплаты труда</button>
-                <button class="tab-button" onclick="switchTab('cardLimits', this); initCardLimitsPage()">💳 Лимиты карты</button>
-                <button class="tab-button" id="details-tab-button" onclick="switchTab('details', this)" style="display: none;">📊 Детализация расчетов</button>
+                <button class="tab-button active" onclick="switchTab('revenue', this)"><i class="ti ti-upload"></i> Выручка</button>
+                <button class="tab-button" onclick="switchTab('payroll', this)"><i class="ti ti-calendar"></i> Зарплата по дням</button>
+                <button class="tab-button" onclick="switchTab('report', this)"><i class="ti ti-report"></i> Отчёт за месяц</button>
+                <button id="fot-tab-button" class="tab-button" onclick="switchTab('fot', this)" style="display: none;"><i class="ti ti-wallet"></i> Фонд оплаты</button>
+                <button class="tab-button" onclick="switchTab('cardLimits', this); initCardLimitsPage()"><i class="ti ti-credit-card"></i> Лимиты карт</button>
+                <button class="tab-button" id="details-tab-button" onclick="switchTab('details', this)" style="display: none;"><i class="ti ti-list-details"></i> Детализация</button>
             </div>
             <div id="revenue-tab" class="tab-content active">
                 <div class="control-panel">
@@ -847,7 +186,7 @@
                 </div>
                 <div id="revenueStatus" class="status" style="display:none;"></div>
                 <div id="revenuePreview" style="display:none;">
-                    <h3>📋 Предпросмотр загруженных данных:</h3>
+                    <h3>Предпросмотр загруженных данных:</h3>
                     <div class="table-container">
                         <table id="revenueTable">
                             <thead>
@@ -903,20 +242,29 @@
                 <div id="payrollSummary" class="summary-panel compact-summary" style="display:none;">
                     <div class="summary-inline">
                         <span class="summary-item">
-                            <strong>👥 Сотрудников:</strong> <span id="totalEmployees">0</span>
+                            <strong>Сотрудников:</strong> <span id="totalEmployees">0</span>
                         </span>
                         <span class="summary-divider">|</span>
                         <span class="summary-item">
-                            <strong>💰 Общая сумма:</strong> <span id="totalPayroll">0</span> грн
+                            <strong>Общая сумма:</strong> <span id="totalPayroll">0</span> грн
                         </span>
                     </div>
                 </div>
             </div>
             
             <div id="report-tab" class="tab-content">
+                <div class="wizard">
+                    <div class="wstep done"><div class="wdot"><i class="ti ti-check"></i></div><small>Выручка</small></div><div class="wline"></div>
+                    <div class="wstep done"><div class="wdot"><i class="ti ti-check"></i></div><small>Зарплата</small></div><div class="wline"></div>
+                    <div class="wstep cur"><div class="wdot">3</div><small>Отчёт</small></div><div class="wline"></div>
+                    <div class="wstep"><div class="wdot">4</div><small>Аванс</small></div><div class="wline"></div>
+                    <div class="wstep"><div class="wdot">5</div><small>Бонусы</small></div><div class="wline"></div>
+                    <div class="wstep"><div class="wdot">6</div><small>Итог</small></div><div class="wline"></div>
+                    <div class="wstep"><div class="wdot">7</div><small>Выплата</small></div>
+                </div>
                 <div class="control-panel compact-controls">
                     <div class="control-section">
-                        <h4 class="section-title">📅 Период отчета</h4>
+                        <h4 class="section-title">Период отчёта</h4>
                         <div class="control-row">
                             <div class="control-group">
                                 <label>Месяц:</label>
@@ -947,55 +295,45 @@
                     </div>
 
                     <div class="control-section">
-                        <h4 class="section-title">⚡ Основные действия</h4>
+                        <h4 class="section-title">Основные действия</h4>
                         <div class="control-row">
-                            <button onclick="generateMonthlyReport()" class="primary">📊 Сформировать отчет</button>
-                            <button class="success" onclick="calculateAdvance15()">💰 Рассчитать аванс</button>
-                            <button class="success" onclick="calculateFinalPayroll()">✅ Итоговый расчет</button>
+                            <button onclick="generateMonthlyReport()" class="primary"><i class="ti ti-file-text"></i> Сформировать отчёт</button>
+                            <button class="success" onclick="calculateAdvance15()"><i class="ti ti-cash"></i> Рассчитать аванс</button>
+                            <button class="success" onclick="calculateFinalPayroll()"><i class="ti ti-calculator"></i> Итоговый расчёт</button>
+                            <button class="success" onclick="calculatePayrollExtras()"><i class="ti ti-refresh"></i> Пересчитать бонусы</button>
+                            <button class="secondary" onclick="toggleReasons(this)"><i class="ti ti-eye"></i> Показать причины</button>
                         </div>
                     </div>
 
                     <div class="control-section">
-                        <h4 class="section-title">🔐 Управление авансом</h4>
+                        <h4 class="section-title">Управление авансом</h4>
                         <div class="control-row">
-                            <button onclick="fixAdvancePayment()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; font-weight: 700; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">
-                                🔒 Зафиксировать выплату
-                            </button>
-                            <button onclick="fixManualAdvances()" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; font-weight: 700; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">
-                                🔧 Зафиксировать ручные корректировки
-                            </button>
-                            <button onclick="cancelAdvancePayment()" class="warning" style="background: linear-gradient(135deg, #ffa726 0%, #ff9800 100%); color: white; font-weight: 700; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);">
-                                🔓 Отменить фиксацию
-                            </button>
-                            <button class="secondary" onclick="showAdjustmentsHistory()">
-                                📜 История корректировок
-                            </button>
+                            <button onclick="fixAdvancePayment()" class="primary"><i class="ti ti-lock"></i> Зафиксировать выплату</button>
+                            <button onclick="fixManualAdvances()" class="secondary"><i class="ti ti-adjustments"></i> Зафиксировать корректировки</button>
+                            <button onclick="cancelAdvancePayment()" class="warning"><i class="ti ti-lock-open"></i> Отменить фиксацию</button>
+                            <button class="secondary" onclick="showAdjustmentsHistory()"><i class="ti ti-history"></i> История корректировок</button>
                         </div>
                     </div>
 
                     <div class="control-section">
-                        <h4 class="section-title">📤 Экспорт и печать</h4>
+                        <h4 class="section-title">Экспорт и печать</h4>
                         <div class="control-row">
-                            <button class="secondary" onclick="exportMonthlyReportToExcel()">📊 Экспорт в Excel</button>
-                            <button class="secondary" onclick="printAllPayslips()">🖨️ Печать ведомостей</button>
-                            <button class="secondary" onclick="generateCashPayoutReport()">💵 Ведомость наличных</button>
+                            <button class="secondary" onclick="exportMonthlyReportToExcel()"><i class="ti ti-file-spreadsheet"></i> Экспорт в Excel</button>
+                            <button class="secondary" onclick="printAllPayslips()"><i class="ti ti-printer"></i> Печать ведомостей</button>
+                            <button class="secondary" onclick="generateCashPayoutReport()"><i class="ti ti-cash"></i> Ведомость наличных</button>
                         </div>
                     </div>
 
                     <div class="control-section admin-only" id="adminSection" style="display: none;">
-                        <h4 class="section-title">⚙️ Администрирование</h4>
+                        <h4 class="section-title">Администрирование</h4>
                         <div class="control-row">
-                            <button class="danger" onclick="clearDatabase()">
-                                ⚠️ Очистить данные
-                            </button>
+                            <button class="danger" onclick="clearDatabase()"><i class="ti ti-trash"></i> Очистить данные</button>
                         </div>
                     </div>
 
-                    <div class="control-section" style="border-top: 2px solid #e0e0e0; padding-top: 15px;">
+                    <div class="control-section">
                         <div class="control-row" style="justify-content: flex-end;">
-                            <button class="danger" onclick="logout()">
-                                🚪 Выйти из системы
-                            </button>
+                            <button class="danger" onclick="logout()"><i class="ti ti-logout"></i> Выйти</button>
                         </div>
                     </div>
                 </div>
@@ -1043,13 +381,13 @@
                             <span class="summary-label">Общий ФОТ за период (выплаты + 22%):</span>
                             <span class="summary-value" id="fotTotalFund">0.00 грн</span>
                         </div>
-                        <div class="summary-row" style="font-size: 22px; color: #764ba2;">
+                        <div class="summary-row" style="font-size: 18px; color: var(--brand); font-weight: 500;">
                             <span class="summary-label">Итоговый ФОТ % от выручки:</span>
                             <span class="summary-value" id="fotPercentage">0.00 %</span>
                         </div>
                     </div>
                     <div id="fotByStorePanel" class="summary-panel" style="display: none; margin-top: 20px;">
-                        <h3>📊 ФОТ по магазинам</h3>
+                        <h3>ФОТ по магазинам</h3>
                         <div class="table-container">
                             <table id="fotByStoreTable">
                                 <thead>
@@ -1071,7 +409,7 @@
                 <div class="control-panel">
                     <div class="control-row">
                         <div class="control-group">
-                            <label>🔍 Поиск:</label>
+                            <label>Поиск:</label>
                             <input type="text" id="employeeSearch" 
                                    placeholder="Имя сотрудника..." 
                                    oninput="filterEmployees()">
@@ -1087,7 +425,7 @@
                         <div class="control-group" style="margin-left: auto;">
                             <label>&nbsp;</label>
                             <button class="secondary" onclick="exportCardLimitsToExcel()">
-                                📊 Экспорт в Excel
+                                Экспорт в Excel
                             </button>
                         </div>
                     </div>
@@ -1127,12 +465,12 @@
                     <div id="limitTypeSelector"></div>
                     <button onclick="applyBulkLimitChange()" class="success" 
                             style="width: 100%; margin-top: 15px;">
-                        ✅ Применить к выбранным сотрудникам
+                        Применить к выбранным
                     </button>
                 </div>
                 
                 <div class="summary-panel" style="margin-top: 20px;">
-                    <h3>📊 Статистика по лимитам</h3>
+                    <h3>Статистика по лимитам</h3>
                     <ul id="cardLimitsStats" style="list-style: none; padding: 0;">
                         <li>Загрузка...</li>
                     </ul>
@@ -1140,10 +478,10 @@
             </div>
 
                 <!-- Секция настройки типов лимитов (для админов и бухгалтеров) -->
-                <div id="limitTypesSettings" class="control-panel" style="margin-top: 20px; display: none; background: linear-gradient(135deg, #fff9c4 0%, #fff59d 100%); border: 2px solid #ffc107;">
-                    <h4 class="section-title" style="color: #856404;">⚙️ Настройки типов лимитов</h4>
+                <div id="limitTypesSettings" class="control-panel" style="margin-top: 20px; display: none;">
+                    <h4 class="section-title" style="color: #856404;">Настройки типов лимитов</h4>
                     <p style="color: #666; margin-bottom: 15px; font-size: 13px;">
-                        ⚠️ Здесь можно изменить значения лимитов. Изменения применяются ко всем сотрудникам с соответствующим типом карты.
+                        Здесь можно изменить значения лимитов. Изменения применяются ко всем сотрудникам с соответствующим типом карты.
                     </p>
                     
                     <div id="limitTypesEditor">
@@ -1152,13 +490,13 @@
                     
                     <div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ffc107; display: flex; gap: 10px; flex-wrap: wrap;">
                         <button onclick="addNewLimitType()" class="secondary">
-                            ➕ Добавить новый тип лимита
+                            Добавить новый тип лимита
                         </button>
                         <button onclick="saveLimitTypes()" class="success">
-                            💾 Сохранить все изменения
+                            Сохранить все изменения
                         </button>
                         <button onclick="loadLimitTypesEditor()" class="secondary" style="margin-left: auto;">
-                            🔄 Обновить
+                            Обновить
                         </button>
                     </div>
                 </div>
@@ -1170,7 +508,7 @@
                 <div class="control-panel">
                     <div class="control-row">
                         <div class="control-group">
-                            <label>👤 Сотрудник:</label>
+                            <label>Сотрудник:</label>
                             <select id="detailsEmployeeSelect">
                                 <option value="">-- Выберите сотрудника --</option>
                             </select>
@@ -1199,7 +537,7 @@
                         <div class="control-group">
                             <label>&nbsp;</label>
                             <button onclick="loadCalculationDetails()" class="primary">
-                                📊 Показать детализацию
+                                Показать детализацию
                             </button>
                         </div>
                     </div>
@@ -1221,5 +559,9 @@
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+<script>
+(function(){var s=localStorage.getItem("pv-theme");var d=s?s==="dark":(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.setAttribute("data-theme",d?"dark":"light");document.addEventListener("DOMContentLoaded",function(){var b=document.getElementById("themeToggle");if(b)b.innerHTML=d?"<i class=\"ti ti-sun\"></i>":"<i class=\"ti ti-moon\"></i>";});})();
+function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")==="dark";var n=d?"light":"dark";document.documentElement.setAttribute("data-theme",n);localStorage.setItem("pv-theme",n);var b=document.getElementById("themeToggle");if(b)b.innerHTML=n==="dark"?"<i class=\"ti ti-sun\"></i>":"<i class=\"ti ti-moon\"></i>";}
+</script>
 </body>
 </html>

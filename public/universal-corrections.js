@@ -95,7 +95,7 @@ async loadEmployeeLimits(employeeId) {
         <div id="universal-corrections-modal" class="ucm-overlay">
             <div class="ucm-container">
                 <div class="ucm-header">
-                    <h2>💼 Универсальная корректировка выплат</h2>
+                    <h2>Универсальная корректировка выплат</h2>
                     <button class="ucm-close" onclick="ucModal.close()">✕</button>
                 </div>
                 
@@ -107,13 +107,13 @@ async loadEmployeeLimits(employeeId) {
                 </div>
 
                 <div class="ucm-tabs">
-                    <button class="ucm-tab active" data-tab="summary">📊 СВОДКА</button>
-                    <button class="ucm-tab" data-tab="advance">💰 АВАНС</button>
-                    <button class="ucm-tab" data-tab="salary">💵 ЗАРПЛАТА</button>
-                    <button class="ucm-tab" data-tab="bonuses">🎁 ПРЕМИИ/ШТРАФЫ</button>
-                    <button class="ucm-tab" data-tab="shortages">📉 НЕДОСТАЧИ</button>
-                    <button class="ucm-tab" data-tab="card-limit">💳 ЛИМИТ КАРТЫ</button>
-                    <button class="ucm-tab" data-tab="special">⚡ ОСОБЫЕ СЛУЧАИ</button>
+                    <button class="ucm-tab active" data-tab="summary">СВОДКА</button>
+                    <button class="ucm-tab" data-tab="advance">АВАНС</button>
+                    <button class="ucm-tab" data-tab="salary">ЗАРПЛАТА</button>
+                    <button class="ucm-tab" data-tab="bonuses">ПРЕМИИ/ШТРАФЫ</button>
+                    <button class="ucm-tab" data-tab="shortages">НЕДОСТАЧИ</button>
+                    <button class="ucm-tab" data-tab="card-limit">ЛИМИТ КАРТЫ</button>
+                    <button class="ucm-tab" data-tab="special">ОСОБЫЕ СЛУЧАИ</button>
                 </div>
 
                 <div class="ucm-content">
@@ -162,21 +162,21 @@ async loadEmployeeLimits(employeeId) {
                 <div class="ucm-footer">
                     <div class="ucm-footer-left">
                         <button class="ucm-btn ucm-btn-secondary" onclick="ucModal.reset()">
-                            🔄 СБРОСИТЬ
+                            СБРОСИТЬ
                         </button>
                         <button class="ucm-btn ucm-btn-warning" onclick="ucModal.rollback()">
-                            ↩️ ОТКАТ
+                            ↩ОТКАТ
                         </button>
                         <button class="ucm-btn ucm-btn-info" onclick="ucModal.showHistory()">
-                            📜 ИСТОРИЯ
+                            ИСТОРИЯ
                         </button>
                     </div>
                     <div class="ucm-footer-right">
                         <button class="ucm-btn ucm-btn-lock" onclick="ucModal.fixCalculations()">
-                            🔒 ЗАФИКСИРОВАТЬ
+                            ЗАФИКСИРОВАТЬ
                         </button>
                         <button class="ucm-btn ucm-btn-primary" onclick="ucModal.save()">
-                            💾 СОХРАНИТЬ
+                            СОХРАНИТЬ
                         </button>
                     </div>
                 </div>
@@ -206,7 +206,7 @@ improvedStyle.innerHTML = `
         width: 95%;
         max-width: 1400px;
         height: 82vh;
-        background: white;
+        background: var(--surface);
         border-radius: 10px;
         display: flex;
         flex-direction: column;
@@ -268,7 +268,7 @@ improvedStyle.innerHTML = `
     }
     
     .ucm-period {
-        background: white;
+        background: var(--surface);
         padding: 3px 12px;
         border-radius: 15px;
         font-size: 12px;
@@ -306,14 +306,14 @@ improvedStyle.innerHTML = `
     .ucm-tab.active {
         color: #667eea;
         border-bottom-color: #667eea;
-        background: white;
+        background: var(--surface);
     }
     
     /* Основной контент */
     .ucm-content {
         flex: 1;
         padding: 12px 20px;
-        background: white;
+        background: var(--surface);
         overflow-y: auto;
         min-height: 0;
     }
@@ -329,7 +329,7 @@ improvedStyle.innerHTML = `
     /* Контейнер сводки */
 .ucm-summary-container {
     padding: 15px;
-    background: #ffffff;
+    background: var(--surface);
 }
 
 /* Основные блоки в ряд */
@@ -440,7 +440,7 @@ improvedStyle.innerHTML = `
     flex-direction: column;
     align-items: center;
     padding: 8px;
-    background: white;
+    background: var(--surface);
     border: 1px solid #dee2e6;
     border-radius: 6px;
     font-size: 11px;
@@ -553,7 +553,7 @@ improvedStyle.innerHTML = `
         font-size: 12px;
         border: 1px solid #ced4da;
         border-radius: 4px;
-        background: white;
+        background: var(--surface);
     }
     
     .ucm-form-group input:focus,
@@ -583,7 +583,7 @@ improvedStyle.innerHTML = `
         flex-direction: column;
         align-items: center;
         padding: 15px 8px;
-        background: white;
+        background: var(--surface);
         border: 2px solid #e9ecef;
         border-radius: 6px;
         cursor: pointer;
@@ -634,7 +634,7 @@ improvedStyle.innerHTML = `
         justify-content: space-between;
         align-items: center;
         padding: 6px;
-        background: white;
+        background: var(--surface);
         border-radius: 4px;
     }
 
@@ -671,7 +671,7 @@ improvedStyle.innerHTML = `
         align-items: center;
         gap: 6px;
         padding: 3px 6px;
-        background: white;
+        background: var(--surface);
         border-radius: 4px;
         font-size: 10px;
         flex-wrap: wrap;
@@ -701,7 +701,7 @@ improvedStyle.innerHTML = `
         overflow-y: auto;
         margin-bottom: 10px;
         padding: 8px;
-        background: white;
+        background: var(--surface);
         border-radius: 6px;
         border: 1px solid #e9ecef;
     }
@@ -791,7 +791,7 @@ improvedStyle.innerHTML = `
     .ucm-changes-summary {
         margin-top: 6px;
         padding: 6px 8px;
-        background: white;
+        background: var(--surface);
         border-radius: 4px;
         border: 1px solid #ffc107;
     }
@@ -878,7 +878,7 @@ document.head.appendChild(improvedStyle);
             this.updateFixedState();
         }
         
-        // ⭐⭐⭐ ДОБАВИТЬ ЗДЕСЬ НОВЫЙ КОД ДЛЯ АВТОСОХРАНЕНИЯ И ВАЛИДАЦИИ:
+        // ДОБАВИТЬ ЗДЕСЬ НОВЫЙ КОД ДЛЯ АВТОСОХРАНЕНИЯ И ВАЛИДАЦИИ:
         
         // Загружаем сохраненный черновик если есть
         const key = `ucm_draft_${this.currentEmployee.id}_${this.currentMonth}_${this.currentYear}`;
@@ -1082,14 +1082,14 @@ renderAdvanceTab() {
         
         <div class="ucm-form-row">
             <div class="ucm-form-group">
-                <label>💳 На карту (макс. 8700):</label>
+                <label>На карту (макс. 8700):</label>
                 <input type="number" id="ucm-advance-card" 
                        value="${this.adjustedData.advanceCard || 0}"
                        onchange="ucModal.updateCalculations()">
             </div>
             
             <div class="ucm-form-group">
-                <label>💵 Наличными:</label>
+                <label>Наличными:</label>
                 <input type="number" id="ucm-advance-cash" 
                        value="${this.adjustedData.advanceCash || 0}"
                        onchange="ucModal.updateCalculations()">
@@ -1107,14 +1107,14 @@ renderSalaryTab() {
         
         <div class="ucm-form-row">
             <div class="ucm-form-group">
-                <label>💳 На карту (остаток ${maxCard}):</label>
+                <label>На карту (остаток ${maxCard}):</label>
                 <input type="number" id="ucm-salary-card" 
                        value="${this.adjustedData.salaryCard || 0}"
                        onchange="ucModal.updateCalculations()">
             </div>
             
             <div class="ucm-form-group">
-                <label>💵 Наличными:</label>
+                <label>Наличными:</label>
                 <input type="number" id="ucm-salary-cash" 
                        value="${this.adjustedData.salaryCash || 0}"
                        onchange="ucModal.updateCalculations()">
@@ -1129,7 +1129,7 @@ renderBonusesTab() {
     return `
     <div class="ucm-form-row">
         <div class="ucm-form-col">
-            <h4>➕ Премирование</h4>
+            <h4>Премирование</h4>
             <div class="ucm-form-group">
                 <label>Сумма премии:</label>
                 <input type="number" id="ucm-bonus" 
@@ -1145,7 +1145,7 @@ renderBonusesTab() {
         </div>
         
         <div class="ucm-form-col">
-            <h4>➖ Депремирование</h4>
+            <h4>Депремирование</h4>
             <div class="ucm-form-group">
                 <label>Сумма штрафа:</label>
                 <input type="number" id="ucm-penalty" 
@@ -1184,7 +1184,7 @@ renderBonusesTab() {
                     <option value="both">Разделить 50/50</option>
                 </select>
                 <button class="ucm-quick-btn" style="width: 100%;" onclick="ucModal.addShortage()">
-                    ➕ Добавить недостачу
+                    Добавить недостачу
                 </button>
             </div>
         </div>`;
@@ -1201,7 +1201,7 @@ renderBonusesTab() {
         
         return `
         <div class="ucm-form-compact">
-            <h4>💳 Лимит карты</h4>
+            <h4>Лимит карты</h4>
             
             <p style="margin-bottom: 20px; color: #495057; font-size: 13px;">
                 <strong>Сотрудник:</strong> ${this.currentEmployee.name}
@@ -1254,22 +1254,22 @@ renderSpecialTab() {
     return `
     <div class="ucm-special-grid-compact">
         <button class="ucm-special-btn-compact" onclick="ucModal.processTermination()">
-            <span class="icon">🚪</span>
+            <span class="icon"></span>
             <span class="title">Увольнение</span>
         </button>
         
         <button class="ucm-special-btn-compact" onclick="ucModal.processVacation()">
-            <span class="icon">🏖️</span>
+            <span class="icon"></span>
             <span class="title">Отпускные</span>
         </button>
         
         <button class="ucm-special-btn-compact" onclick="ucModal.processLoan()">
-            <span class="icon">💸</span>
+            <span class="icon"></span>
             <span class="title">Займ</span>
         </button>
         
         <button class="ucm-special-btn-compact danger" onclick="ucModal.suspendPayments()">
-            <span class="icon">🚫</span>
+            <span class="icon"></span>
             <span class="title">Блокировка</span>
         </button>
     </div>`;
@@ -1363,7 +1363,7 @@ togglePreview() {
                         <button onclick="ucModal.removeShortage('${shortage.id}')" 
                                 style="padding: 5px 10px; background: #dc3545; color: white; 
                                        border: none; border-radius: 4px; cursor: pointer;">
-                            🗑️
+                            
                         </button>
                     </div>
                 </div>`;
@@ -1471,7 +1471,7 @@ togglePreview() {
                     this.saveStateForHistory();
                 }
                 
-                showModalNotification('✅ Все изменения успешно сохранены', 'success');
+                showModalNotification('Все изменения успешно сохранены', 'success');
                 this.close();
                 
                 // Обновляем основную таблицу
@@ -1807,10 +1807,10 @@ togglePreview() {
             statusEl.style.background = '#d4edda';
             statusEl.style.color = '#155724';
             statusEl.style.border = '1px solid #c3e6cb';
-            statusEl.innerHTML = `✅ Новый лимит выбран: <strong>${newLimit.name}</strong><br>
-                💳 Макс. на карту: <strong>${this.formatNumber(newLimit.cardLimit)} грн</strong> | 
-                💰 Макс. аванс: <strong>${this.formatNumber(newLimit.maxAdvance)} грн</strong><br>
-                <small style="margin-top: 8px; display: block;">⚠️ Не забудьте нажать "💾 СОХРАНИТЬ" для применения изменений!</small>`;
+            statusEl.innerHTML = `Новый лимит выбран: <strong>${newLimit.name}</strong><br>
+                Макс. на карту: <strong>${this.formatNumber(newLimit.cardLimit)} грн</strong> | 
+                Макс. аванс: <strong>${this.formatNumber(newLimit.maxAdvance)} грн</strong><br>
+                <small style="margin-top: 8px; display: block;">Не забудьте нажать "СОХРАНИТЬ" для применения изменений!</small>`;
         }
         
         this.hasUnsavedChanges = true;
@@ -1885,13 +1885,13 @@ if (totalCard > cardLimit) {
         
         if (errors.length === 0 && warnings.length === 0) {
             status.className = 'ucm-validation-status success show';
-            status.innerHTML = '✅ Все данные корректны';
+            status.innerHTML = 'Все данные корректны';
         } else if (errors.length > 0) {
             status.className = 'ucm-validation-status error show';
-            status.innerHTML = `❌ Ошибки:<br>${errors.join('<br>')}`;
+            status.innerHTML = `Ошибки:<br>${errors.join('<br>')}`;
         } else if (warnings.length > 0) {
             status.className = 'ucm-validation-status warning show';
-            status.innerHTML = `⚠️ Предупреждения:<br>${warnings.join('<br>')}`;
+            status.innerHTML = `Предупреждения:<br>${warnings.join('<br>')}`;
         }
         
         // Автоскрытие через 5 секунд
@@ -1976,7 +1976,7 @@ if (totalCard > cardLimit) {
             const data = JSON.parse(backup);
             this.adjustedData = data.data;
             this.createModal();
-            showModalNotification('✅ Данные восстановлены из резервной копии', 'success');
+            showModalNotification('Данные восстановлены из резервной копии', 'success');
         }
     }
     
@@ -2009,7 +2009,7 @@ if (totalCard > cardLimit) {
                 left: 50%;
                 transform: translate(-50%, -50%);
                 z-index: 1000;
-                background: white;
+                background: var(--surface);
                 padding: 20px;
                 border-radius: 10px;
                 box-shadow: 0 4px 20px rgba(0,0,0,0.3);
@@ -2104,7 +2104,7 @@ if (totalCard > cardLimit) {
                     this.saveStateForHistory();
                 }
                 
-                showModalNotification('✅ Все изменения успешно сохранены и проверены', 'success');
+                showModalNotification('Все изменения успешно сохранены и проверены', 'success');
                 this.close();
                 
                 if (typeof generateMonthlyReport === 'function') {
@@ -2183,7 +2183,7 @@ if (totalCard > cardLimit) {
                 history.pop();
                 localStorage.setItem('ucm_history', JSON.stringify(history));
                 
-                showModalNotification('✅ Откат выполнен успешно', 'success');
+                showModalNotification('Откат выполнен успешно', 'success');
                 this.close();
                 
                 if (typeof generateMonthlyReport === 'function') {
@@ -2210,7 +2210,7 @@ if (totalCard > cardLimit) {
                 top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                background: white;
+                background: var(--surface);
                 padding: 25px;
                 border-radius: 12px;
                 box-shadow: 0 10px 40px rgba(0,0,0,0.3);
@@ -2219,7 +2219,7 @@ if (totalCard > cardLimit) {
                 overflow-y: auto;
                 z-index: 10001;
             " id="history-modal">
-                <h3 style="margin-bottom: 20px; color: #2c3e50;">📜 История изменений</h3>
+                <h3 style="margin-bottom: 20px; color: #2c3e50;">История изменений</h3>
                 <div style="max-height: 350px; overflow-y: auto;">`;
         
         history.reverse().forEach((item, index) => {
@@ -2294,7 +2294,7 @@ if (totalCard > cardLimit) {
                 
                 this.createModal();
                 
-                showModalNotification('✅ Состояние восстановлено', 'success');
+                showModalNotification('Состояние восстановлено', 'success');
             }
         }
     }
@@ -2308,7 +2308,7 @@ if (totalCard > cardLimit) {
             if (historyModal) historyModal.remove();
             if (historyOverlay) historyOverlay.remove();
             
-            showModalNotification('🗑️ История очищена', 'info');
+            showModalNotification('История очищена', 'info');
         }
     }
 
@@ -2334,7 +2334,7 @@ if (totalCard > cardLimit) {
             const result = await response.json();
             
             if (result.success) {
-                showModalNotification('🔒 Расчеты зафиксированы', 'success');
+                showModalNotification('Расчеты зафиксированы', 'success');
                 this.originalData.isFixed = true;
                 this.adjustedData.isFixed = true;
                 
@@ -2349,13 +2349,13 @@ if (totalCard > cardLimit) {
     updateFixedState() {
         if (this.adjustedData.isFixed) {
             const header = document.querySelector('.ucm-header h2');
-            if (header && !header.innerHTML.includes('🔒')) {
-                header.innerHTML = '🔒 ' + header.innerHTML;
+            if (header && !header.innerHTML.includes('')) {
+                header.innerHTML = '' + header.innerHTML;
             }
             
             const warningHTML = `
                 <div class="ucm-alert ucm-alert-warning" style="margin: 15px 0;">
-                    ⚠️ Расчеты зафиксированы. Для внесения изменений требуется отмена фиксации.
+                    Расчеты зафиксированы. Для внесения изменений требуется отмена фиксации.
                 </div>
             `;
             

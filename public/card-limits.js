@@ -96,7 +96,7 @@ function renderEmployeesTable() {
                 <button onclick="openEditLimitModal('${emp.id}', '${emp.fullname}')" 
                         style="padding: 5px 10px; background: #667eea; color: white; 
                                border: none; border-radius: 4px; cursor: pointer;">
-                    ✏️ Изменить
+                    Изменить
                 </button>
             </td>
         `;
@@ -154,7 +154,7 @@ function renderLimitTypeSelector() {
     
     container.innerHTML = cardLimitTypes.map(type => `
         <label style="display: flex; align-items: center; padding: 10px; 
-                      background: white; border: 2px solid #e0e0e0; 
+                      background: var(--surface); border: 2px solid #e0e0e0; 
                       border-radius: 8px; cursor: pointer; margin-bottom: 10px;">
             <input type="radio" name="bulk_limit_type" value="${type.id}" 
                    style="margin-right: 10px;">
@@ -204,7 +204,7 @@ async function applyBulkLimitChange() {
         const result = await response.json();
         
         if (result.success) {
-            showStatus('cardLimitsStatus', `✅ ${result.message}`, 'success');
+            showStatus('cardLimitsStatus', `${result.message}`, 'success');
             selectedEmployees.clear();
             await loadEmployeesWithLimits();
         } else {
@@ -228,9 +228,9 @@ async function openEditLimitModal(employeeId, employeeName) {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.5); display: flex; align-items: center;
             justify-content: center; z-index: 10000;">
-            <div style="background: white; padding: 25px; border-radius: 10px;
+            <div style="background: var(--surface); padding: 25px; border-radius: 10px;
                         box-shadow: 0 10px 40px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
-                <h3 style="margin-bottom: 20px; color: #667eea;">💳 Лимит карты</h3>
+                <h3 style="margin-bottom: 20px; color: #667eea;">Лимит карты</h3>
                 <p><strong>Сотрудник:</strong> ${employeeName}</p>
                 <hr style="margin: 15px 0;">
                 
@@ -257,7 +257,7 @@ async function openEditLimitModal(employeeId, employeeName) {
                     <button onclick="saveSingleLimitChange('${employeeId}')" style="
                         flex: 1; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                         color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
-                        💾 Сохранить
+                        Сохранить
                     </button>
                     <button onclick="closeEditLimitModal()" style="
                         flex: 1; padding: 12px; background: #6c757d; color: white;
@@ -365,7 +365,7 @@ function filterEmployees() {
                 <button onclick="openEditLimitModal('${emp.id}', '${emp.fullname}')" 
                         style="padding: 5px 10px; background: #667eea; color: white; 
                                border: none; border-radius: 4px; cursor: pointer;">
-                    ✏️ Изменить
+                    Изменить
                 </button>
             </td>
         `;
@@ -451,7 +451,7 @@ function renderLimitTypesEditor(types) {
         ">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <h5 style="margin: 0; color: #333; display: flex; align-items: center; gap: 8px;">
-                    ${isDefault ? '💳' : isPremium ? '💎' : '⭐'} 
+                    ${isDefault ? '' : isPremium ? '' : ''} 
                     <span class="limit-type-name">${type.limit_name}</span>
                     ${isDefault ? '<span style="color: #666; font-size: 11px; background: #e9ecef; padding: 2px 6px; border-radius: 3px;">по умолчанию</span>' : ''}
                 </h5>
@@ -460,7 +460,7 @@ function renderLimitTypesEditor(types) {
                         style="background: #dc3545; color: white; border: none; 
                                padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;"
                         title="Удалить тип лимита">
-                    🗑️ Удалить
+                    Удалить
                 </button>
                 ` : ''}
             </div>
@@ -468,7 +468,7 @@ function renderLimitTypesEditor(types) {
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
                 <div class="control-group">
                     <label style="font-size: 11px; color: #666; display: block; margin-bottom: 4px;">
-                        📝 Название:
+                        Название:
                     </label>
                     <input type="text" 
                            class="limit-name-input" 
@@ -481,7 +481,7 @@ function renderLimitTypesEditor(types) {
                 
                 <div class="control-group">
                     <label style="font-size: 11px; color: #666; display: block; margin-bottom: 4px;">
-                        💳 Лимит на карту (грн/мес):
+                        Лимит на карту (грн/мес):
                     </label>
                     <input type="number" 
                            class="card-limit-input" 
@@ -493,7 +493,7 @@ function renderLimitTypesEditor(types) {
                 
                 <div class="control-group">
                     <label style="font-size: 11px; color: #666; display: block; margin-bottom: 4px;">
-                        💰 Макс. аванс (грн):
+                        Макс. аванс (грн):
                     </label>
                     <input type="number" 
                            class="max-advance-input" 
@@ -505,7 +505,7 @@ function renderLimitTypesEditor(types) {
                 
                 <div class="control-group">
                     <label style="font-size: 11px; color: #666; display: block; margin-bottom: 4px;">
-                        📊 % аванса от начислений:
+                        % аванса от начислений:
                     </label>
                     <input type="number" 
                            class="advance-percentage-input" 
@@ -518,7 +518,7 @@ function renderLimitTypesEditor(types) {
             
             <div style="margin-top: 12px; padding: 8px 12px; background: rgba(0,0,0,0.04); border-radius: 5px;">
                 <small style="color: #555;">
-                    📌 <strong>Логика:</strong> 
+                    <strong>Логика:</strong> 
                     Аванс = MIN(Начислено × <span class="preview-percent">${Math.round((type.advance_percentage || 0.9) * 100)}%</span>, 
                     <span class="preview-max-advance">${type.max_advance}</span> грн), 
                     на карту не более <span class="preview-card-limit">${type.card_limit}</span> грн/мес
@@ -534,7 +534,7 @@ function renderLimitTypesEditor(types) {
             <button onclick="showLimitTypesHistory()" 
                     style="background: #6c757d; color: white; border: none; 
                            padding: 8px 15px; border-radius: 5px; cursor: pointer;">
-                📜 История изменений
+                История изменений
             </button>
         </div>
     `;
@@ -590,7 +590,7 @@ async function addNewLimitType() {
     
     // Валидация
     if (parseInt(maxAdvance) > parseInt(cardLimit)) {
-        alert('⚠️ Максимальный аванс не может быть больше лимита карты!');
+        alert('Максимальный аванс не может быть больше лимита карты!');
         return;
     }
     
@@ -612,7 +612,7 @@ async function addNewLimitType() {
         const result = await response.json();
         
         if (result.success) {
-            showStatus('cardLimitsStatus', '✅ Новый тип лимита добавлен!', 'success');
+            showStatus('cardLimitsStatus', 'Новый тип лимита добавлен!', 'success');
             await loadLimitTypesEditor();
             await loadCardLimitTypes();
         } else {
@@ -662,14 +662,14 @@ async function saveLimitTypes() {
     
     // Если есть ошибки валидации
     if (errors.length > 0) {
-        showStatus('cardLimitsStatus', `⚠️ Ошибки:\n${errors.join('\n')}`, 'error');
+        showStatus('cardLimitsStatus', `Ошибки:\n${errors.join('\n')}`, 'error');
         alert('Обнаружены ошибки:\n\n' + errors.join('\n'));
         return;
     }
     
     // Подтверждение
     const confirmMsg = `Сохранить изменения для ${updates.length} типов лимитов?\n\n` +
-                       `⚠️ Это повлияет на расчет зарплаты для всех сотрудников с этими типами карт!`;
+                       `Это повлияет на расчет зарплаты для всех сотрудников с этими типами карт!`;
     
     if (!confirm(confirmMsg)) {
         return;
@@ -688,7 +688,7 @@ async function saveLimitTypes() {
         const result = await response.json();
         
         if (result.success) {
-            showStatus('cardLimitsStatus', '✅ Все изменения сохранены!', 'success');
+            showStatus('cardLimitsStatus', 'Все изменения сохранены!', 'success');
             
             // Очищаем кэш лимитов на клиенте (если используется)
             if (typeof employeeLimitsCache !== 'undefined') {
@@ -703,7 +703,7 @@ async function saveLimitTypes() {
             
             // Уведомление
             if (typeof showModalNotification === 'function') {
-                showModalNotification('✅ Типы лимитов обновлены! Изменения применены.', 'success');
+                showModalNotification('Типы лимитов обновлены! Изменения применены.', 'success');
             }
         } else {
             showStatus('cardLimitsStatus', result.error || 'Ошибка сохранения', 'error');
@@ -717,7 +717,7 @@ async function saveLimitTypes() {
 // Удаление типа лимита
 async function deleteLimitType(typeId, typeName) {
     const confirmMsg = `Удалить тип лимита "${typeName}"?\n\n` +
-                       `⚠️ Все сотрудники с этим типом будут переведены на "Обычную карту".`;
+                       `Все сотрудники с этим типом будут переведены на "Обычную карту".`;
     
     if (!confirm(confirmMsg)) {
         return;
@@ -734,7 +734,7 @@ async function deleteLimitType(typeId, typeName) {
         const result = await response.json();
         
         if (result.success) {
-            showStatus('cardLimitsStatus', '✅ Тип лимита удален', 'success');
+            showStatus('cardLimitsStatus', 'Тип лимита удален', 'success');
             await loadLimitTypesEditor();
             await loadCardLimitTypes();
             await loadEmployeesWithLimits();
@@ -766,10 +766,10 @@ async function showLimitTypesHistory() {
                 position: fixed; top: 0; left: 0; width: 100%; height: 100%;
                 background: rgba(0,0,0,0.5); display: flex; align-items: center;
                 justify-content: center; z-index: 10000;">
-                <div style="background: white; padding: 25px; border-radius: 10px;
+                <div style="background: var(--surface); padding: 25px; border-radius: 10px;
                             box-shadow: 0 10px 40px rgba(0,0,0,0.3); max-width: 800px; 
                             width: 90%; max-height: 80vh; overflow-y: auto;">
-                    <h3 style="margin-bottom: 20px; color: #667eea;">📜 История изменений лимитов</h3>
+                    <h3 style="margin-bottom: 20px; color: #667eea;">История изменений лимитов</h3>
                     <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                         <thead>
                             <tr style="background: #f8f9fa;">
@@ -797,7 +797,7 @@ async function showLimitTypesHistory() {
                         <button onclick="rollbackLimitType(${record.id})" 
                                 style="background: #ffc107; color: #333; border: none; 
                                        padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
-                            ↩️ Откатить
+                            ↩Откатить
                         </button>
                     </td>
                 </tr>
@@ -849,7 +849,7 @@ async function rollbackLimitType(historyId) {
         const result = await response.json();
         
         if (result.success) {
-            alert('✅ ' + result.message);
+            alert('' + result.message);
             closeLimitHistoryModal();
             await loadLimitTypesEditor();
             await loadCardLimitTypes();

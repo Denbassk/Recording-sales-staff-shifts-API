@@ -307,6 +307,7 @@ function calculateDailyPay(revenue, numSellers, isSenior = false, fixedRate = nu
 // --- ПЛАВАЮЩАЯ СТАВКА (Блок 1 новых правил, с 16.07.2026) ---
 const { NEW_RULES_START, rateFromAvgRevenue, previousMonthBounds, averageDailyRevenue, isNewRulesDate } = require('./payroll/floating-rate.cjs');
 const extras = require('./payroll/extras.cjs');
+const { distributeRemainder } = require('./payroll/final-calc.cjs');
 
 // Среднедневной выторг магазина за пред. месяц -> ставка (800/900/1000).
 // Возвращает Map(store_id -> { avg, days, rate, periodFrom, periodTo }). Старый расчёт не затрагивает.
@@ -1961,6 +1962,8 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
 
             const finalResults = {};
             const dataToSave = [];
+            const warnings = [];
+            let preservedFixed = 0;
             
             for (const employeeId in totalBasePayMap) {
                 const basePay = totalBasePayMap[employeeId];
@@ -1972,6 +1975,25 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 
                 // Получаем существующую запись
                 const existing = existingMap.get(employeeId);
+
+                // ФАЗА 1: зафиксированная строка неизменна — целиком не пересчитываем и не перезаписываем.
+                if (existing && existing.is_fixed) {
+                    preservedFixed++;
+                    finalResults[employeeId] = {
+                        total_gross: existing.total_gross,
+                        total_deductions: existing.total_deductions,
+                        total_after_deductions: existing.total_after_deductions,
+                        advance_payment: existing.advance_payment,
+                        advance_card: existing.advance_card,
+                        advance_cash: existing.advance_cash,
+                        card_remainder: existing.card_remainder,
+                        cash_payout: existing.cash_payout,
+                        total_card_payment: existing.total_card_payment,
+                        penalties_total: existing.total_deductions,
+                        is_fixed: true, preserved: true
+                    };
+                    continue;
+                }
                 
                 // 1. Всего начислено = база + премия
                 const totalGross = basePay + (adj.manual_bonus || 0);
@@ -2075,9 +2097,10 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                         cashPayout = Math.max(0, cashPayout);
                     } 
                     else {
-                        // Обычный расчет без защиты
-                        cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-                        cashPayout = Math.max(0, remainingToPay - cardRemainder);
+                        // Каноничное распределение остатка
+                        const d = distributeRemainder({ afterDeductions: totalAfterDeductions, advancePayment, advanceCard, cardLimit: limits.cardLimit });
+                        cardRemainder = d.cardRemainder;
+                        cashPayout = d.cashPayout;
                     }
                     
                 } else {
@@ -2092,16 +2115,17 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     const maxCardTotal = limits.cardLimit;
                     const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
                     
-                    cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-                    cashPayout = Math.max(0, remainingToPay - cardRemainder);
+                    const dNew = distributeRemainder({ afterDeductions: totalAfterDeductions, advancePayment, advanceCard, cardLimit: limits.cardLimit });
+                    cardRemainder = dNew.cardRemainder;
+                    cashPayout = dNew.cashPayout;
                 }
                 
                 // Финальная проверка математики
                 const expectedTotal = totalAfterDeductions - advancePayment;
                 const actualTotal = cardRemainder + cashPayout;
                 if (Math.abs(expectedTotal - actualTotal) > 1 && !isTermination) {
+                    warnings.push({ employee_id: employeeId, expected: Math.round(expectedTotal * 100) / 100, got: Math.round(actualTotal * 100) / 100 });
                     console.warn(`${employeeId}: расхождение! Ожидается ${expectedTotal}, получено ${actualTotal}`);
-                    // Корректируем cash_payout
                     cashPayout = Math.max(0, expectedTotal - cardRemainder);
                 }
                 
@@ -2173,7 +2197,9 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
             res.json({ 
                 success: true, 
                 results: finalResults,
-                message: `Расчет выполнен. Обработано ${dataToSave.length} сотрудников.`
+                warnings,
+                preservedFixed,
+                message: `Расчет выполнен. Обработано ${dataToSave.length}, зафиксировано без изменений ${preservedFixed}.` + (warnings.length ? ` расхождений: ${warnings.length}` : '')
             });
 
         } catch (error) {
@@ -2237,6 +2263,35 @@ const maxCard = Math.max(0, limits.cardLimit - (currentData.advance_card || 0));
         console.error('Ошибка корректировки финальных выплат:', error);
         res.status(500).json({ success: false, error: error.message });
     }
+});
+
+// --- ФАЗА 2: разблокировать зафиксированную строку для правки (бэкап + снять is_fixed) ---
+app.post('/unlock-final-row', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, year, month } = req.body;
+    if (!employee_id || !year || !month) return res.status(400).json({ success: false, error: 'Не хватает параметров' });
+    return withLock(`final_payroll_${year}_${month}`, async () => {
+        try {
+            const { data: existing } = await supabase.from('final_payroll_calculations').select('*')
+                .eq('employee_id', employee_id).eq('year', year).eq('month', month).single();
+            if (!existing) return res.status(404).json({ success: false, error: 'Расчёт не найден' });
+            try {
+                const { id, ...rest } = existing;
+                await supabase.from('final_payroll_calculations_backup').insert({
+                    ...rest, original_id: id, backup_date: new Date().toISOString(),
+                    backup_reason: 'unlock_for_edit', backup_by: req.user.id
+                });
+            } catch (e) { console.error('Бэкап при разблокировке:', e.message); }
+            const { error } = await supabase.from('final_payroll_calculations')
+                .update({ is_fixed: false, is_remainder_adjusted: false, updated_at: new Date().toISOString() })
+                .eq('employee_id', employee_id).eq('year', year).eq('month', month);
+            if (error) throw error;
+            await logFinancialOperation('unlock_final_row', { employee_id, year, month }, req.user.id);
+            res.json({ success: true, message: 'Строка разблокирована для правки' });
+        } catch (e) {
+            console.error('Ошибка разблокировки строки:', e);
+            res.status(500).json({ success: false, error: e.message });
+        }
+    });
 });
 
 // Получение недостач

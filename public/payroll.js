@@ -293,26 +293,26 @@ function showModalNotification(message, type = 'info', duration = 3000) {
     }
     
     // Определяем иконку и цвет по типу
-    let icon = 'ℹ️';
+    let icon = '';
     let bgColor = '#d1ecf1';
     let textColor = '#0c5460';
     let borderColor = '#bee5eb';
     
     switch(type) {
         case 'success':
-            icon = '✅';
+            icon = '';
             bgColor = '#d4edda';
             textColor = '#155724';
             borderColor = '#c3e6cb';
             break;
         case 'error':
-            icon = '❌';
+            icon = '';
             bgColor = '#f8d7da';
             textColor = '#721c24';
             borderColor = '#f5c6cb';
             break;
         case 'warning':
-            icon = '⚠️';
+            icon = '';
             bgColor = '#fff3cd';
             textColor = '#856404';
             borderColor = '#ffeaa7';
@@ -660,10 +660,10 @@ async function exportMonthlyReportToExcel() {
             const cardText = advanceCardCell.textContent;
             const cardHTML = advanceCardCell.innerHTML;
             advanceCardAmount = parseFloat(cardText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-            if (cardHTML.includes('✏️')) {
+            if (cardHTML.includes('<i class="ti ti-pencil"></i>')) {
                 isManualAdjustment = true;
             }
-            if (cardHTML.includes('🚪')) {
+            if (cardHTML.includes('<i class="ti ti-door-exit"></i>')) {
                 isTermination = true;
             }
         }
@@ -673,10 +673,10 @@ async function exportMonthlyReportToExcel() {
             const cashText = advanceCashCell.textContent;
             const cashHTML = advanceCashCell.innerHTML;
             advanceCashAmount = parseFloat(cashText.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
-            if (cashHTML.includes('✏️')) {
+            if (cashHTML.includes('<i class="ti ti-pencil"></i>')) {
                 isManualAdjustment = true;
             }
-            if (cashHTML.includes('🚪')) {
+            if (cashHTML.includes('<i class="ti ti-door-exit"></i>')) {
                 isTermination = true;
             }
         }
@@ -876,7 +876,7 @@ async function exportMonthlyReportToExcel() {
     const fileName = `Отчет_${monthNames[month - 1]}_${year}_полный${hasTerminations}.xlsx`;
     XLSX.writeFile(wb, fileName);
     
-    showStatus('reportStatus', `✅ Экспорт выполнен: ${fileName}`, 'success');
+    showStatus('reportStatus', `Экспорт выполнен: ${fileName}`, 'success');
 }
 
 
@@ -1035,7 +1035,7 @@ async function fetchData(url, options, statusId) {
     } catch (error) {
         if (error.name === 'AbortError') {
             console.error('Превышено время ожидания запроса (30 сек)');
-            showStatus(statusId, '⏱️ Превышено время ожидания. Попробуйте еще раз или выберите меньший период.', 'warning');
+            showStatus(statusId, '⏱Превышено время ожидания. Попробуйте еще раз или выберите меньший период.', 'warning');
         } else {
             console.error(`Ошибка при запросе к ${url}:`, error);
             showStatus(statusId, `Ошибка: ${error.message}`, 'error');
@@ -1148,109 +1148,96 @@ function updatePayrollSummary(totalPayroll, employeeCount) {
 // --- ФУНКЦИИ ДЛЯ ОБРАБОТКИ КОРРЕКТИРОВОК ---
 let adjustmentDebounceTimer;
 
+// --- ФАЗА 2: блокировка/разблокировка зафиксированных строк ---
+function toggleReasons(btn) {
+    const tbl = document.getElementById('monthlyReportTable');
+    if (!tbl) return;
+    const collapsed = tbl.classList.toggle('reasons-collapsed');
+    document.querySelectorAll('.grp-prem-head, .grp-deprem-head').forEach(th => { th.colSpan = collapsed ? 1 : 2; });
+    if (btn) btn.innerHTML = collapsed ? '<i class="ti ti-eye"></i> Показать причины' : '<i class="ti ti-eye-off"></i> Скрыть причины';
+}
+
+function applyRowLockStates() {
+    document.querySelectorAll('#monthlyReportContent tbody tr').forEach(function(row) {
+        var locked = row.dataset.isFixed === '1';
+        row.querySelectorAll('.adjustment-input').forEach(function(inp) {
+            inp.disabled = locked;
+            inp.title = locked ? 'Строка зафиксирована — нажмите «Разблокировать для правки»' : '';
+            inp.style.background = '';
+        });
+        var nameCell = row.querySelector('td');
+        if (!nameCell) return;
+        var box = nameCell.querySelector('.lock-box');
+        if (locked) {
+            if (!box) {
+                box = document.createElement('span');
+                box.className = 'lock-box';
+                box.style.cssText = 'display:inline-flex;gap:6px;align-items:center;margin-left:8px;';
+                box.innerHTML = '<span class="row-status locked"><i class="ti ti-lock"></i> Зафиксировано</span><button type="button" class="unlock-btn" onclick="unlockFinalRow(this)"><i class="ti ti-lock-open"></i> Разблокировать</button>';
+                nameCell.appendChild(box);
+            }
+        } else if (box) {
+            box.remove();
+        }
+    });
+}
+
+async function calculatePayrollExtras() {
+    const month = document.getElementById('reportMonth')?.value;
+    const year = document.getElementById('reportYear')?.value;
+    const endDate = document.getElementById('reportEndDate')?.value;
+    if (!month || !year || !endDate) { showStatus('reportStatus', 'Выберите месяц, год и дату расчёта', 'error'); return; }
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    showStatus('reportStatus', 'Пересчёт бонусов (процент, пакеты, кофе, кулинария)…', 'info');
+    try {
+        const res = await fetch(`${API_BASE}/calculate-payroll-extras`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ startDate, endDate })
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Ошибка пересчёта');
+        let msg = `Бонусы пересчитаны. Обновлено строк: ${data.updated || 0}.`;
+        if (data.skippedNoBase) msg += ` Без ставки (пропущено): ${data.skippedNoBase}.`;
+        if (data.warnings && data.warnings.length) msg += ` Расхождений: ${data.warnings.length}.`;
+        showStatus('reportStatus', msg, (data.warnings && data.warnings.length) ? 'warning' : 'success');
+        if (typeof generateMonthlyReport === 'function') generateMonthlyReport();
+    } catch (e) { showStatus('reportStatus', 'Ошибка пересчёта бонусов: ' + e.message, 'error'); }
+}
+
+async function unlockFinalRow(btn) {
+    var row = btn.closest('tr');
+    if (!row) return;
+    var employeeId = row.dataset.employeeId, employeeName = row.dataset.employeeName;
+    var month = row.dataset.month, year = row.dataset.year;
+    if (!confirm('Разблокировать строку «' + employeeName + '» для правки?\n\nБудет сделан бэкап, строка станет редактируемой. После правок зафиксируйте её заново.')) return;
+    try {
+        var res = await fetch(`${API_BASE}/unlock-final-row`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ employee_id: employeeId, year: parseInt(year), month: parseInt(month) })
+        });
+        var data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Не удалось разблокировать');
+        row.dataset.isFixed = '0';
+        applyRowLockStates();
+        showStatus('reportStatus', 'Строка «' + employeeName + '» разблокирована. Внесите правки и зафиксируйте заново.', 'success');
+    } catch (e) {
+        showStatus('reportStatus', 'Ошибка разблокировки: ' + e.message, 'error');
+    }
+}
+
 function handleAdjustmentInput(e) {
     clearTimeout(adjustmentDebounceTimer);
     const row = e.target.closest('tr');
     recalculateRow(row);
+    if (row) row.style.boxShadow = 'inset 4px 0 0 #f0a500';
     adjustmentDebounceTimer = setTimeout(() => {
         saveAdjustments(row);
     }, 800);
 }
 
-function recalculateRow(row) {
-    if (!row) return;
-    
-    const basePay = parseFloat(row.dataset.basePay) || 0;
-    const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
-    const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
-    const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
-
-    const totalGross = basePay + manualBonus;
-    const totalDeductions = penalty + shortage;
-    const totalAfterDeductions = totalGross - totalDeductions;
-
-    // Получаем текущий аванс
-    const advanceCardCell = row.querySelector('.advance-payment-card');
-    const advanceCashCell = row.querySelector('.advance-payment-cash');
-    
-    let advanceCard = 0;
-    let advanceCash = 0;
-    
-    if (advanceCardCell) {
-        const cardText = advanceCardCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-        advanceCard = parseFloat(cardText) || 0;
-    }
-    if (advanceCashCell) {
-        const cashText = advanceCashCell.textContent.replace(/[^0-9,]/g, '').replace(',', '.');
-        advanceCash = parseFloat(cashText) || 0;
-    }
-    
-    const totalAdvance = advanceCard + advanceCash;
-
-// ИСПРАВЛЕНИЕ: Правильный расчет остатка
-    const remainingToPay = totalAfterDeductions - totalAdvance;
-    
-    let newCardRemainder = 0;
-    let newCashPayout = 0;
-    
-    if (remainingToPay > 0) {
-        // Есть остаток к выплате - используем ДИНАМИЧЕСКИЙ лимит из data-атрибута
-        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 16000;
-        const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
-        
-        newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-        newCashPayout = remainingToPay - newCardRemainder;
-    }
-        // Если remainingToPay <= 0, остатки остаются 0
-
-    // Обновляем ячейки
-    const totalGrossCell = row.querySelector('.total-gross');
-    if (totalGrossCell) {
-        totalGrossCell.textContent = formatNumber(totalGross);
-    }
-
-    const cardRemainderCell = row.querySelector('.card-remainder');
-    if (cardRemainderCell) {
-        const hasButton = cardRemainderCell.innerHTML.includes('button');
-        cardRemainderCell.textContent = formatNumber(newCardRemainder);
-        
-        if (newCardRemainder > 0) {
-            cardRemainderCell.style.color = '#28a745';
-            cardRemainderCell.style.fontWeight = 'bold';
-        } else {
-            cardRemainderCell.style.color = '';
-            cardRemainderCell.style.fontWeight = 'normal';
-        }
-        
-        if (hasButton) {
-            const button = document.createElement('button');
-            button.onclick = () => adjustCardRemainder(row.dataset.employeeId, row.dataset.employeeName);
-            button.style.cssText = 'margin-left: 5px; padding: 2px 6px; font-size: 10px;';
-            button.title = 'Корректировать остаток';
-            button.innerHTML = '✏️';
-            cardRemainderCell.appendChild(button);
-        }
-    }
-
-    const cashPayoutCell = row.querySelector('.cash-payout');
-    if (cashPayoutCell) {
-        if (newCashPayout > 0) {
-            cashPayoutCell.innerHTML = `<strong style="color: #007bff;">${formatNumber(newCashPayout)}</strong>`;
-        } else {
-            cashPayoutCell.innerHTML = formatNumber(newCashPayout);
-        }
-    }
-
-    const totalPayoutCell = row.querySelector('.total-payout');
-    if (totalPayoutCell) {
-        totalPayoutCell.innerHTML = `<strong title="Остаток к выплате">${formatNumber(Math.max(0, remainingToPay))}</strong>`;
-    }
-    
-    console.log(`Пересчет для ${row.dataset.employeeName}:
-        Начислено: ${totalAfterDeductions} (база: ${basePay}, бонус: ${manualBonus}, вычеты: ${totalDeductions})
-        Аванс: ${totalAdvance} (карта: ${advanceCard}, нал: ${advanceCash})
-        Остаток: ${remainingToPay} → Карта: ${newCardRemainder}, Нал: ${newCashPayout}`);
-}
+// (дубликат recalculateRow удалён — активна версия ниже)
 
 async function saveAdjustments(row) {
     if (!row) return;
@@ -1275,6 +1262,7 @@ async function saveAdjustments(row) {
             },
             'reportStatus'
         );
+        if (row) { row.style.boxShadow = 'inset 4px 0 0 #2e9e4f'; setTimeout(function(){ if (row) row.style.boxShadow = ''; }, 1200); }
     } catch (error) {
         console.error('Ошибка сохранения корректировок:', error);
     }
@@ -1411,17 +1399,17 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 
     let tableHtml = `
-    <h3>👥 Детализация по сотрудникам за ${monthNames[month - 1]} ${year}:</h3>
+    <h3><i class="ti ti-users"></i> Детализация по сотрудникам за ${monthNames[month - 1]} ${year}:</h3>
     <p style="margin: 10px 0; color: #666;">Общая сумма начислений (база): <strong>${formatNumber(totalBasePay)} грн</strong></p>
     <div class="table-container">
-    <table id="monthlyReportTable" style="font-size: 11px; white-space: nowrap;">
+    <table id="monthlyReportTable" class="reasons-collapsed" style="font-size: 11px; white-space: nowrap;">
         <thead class="monthly-report-head">
             <tr>
                 <th rowspan="2" style="vertical-align: middle;">Сотрудник</th>
                 <th rowspan="2" style="vertical-align: middle;">Магазин</th>
                 <th rowspan="2" style="vertical-align: middle;">Всего начислено<br/>(база)</th>
-                <th colspan="2">Премирование</th>
-                <th colspan="2">Депремирование</th>
+                <th colspan="1" class="grp-prem-head">Премирование</th>
+                <th colspan="1" class="grp-deprem-head">Депремирование</th>
                 <th rowspan="2" style="vertical-align: middle;">Вычет за<br/>недостачу</th>
                 <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(на карту)</th>
                 <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(наличные)</th>
@@ -1430,7 +1418,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 <th rowspan="2" style="vertical-align: middle;">Итого<br/>к выплате</th>
                 <th rowspan="2" style="vertical-align: middle;">Действия</th>
             </tr>
-            <tr><th>Сумма</th><th>Причина</th><th>Сумма</th><th>Причина</th></tr>
+            <tr><th>Сумма</th><th class="col-reason">Причина</th><th>Сумма</th><th class="col-reason">Причина</th></tr>
         </thead>
         <tbody>`;
 
@@ -1512,25 +1500,25 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                     advanceCardContent = `
                     <span style="color: #ff6b6b; font-weight: bold;" 
                           title="Увольнение: ${manualAdvanceReason}">
-                        💳 🚪 ${formatNumber(advanceCard)}
+                        <i class="ti ti-credit-card"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCard)}
                     </span>`;
                     advanceCashContent = `
                     <span style="color: #28a745; font-weight: bold;" 
                           title="Увольнение: ${manualAdvanceReason}">
-                        💵 🚪 ${formatNumber(advanceCash)}
+                        <i class="ti ti-cash"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCash)}
                     </span>`;
                 } else if (advanceCash > 0) {
                     advanceCashContent = `
                     <span style="color: #28a745; font-weight: bold;" 
                           title="Увольнение: ${manualAdvanceReason}">
-                        💵 🚪 ${formatNumber(advanceCash)}
+                        <i class="ti ti-cash"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCash)}
                     </span>`;
                     advanceCardContent = '0';
                 } else {
                     advanceCardContent = `
                     <span style="color: #ff6b6b; font-weight: bold;" 
                           title="Увольнение: ${manualAdvanceReason}">
-                        💳 🚪 ${formatNumber(advanceCard)}
+                        <i class="ti ti-credit-card"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCard)}
                     </span>`;
                     advanceCashContent = '0';
                 }
@@ -1540,25 +1528,25 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                     advanceCardContent = `
                     <span style="color: #ff6b6b; font-weight: bold;" 
                           title="Ручная корректировка: ${manualAdvanceReason}">
-                        💳 ✏️ ${formatNumber(advanceCard)}
+                        <i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCard)}
                     </span>`;
                     advanceCashContent = `
                     <span style="color: #28a745; font-weight: bold;" 
                           title="Ручная корректировка: ${manualAdvanceReason}">
-                        💵 ✏️ ${formatNumber(advanceCash)}
+                        <i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCash)}
                     </span>`;
                 } else if (advanceCash > 0) {
                     advanceCashContent = `
                     <span style="color: #28a745; font-weight: bold;" 
                           title="Ручная корректировка: ${manualAdvanceReason}">
-                        💵 ✏️ ${formatNumber(advanceCash)}
+                        <i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCash)}
                     </span>`;
                     advanceCardContent = '0';
                 } else {
                     advanceCardContent = `
                     <span style="color: #ff6b6b; font-weight: bold;" 
                           title="Ручная корректировка: ${manualAdvanceReason}">
-                        💳 ✏️ ${formatNumber(advanceCard)}
+                        <i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCard)}
                     </span>`;
                     advanceCashContent = '0';
                 }
@@ -1567,23 +1555,23 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 if (advanceCash > 0) {
                     advanceCashContent = `
                     <strong style="color: #28a745;" title="Аванс зафиксирован (наличные)">
-                        🔒 💵 ${formatNumber(advanceCash)}
+                        <i class="ti ti-lock"></i> <i class="ti ti-cash"></i> ${formatNumber(advanceCash)}
                     </strong>`;
                     advanceCardContent = '0';
                 } else {
                     advanceCardContent = `
                     <strong style="color: #f5576c;" title="Аванс зафиксирован (карта)">
-                        🔒 💳 ${formatNumber(advanceCard)}
+                        <i class="ti ti-lock"></i> <i class="ti ti-credit-card"></i> ${formatNumber(advanceCard)}
                     </strong>`;
                     advanceCashContent = '0';
                 }
             } else if (finalCalc) {
                 // Есть финальный расчет, но аванс не помечен как зафиксированный
                 if (advanceCash > 0) {
-                    advanceCashContent = `<strong style="color: #28a745;">💵 ${formatNumber(advanceCash)}</strong>`;
+                    advanceCashContent = `<strong style="color: #28a745;"><i class="ti ti-cash"></i> ${formatNumber(advanceCash)}</strong>`;
                     advanceCardContent = '0';
                 } else {
-                    advanceCardContent = `<strong>💳 ${formatNumber(advanceCard)}</strong>`;
+                    advanceCardContent = `<strong><i class="ti ti-credit-card"></i> ${formatNumber(advanceCard)}</strong>`;
                     advanceCashContent = '0';
                 }
             } else {
@@ -1606,23 +1594,23 @@ tableHtml += `<tr class="${rowClass}"
             data-month="${month}" 
             data-year="${year}" 
             data-base-pay="${data.totalPay}" 
-            data-card-limit="${finalCalc?.card_limit || 16000}"
+            data-card-limit="${finalCalc?.card_limit || 8700}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
 data-shifts='${JSON.stringify(data.shifts)}'>
             <td style="padding: 5px;">
     ${data.name}
     ${finalCalc?.card_limit_type_id === 2 ?
-                '<span style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">💎 VIP</span>' 
+                '<span style="margin-left:5px;font-size:10px;padding:2px 7px;border-radius:20px;background:var(--brand-ghost);color:var(--brand);border:.5px solid var(--brand);font-weight:500;">VIP</span>' 
         : ''}
 </td>
             <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
             <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
-            <td style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
-            <td style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;">
     <input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;">
-    <button onclick="manageShortages('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Управление недостачами">📋</button>
+    <button onclick="manageShortages('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Управление недостачами"><i class="ti ti-clipboard-list"></i></button>
 </td>
             <td class="advance-payment-card" style="padding: 5px;">
                 <span class="advance-card-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCardContent}</span>
@@ -1632,7 +1620,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
             </td>
             <td class="card-remainder" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : (cardRemainder > 0 ? 'color: #28a745; font-weight: bold;' : '')}">
     ${hasCompleteCalculation ? formatNumber(cardRemainder) : '—'}
-    ${hasCompleteCalculation ? `<button onclick="adjustCardRemainder('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Корректировать остаток">✏️</button>` : ''}
+    ${hasCompleteCalculation ? `<button onclick="adjustCardRemainder('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Корректировать остаток"><i class="ti ti-pencil"></i></button>` : ''}
 </td>
             <td class="cash-payout" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : ''}">
                 ${hasCompleteCalculation ? (cashPayout > 0 ? `<strong style="color: #007bff;">${formatNumber(cashPayout)}</strong>` : formatNumber(cashPayout)) : '—'}
@@ -1641,15 +1629,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
                 <strong title="${hasCompleteCalculation ? 'Итоговый расчет выполнен' : 'Предварительный расчет'}">${formatNumber(remainingToPay)}</strong>
             </td>
             <td style="padding: 5px;">
-                <button onclick="ucModal.open('${id}', '${data.name}', ${month}, ${year})" 
-                        style="padding: 5px 10px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                               color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;
-                               box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.3s;"
-                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.3)';"
-                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.2)';"
-                        title="Открыть универсальное окно корректировок">
-                    ⚙️ Все корректировки
-                </button>
+                <button onclick="ucModal.open('${id}', '${data.name}', ${month}, ${year})" class="secondary" style="padding:5px 10px;font-size:12px" title="Окно корректировок"><i class="ti ti-adjustments-alt"></i> Все корректировки</button>
             </td>
         </tr>`;
         }
@@ -1674,7 +1654,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
         const cashAdvanceCount = Array.from(finalCalcMap.values()).filter(calc => calc.advance_cash > 0).length;
         
         let infoMessage = `
-            <strong>ℹ️ Загружены финальные расчеты</strong><br>
+            <strong>Загружены финальные расчеты</strong><br>
             Аванс на карту: ${formatNumber(totalAdvanceCard)} грн | 
             Аванс наличными: ${formatNumber(totalAdvanceCash)} грн<br>
             Остаток на карту: ${formatNumber(totalCardRemainder)} грн | 
@@ -1682,10 +1662,10 @@ data-shifts='${JSON.stringify(data.shifts)}'>
         `;
         
         if (manualAdjustmentsCount > 0) {
-            infoMessage += `<br><span style="color: #ff6b6b;">✏️ Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
+            infoMessage += `<br><span style="color: #ff6b6b;"><i class="ti ti-pencil"></i> Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
         }
         if (cashAdvanceCount > 0) {
-            infoMessage += `<br><span style="color: #28a745;">💵 Авансов наличными: ${cashAdvanceCount}</span>`;
+            infoMessage += `<br><span style="color: #28a745;"><i class="ti ti-cash"></i> Авансов наличными: ${cashAdvanceCount}</span>`;
         }
         
         const existingInfoPanel = document.querySelector('#monthlyReportContent .status.info');
@@ -1701,6 +1681,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
     }
 
     reportContentEl.innerHTML = tableHtml;
+    applyRowLockStates();
 
     // После создания таблицы применяем стили если есть финальные расчеты
     if (finalCalcMap.size > 0) {
@@ -1758,8 +1739,8 @@ document.querySelectorAll('.adjustment-input').forEach(input => {
                         const employeeId = cell.dataset.employeeId;
                         const employeeName = cell.dataset.employeeName;
                         const button = document.createElement('button');
-                        button.innerHTML = '✏️';
-                        button.style.cssText = 'padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; margin-left: 5px;';
+                        button.innerHTML = '<i class="ti ti-pencil"></i>';
+                        button.style.cssText = 'padding: 3px 7px; font-size: 11px; cursor: pointer; background: var(--surface); border: .5px solid var(--border-strong); border-radius: 6px; margin-left: 5px; color: var(--text-2);';
                         button.title = 'Корректировать аванс';
                         button.onclick = () => adjustAdvanceManually(employeeId, employeeName);
                         cell.appendChild(button);
@@ -1820,7 +1801,7 @@ function recalculateRow(row) {
     
 if (remainingToPay > 0) {
         // Есть остаток к выплате - используем ДИНАМИЧЕСКИЙ лимит из data-атрибута
-        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 16000;
+        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 8700;
         const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
         
         newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
@@ -1832,7 +1813,7 @@ if (remainingToPay > 0) {
         
         // ИЗМЕНЕНИЕ 3: Добавляем предупреждение о переплате
         if (remainingToPay < 0) {
-            console.warn(`⚠️ Переплата для ${row.dataset.employeeName}: аванс ${totalAdvance} > начислений ${totalAfterDeductions}`);
+            console.warn(`Переплата для ${row.dataset.employeeName}: аванс ${totalAdvance} > начислений ${totalAfterDeductions}`);
         }
     }
     // 1. Обновляем "Всего начислено"
@@ -1861,7 +1842,7 @@ if (remainingToPay > 0) {
             button.onclick = () => adjustCardRemainder(row.dataset.employeeId, row.dataset.employeeName);
             button.style.cssText = 'margin-left: 5px; padding: 2px 6px; font-size: 10px;';
             button.title = 'Корректировать остаток';
-            button.innerHTML = '✏️';
+            button.innerHTML = '<i class="ti ti-pencil"></i>';
             cardRemainderCell.appendChild(button);
         }
     }
@@ -2083,24 +2064,24 @@ async function calculateAdvance15(silent = false) {
                         cashContent = formatNumber(result.advance_payment);
                         if (result.is_manual) {
                             hasManualAdjustments = true;
-                            cashContent = `<span style="color: #28a745; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}">💵 ✏️ ${formatNumber(result.advance_payment)}</span>`;
+                            cashContent = `<span style="color: #28a745; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}"><i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(result.advance_payment)}</span>`;
                         } else if (result.is_fixed) {
                             hasFixedAdvances = true;
-                            cashContent = `<strong style="color: #28a745;" title="Аванс зафиксирован">🔒 💵 ${formatNumber(result.advance_payment)}</strong>`;
+                            cashContent = `<strong style="color: #28a745;" title="Аванс зафиксирован"><i class="ti ti-lock"></i> <i class="ti ti-cash"></i> ${formatNumber(result.advance_payment)}</strong>`;
                         } else {
-                            cashContent = `<span style="color: #28a745;">💵 ${formatNumber(result.advance_payment)}</span>`;
+                            cashContent = `<span style="color: #28a745;"><i class="ti ti-cash"></i> ${formatNumber(result.advance_payment)}</span>`;
                         }
                     } else {
                         // По умолчанию на карту
                         cardContent = formatNumber(result.advance_payment);
                         if (result.is_manual) {
                             hasManualAdjustments = true;
-                            cardContent = `<span style="color: #ff6b6b; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}">💳 ✏️ ${formatNumber(result.advance_payment)}</span>`;
+                            cardContent = `<span style="color: #ff6b6b; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}"><i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(result.advance_payment)}</span>`;
                         } else if (result.is_fixed) {
                             hasFixedAdvances = true;
-                            cardContent = `<strong style="color: #f5576c;" title="Аванс зафиксирован">🔒 💳 ${formatNumber(result.advance_payment)}</strong>`;
+                            cardContent = `<strong style="color: #f5576c;" title="Аванс зафиксирован"><i class="ti ti-lock"></i> <i class="ti ti-credit-card"></i> ${formatNumber(result.advance_payment)}</strong>`;
                         } else {
-                            cardContent = `<span>💳 ${formatNumber(result.advance_payment)}</span>`;
+                            cardContent = `<span><i class="ti ti-credit-card"></i> ${formatNumber(result.advance_payment)}</span>`;
                         }
                     }
                     
@@ -2150,8 +2131,8 @@ async function calculateAdvance15(silent = false) {
                         const employeeId = cell.dataset.employeeId;
                         const employeeName = cell.dataset.employeeName;
                         const button = document.createElement('button');
-                        button.innerHTML = '✏️';
-                        button.style.cssText = 'padding: 2px 6px; font-size: 10px; cursor: pointer; background: #f0f0f0; border: 1px solid #ccc; border-radius: 3px; margin-left: 5px;';
+                        button.innerHTML = '<i class="ti ti-pencil"></i>';
+                        button.style.cssText = 'padding: 3px 7px; font-size: 11px; cursor: pointer; background: var(--surface); border: .5px solid var(--border-strong); border-radius: 6px; margin-left: 5px; color: var(--text-2);';
                         button.title = 'Корректировать аванс';
                         button.onclick = () => adjustAdvanceManually(employeeId, employeeName);
                         cell.appendChild(button);
@@ -2162,11 +2143,11 @@ async function calculateAdvance15(silent = false) {
             // Показываем соответствующее сообщение
             if (!silent) {
                 if (hasManualAdjustments) {
-                    showStatus('reportStatus', '✅ Аванс рассчитан. Есть ручные корректировки авансов.', 'success');
+                    showStatus('reportStatus', 'Аванс рассчитан. Есть ручные корректировки авансов.', 'success');
                 } else if (hasFixedAdvances || data.hasFixedAdvances) {
-                    showStatus('reportStatus', '✅ Аванс рассчитан. Используются зафиксированные выплаты.', 'success');
+                    showStatus('reportStatus', 'Аванс рассчитан. Используются зафиксированные выплаты.', 'success');
                 } else {
-                    showStatus('reportStatus', '✅ Аванс успешно рассчитан. ⚠️ Не забудьте зафиксировать выплату!', 'warning');
+                    showStatus('reportStatus', 'Аванс успешно рассчитан. Не забудьте зафиксировать выплату!', 'warning');
                 }
             }
         }
@@ -2238,7 +2219,7 @@ async function adjustAdvanceManually(employeeId, employeeName) {
         totalAdvance = totalToPay;
         
         const confirmTermination = confirm(
-            `⚠️ РЕЖИМ УВОЛЬНЕНИЯ\n\n` +
+            `РЕЖИМ УВОЛЬНЕНИЯ\n\n` +
             `Сотрудник: ${employeeName}\n` +
             `К выплате: ${formatNumber(totalToPay)} грн\n\n` +
             `Будет выплачена ВСЯ сумма начислений.\n` +
@@ -2337,12 +2318,12 @@ async function adjustAdvanceManually(employeeId, employeeName) {
             
             // Подтверждение разделения
             const confirmSplit = confirm(
-                `${isTermination ? '⚠️ УВОЛЬНЕНИЕ\n' : ''}` +
+                `${isTermination ? 'УВОЛЬНЕНИЕ\n' : ''}` +
                 `Подтвердите разделение выплаты:\n\n` +
-                `💳 На карту: ${formatNumber(advanceCard)} грн\n` +
-                `💵 Наличными: ${formatNumber(advanceCash)} грн\n` +
+                `<i class="ti ti-credit-card"></i> На карту: ${formatNumber(advanceCard)} грн\n` +
+                `<i class="ti ti-cash"></i> Наличными: ${formatNumber(advanceCash)} грн\n` +
                 `━━━━━━━━━━━━━━━━━━\n` +
-                `📊 ИТОГО: ${formatNumber(totalAdvance)} грн\n` +
+                `ИТОГО: ${formatNumber(totalAdvance)} грн\n` +
                 `${isTermination ? '(Полная выплата при увольнении)\n' : ''}\n` +
                 `Продолжить?`
             );
@@ -2391,9 +2372,9 @@ async function adjustAdvanceManually(employeeId, employeeName) {
             // Обновляем отображение в таблице
             const updateCellContent = (cell, amount, isCard = true) => {
                 if (amount > 0) {
-                    const icon = isCard ? '💳' : '💵';
+                    const icon = isCard ? '<i class="ti ti-credit-card"></i>' : '<i class="ti ti-cash"></i>';
                     const color = isCard ? '#ff6b6b' : '#28a745';
-                    const terminationIcon = isTermination ? '🚪' : '✏️';
+                    const terminationIcon = isTermination ? '<i class="ti ti-door-exit"></i>' : '<i class="ti ti-pencil"></i>';
                     
                     cell.innerHTML = `
                         <span class="advance-${isCard ? 'card' : 'cash'}-content" 
@@ -2464,7 +2445,7 @@ async function showAdjustmentsHistory() {
                     top: 50%;
                     left: 50%;
                     transform: translate(-50%, -50%);
-                    background: white;
+                    background: var(--surface);
                     padding: 20px;
                     border-radius: 10px;
                     box-shadow: 0 10px 40px rgba(0,0,0,0.3);
@@ -2473,7 +2454,7 @@ async function showAdjustmentsHistory() {
                     overflow-y: auto;
                     z-index: 10000;
                 " id="history-modal">
-                    <h3 style="margin-bottom: 20px;">📜 История корректировок за ${month}/${year}</h3>
+                    <h3 style="margin-bottom: 20px;">История корректировок за ${month}/${year}</h3>
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
@@ -2568,7 +2549,7 @@ async function validateDataBeforeFixing() {
         const basePay = parseFloat(row.dataset.basePay) || 0;
         
         if (basePay > 0 && totalAdvance === 0) {
-            errors.push(`⚠️ ${employeeName}: есть начисления ${basePay} грн, но нет аванса`);
+            errors.push(`${employeeName}: есть начисления ${basePay} грн, но нет аванса`);
         } else if (totalAdvance > 0) {
             validCount++;
         }
@@ -2642,7 +2623,7 @@ async function validatePayrollCalculations() {
         alert(`Обнаружено ${errors.length} ошибок в расчетах. См. консоль.`);
     } else {
         console.log('Все расчеты корректны');
-        showStatus('reportStatus', '✅ Проверка пройдена: все расчеты корректны', 'success');
+        showStatus('reportStatus', 'Проверка пройдена: все расчеты корректны', 'success');
     }
     
     return errors;
@@ -2662,7 +2643,7 @@ async function fixAllCalculations() {
         fixedCount++;
     });
     
-    showStatus('reportStatus', `✅ Пересчитано ${fixedCount} строк`, 'success');
+    showStatus('reportStatus', `Пересчитано ${fixedCount} строк`, 'success');
     
     // Сохраняем исправленные данные
     setTimeout(async () => {
@@ -2712,14 +2693,14 @@ async function fixAdvancePayment() {
     tableRows.forEach(row => {
         const advanceCardCell = row.querySelector('.advance-payment-card');
         const advanceCashCell = row.querySelector('.advance-payment-cash');
-        if ((advanceCardCell && advanceCardCell.innerHTML.includes('🔒')) || 
-            (advanceCashCell && advanceCashCell.innerHTML.includes('🔒'))) {
+        if ((advanceCardCell && advanceCardCell.innerHTML.includes('<i class="ti ti-lock"></i>')) || 
+            (advanceCashCell && advanceCashCell.innerHTML.includes('<i class="ti ti-lock"></i>'))) {
             alreadyFixed = true;
         }
     });
 
     if (alreadyFixed) {
-        showStatus('reportStatus', '⚠️ Аванс уже зафиксирован!', 'warning');
+        showStatus('reportStatus', 'Аванс уже зафиксирован!', 'warning');
         return;
     }
 
@@ -2795,7 +2776,7 @@ async function fixAdvancePayment() {
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
         "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 
-    const confirmMessage = `⚠️ ПОДТВЕРЖДЕНИЕ ФИКСАЦИИ АВАНСА\n\n` +
+    const confirmMessage = `ПОДТВЕРЖДЕНИЕ ФИКСАЦИИ АВАНСА\n\n` +
         `Период: ${monthNames[month - 1]} ${year}\n` +
         `Дата выплаты: ${paymentDate}\n` +
         `Сотрудников: ${employeesWithAdvance}\n` +
@@ -2827,7 +2808,7 @@ async function fixAdvancePayment() {
         );
 
         if (result.success) {
-            showStatus('reportStatus', `✅ ${result.message}`, 'success');
+            showStatus('reportStatus', `${result.message}`, 'success');
 
             // Обновляем визуальное отображение
             tableRows.forEach(row => {
@@ -2838,8 +2819,8 @@ async function fixAdvancePayment() {
                     const cardSpan = advanceCardCell.querySelector('.advance-card-content');
                     if (cardSpan) {
                         const currentHTML = cardSpan.innerHTML;
-                        if (!currentHTML.includes('🔒') && !currentHTML.includes('>0<')) {
-                            cardSpan.innerHTML = currentHTML.replace('💳', '🔒 💳');
+                        if (!currentHTML.includes('<i class="ti ti-lock"></i>') && !currentHTML.includes('>0<')) {
+                            cardSpan.innerHTML = currentHTML.replace('<i class="ti ti-credit-card"></i>', '<i class="ti ti-lock"></i> <i class="ti ti-credit-card"></i>');
                         }
                     }
                 }
@@ -2848,8 +2829,8 @@ async function fixAdvancePayment() {
                     const cashSpan = advanceCashCell.querySelector('.advance-cash-content');
                     if (cashSpan) {
                         const currentHTML = cashSpan.innerHTML;
-                        if (!currentHTML.includes('🔒') && !currentHTML.includes('>0<')) {
-                            cashSpan.innerHTML = currentHTML.replace('💵', '🔒 💵');
+                        if (!currentHTML.includes('<i class="ti ti-lock"></i>') && !currentHTML.includes('>0<')) {
+                            cashSpan.innerHTML = currentHTML.replace('<i class="ti ti-cash"></i>', '<i class="ti ti-lock"></i> <i class="ti ti-cash"></i>');
                         }
                     }
                 }
@@ -2879,10 +2860,11 @@ function updateAdvanceDisplay(tableRows, isFixed) {
         if (isFixed) {
             // Добавляем замки
             [advanceCardCell, advanceCashCell].forEach(cell => {
-                if (cell && !cell.innerHTML.includes('🔒')) {
+                if (cell && !cell.innerHTML.includes('<i class="ti ti-lock"></i>')) {
                     const amount = parseFloat(cell.textContent.replace(/[^0-9,]/g, '').replace(',', '.')) || 0;
                     if (amount > 0) {
-                        cell.innerHTML = cell.innerHTML.replace(/(💳|💵)/, '$1 🔒');
+                        if (cell.innerHTML.includes('<i class="ti ti-credit-card"></i>')) cell.innerHTML = cell.innerHTML.replace('<i class="ti ti-credit-card"></i>', '<i class="ti ti-credit-card"></i> <i class="ti ti-lock"></i>');
+                        else cell.innerHTML = cell.innerHTML.replace('<i class="ti ti-cash"></i>', '<i class="ti ti-cash"></i> <i class="ti ti-lock"></i>');
                     }
                 }
             });
@@ -2890,7 +2872,7 @@ function updateAdvanceDisplay(tableRows, isFixed) {
             // Убираем замки
             [advanceCardCell, advanceCashCell].forEach(cell => {
                 if (cell) {
-                    cell.innerHTML = cell.innerHTML.replace(/🔒\s*/g, '');
+                    cell.innerHTML = cell.innerHTML.replaceAll('<i class="ti ti-lock"></i> ', '').replaceAll('<i class="ti ti-lock"></i>', '');
                 }
             });
         }
@@ -2921,8 +2903,8 @@ async function cancelAdvancePayment() {
     tableRows.forEach(row => {
         const advanceCardCell = row.querySelector('.advance-payment-card');
         const advanceCashCell = row.querySelector('.advance-payment-cash');
-        if ((advanceCardCell && advanceCardCell.innerHTML.includes('🔒')) || 
-            (advanceCashCell && advanceCashCell.innerHTML.includes('🔒'))) {
+        if ((advanceCardCell && advanceCardCell.innerHTML.includes('<i class="ti ti-lock"></i>')) || 
+            (advanceCashCell && advanceCashCell.innerHTML.includes('<i class="ti ti-lock"></i>'))) {
             hasFixedAdvance = true;
         }
     });
@@ -2976,7 +2958,7 @@ async function cancelAdvancePayment() {
                     if (cardSpan) {
                         let currentHTML = cardSpan.innerHTML;
                         // Убираем символ замка и пробелы
-                        currentHTML = currentHTML.replace(/🔒\s*/g, '');
+                        currentHTML = currentHTML.replaceAll('<i class="ti ti-lock"></i> ', '').replaceAll('<i class="ti ti-lock"></i>', '');
                         // Убираем дополнительные пробелы между иконками
                         currentHTML = currentHTML.replace(/\s+/g, ' ').trim();
                         cardSpan.innerHTML = currentHTML;
@@ -2990,7 +2972,7 @@ async function cancelAdvancePayment() {
                     if (cashSpan) {
                         let currentHTML = cashSpan.innerHTML;
                         // Убираем символ замка и пробелы
-                        currentHTML = currentHTML.replace(/🔒\s*/g, '');
+                        currentHTML = currentHTML.replaceAll('<i class="ti ti-lock"></i> ', '').replaceAll('<i class="ti ti-lock"></i>', '');
                         // Убираем дополнительные пробелы между иконками
                         currentHTML = currentHTML.replace(/\s+/g, ' ').trim();
                         cashSpan.innerHTML = currentHTML;
@@ -3001,7 +2983,7 @@ async function cancelAdvancePayment() {
                 const oldAdvanceCell = row.querySelector('.advance-payment');
                 if (oldAdvanceCell) {
                     let currentHTML = oldAdvanceCell.innerHTML;
-                    currentHTML = currentHTML.replace(/🔒\s*/g, '');
+                    currentHTML = currentHTML.replaceAll('<i class="ti ti-lock"></i> ', '').replaceAll('<i class="ti ti-lock"></i>', '');
                     currentHTML = currentHTML.replace(/<strong[^>]*>/g, '');
                     currentHTML = currentHTML.replace(/<\/strong>/g, '');
                     oldAdvanceCell.innerHTML = currentHTML;
@@ -3047,7 +3029,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
             z-index: 9999;
         ">
             <div style="
-                background: white;
+                background: var(--surface);
                 border-radius: 10px;
                 padding: 20px;
                 max-width: 800px;
@@ -3056,7 +3038,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 box-shadow: 0 10px 40px rgba(0,0,0,0.3);
             ">
                 <h2 style="color: #667eea; margin-bottom: 20px;">
-                    ⚠️ Обнаружены сотрудники с малым количеством смен
+                    Обнаружены сотрудники с малым количеством смен
                 </h2>
                 <p style="margin-bottom: 20px; color: #666;">
                     Следующие сотрудники отработали от 1 до 5 смен. Примите решение по каждому:
@@ -3088,23 +3070,23 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 </h3>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0;">
-                    <div>💰 Начислено за ${emp.shifts_count} ${emp.shifts_count === 1 ? 'день' : 'дня'}: <strong>${formatNumber(emp.earned_amount)} грн</strong></div>
-                    <div>📊 Расчетный аванс (90%): <strong>${formatNumber(calculatedAdvance)} грн</strong></div>
+                    <div>Начислено за ${emp.shifts_count} ${emp.shifts_count === 1 ? 'день' : 'дня'}: <strong>${formatNumber(emp.earned_amount)} грн</strong></div>
+                    <div>Расчетный аванс (90%): <strong>${formatNumber(calculatedAdvance)} грн</strong></div>
                 </div>
                 
                 <div style="border-top: 1px solid #dee2e6; margin: 15px 0; padding-top: 15px;">
                     <div style="margin-bottom: 10px;">
                         <label style="display: inline-block; margin-right: 15px;">
                             <input type="radio" name="advance_decision_${emp.employee_id}" value="none" checked>
-                            ❌ Не начислять аванс (мало смен)
+                            Не начислять аванс (мало смен)
                         </label>
                         <label style="display: inline-block; margin-right: 15px;">
                             <input type="radio" name="advance_decision_${emp.employee_id}" value="auto">
-                            ✅ Начислить автоматически (90%)
+                            Начислить автоматически (90%)
                         </label>
                         <label style="display: inline-block;">
                             <input type="radio" name="advance_decision_${emp.employee_id}" value="custom">
-                            💰 Указать сумму вручную
+                            Указать сумму вручную
                         </label>
                     </div>
                     
@@ -3112,7 +3094,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                             <div>
                                 <label style="display: block; margin-bottom: 5px; font-weight: 600;">
-                                    💳 На карту:
+                                    <i class="ti ti-credit-card"></i> На карту:
                                 </label>
                                 <input type="number" 
                                     class="advance-card-input" 
@@ -3123,7 +3105,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                             </div>
                             <div>
                                 <label style="display: block; margin-bottom: 5px; font-weight: 600;">
-                                    💵 Наличными:
+                                    <i class="ti ti-cash"></i> Наличными:
                                 </label>
                                 <input type="number" 
                                     class="advance-cash-input" 
@@ -3134,7 +3116,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                         </div>
                         <div style="margin-top: 10px;">
                             <label style="display: block; margin-bottom: 5px; font-weight: 600;">
-                                📝 Причина/комментарий:
+                                Причина/комментарий:
                             </label>
                             <input type="text" 
                                 class="advance-reason-input"
@@ -3153,7 +3135,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                             cursor: pointer;
                         ">
                             <input type="checkbox" class="make-regular-checkbox" style="margin-right: 8px;">
-                            🔄 Сделать постоянным сотрудником (больше не спрашивать при 1-5 сменах)
+                            Сделать постоянным сотрудником (больше не спрашивать при 1-5 сменах)
                         </label>
                     </div>
                 </div>
@@ -3177,7 +3159,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                         border: none;
                         border-radius: 5px;
                         cursor: pointer;
-                    ">❌ Отмена</button>
+                    ">Отмена</button>
                     <button onclick="applyNewEmployeesDecisions(${month}, ${year})" style="
                         padding: 10px 20px;
                         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -3186,7 +3168,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                         border-radius: 5px;
                         cursor: pointer;
                         font-weight: 600;
-                    ">💾 Применить все решения</button>
+                    ">Применить все решения</button>
                 </div>
             </div>
         </div>`;
@@ -3339,15 +3321,15 @@ async function fixManualAdvances() {
     const hasManualAdjustments = Array.from(tableRows).some(row => {
         const advanceCardCell = row.querySelector('.advance-payment-card');
         const advanceCashCell = row.querySelector('.advance-payment-cash');
-        return (advanceCardCell && advanceCardCell.innerHTML.includes('✏️')) || 
-               (advanceCashCell && advanceCashCell.innerHTML.includes('✏️')) ||
-               (advanceCardCell && advanceCardCell.innerHTML.includes('🚪')) || 
-               (advanceCashCell && advanceCashCell.innerHTML.includes('🚪'));
+        return (advanceCardCell && advanceCardCell.innerHTML.includes('<i class="ti ti-pencil"></i>')) || 
+               (advanceCashCell && advanceCashCell.innerHTML.includes('<i class="ti ti-pencil"></i>')) ||
+               (advanceCardCell && advanceCardCell.innerHTML.includes('<i class="ti ti-door-exit"></i>')) || 
+               (advanceCashCell && advanceCashCell.innerHTML.includes('<i class="ti ti-door-exit"></i>'));
     });
     
     if (hasManualAdjustments) {
         const confirmed = confirm(
-            '⚠️ ВНИМАНИЕ!\n\n' +
+            'ВНИМАНИЕ!\n\n' +
             'Обнаружены ручные корректировки авансов или увольнения.\n' +
             'Итоговый расчет СОХРАНИТ все ручные корректировки.\n\n' +
             'Продолжить?'
@@ -3397,10 +3379,10 @@ async function fixManualAdvances() {
                     const advanceCardCell = row.querySelector('.advance-payment-card');
                     const advanceCashCell = row.querySelector('.advance-payment-cash');
                     
-                    if ((advanceCardCell && advanceCardCell.innerHTML.includes('✏️')) || 
-                        (advanceCashCell && advanceCashCell.innerHTML.includes('✏️')) ||
-                        (advanceCardCell && advanceCardCell.innerHTML.includes('🚪')) || 
-                        (advanceCashCell && advanceCashCell.innerHTML.includes('🚪'))) {
+                    if ((advanceCardCell && advanceCardCell.innerHTML.includes('<i class="ti ti-pencil"></i>')) || 
+                        (advanceCashCell && advanceCashCell.innerHTML.includes('<i class="ti ti-pencil"></i>')) ||
+                        (advanceCardCell && advanceCardCell.innerHTML.includes('<i class="ti ti-door-exit"></i>')) || 
+                        (advanceCashCell && advanceCashCell.innerHTML.includes('<i class="ti ti-door-exit"></i>'))) {
                         preservedCount++;
                     }
                     
@@ -3434,7 +3416,7 @@ async function fixManualAdvances() {
                             button.onclick = () => adjustCardRemainder(employeeId, row.dataset.employeeName);
                             button.style.cssText = 'margin-left: 5px; padding: 2px 6px; font-size: 10px;';
                             button.title = 'Корректировать остаток';
-                            button.innerHTML = '✏️';
+                            button.innerHTML = '<i class="ti ti-pencil"></i>';
                             cardRemainderCell.appendChild(button);
                         }
                     }
@@ -3467,7 +3449,7 @@ async function fixManualAdvances() {
                         
                         if (discrepancy > 0.01) {
                             // ИЗМЕНЕНИЕ 6: Более подробное логирование для отладки
-                            console.warn(`⚠️ Расхождение для ${row.dataset.employeeName} (${employeeId}):`);
+                            console.warn(`Расхождение для ${row.dataset.employeeName} (${employeeId}):`);
                             console.warn(`  Начислено после вычетов: ${result.total_after_deductions}`);
                             console.warn(`  Аванс: ${result.advance_payment}`);
                             console.warn(`  Ожидаемый остаток: ${expectedTotal}`);
@@ -3477,7 +3459,7 @@ async function fixManualAdvances() {
                             const strongEl = totalPayoutCell.querySelector('strong');
                             if (strongEl) {
                                 strongEl.style.color = '#ff6b6b';
-                                strongEl.title += ` | ⚠️ Расхождение: ${discrepancy.toFixed(2)} грн`;
+                                strongEl.title += ` | Расхождение: ${discrepancy.toFixed(2)} грн`;
                             }
                         }
                     }
@@ -3529,21 +3511,21 @@ async function fixManualAdvances() {
             });
 
             // ИЗМЕНЕНИЕ 10: Улучшенное сообщение с информацией о проблемах
-            let summaryMessage = `✅ Расчет выполнен для ${tableRows.length - document.querySelectorAll('.summary-row').length} сотрудников.\n`;
+            let summaryMessage = `Расчет выполнен для ${tableRows.length - document.querySelectorAll('.summary-row').length} сотрудников.\n`;
             
             if (preservedCount > 0) {
-                summaryMessage += `✅ Сохранено ручных корректировок: ${preservedCount}\n`;
+                summaryMessage += `Сохранено ручных корректировок: ${preservedCount}\n`;
             }
             
             if (employeesWithDiscrepancy > 0) {
-                summaryMessage += `⚠️ Обнаружены расхождения у ${employeesWithDiscrepancy} сотрудников (см. консоль)\n`;
+                summaryMessage += `Обнаружены расхождения у ${employeesWithDiscrepancy} сотрудников (см. консоль)\n`;
             }
             
-            summaryMessage += `\n💳 Уже выплачено авансом: ${formatNumber(totalAdvance)} грн\n` +
-                `💳 Остаток на карту у ${employeesWithCardRemainder} чел.: ${formatNumber(totalCardRemainder)} грн\n` +
-                `💵 Зарплата наличными у ${employeesWithCash} чел.: ${formatNumber(totalCash)} грн\n` +
+            summaryMessage += `\n<i class="ti ti-credit-card"></i> Уже выплачено авансом: ${formatNumber(totalAdvance)} грн\n` +
+                `<i class="ti ti-credit-card"></i> Остаток на карту у ${employeesWithCardRemainder} чел.: ${formatNumber(totalCardRemainder)} грн\n` +
+                `<i class="ti ti-cash"></i> Зарплата наличными у ${employeesWithCash} чел.: ${formatNumber(totalCash)} грн\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `📊 ИТОГО к доплате: ${formatNumber(totalRemaining)} грн`;
+                `ИТОГО к доплате: ${formatNumber(totalRemaining)} грн`;
             
             // Если есть сообщение от сервера о сохраненных корректировках
             if (data.message) {
@@ -3555,7 +3537,7 @@ async function fixManualAdvances() {
             // НОВОЕ: Показываем модальное уведомление о сохраненных корректировках
             if (preservedCount > 0) {
                 showModalNotification(
-                    `✅ Итоговый расчет выполнен. Все ${preservedCount} ручных корректировок сохранены!`,
+                    `Итоговый расчет выполнен. Все ${preservedCount} ручных корректировок сохранены!`,
                     'success',
                     5000
                 );
@@ -3565,7 +3547,7 @@ async function fixManualAdvances() {
             if (employeesWithDiscrepancy > 0) {
                 setTimeout(() => {
                     showModalNotification(
-                        `⚠️ Внимание! Обнаружены расхождения в расчетах у ${employeesWithDiscrepancy} сотрудников. Проверьте консоль для деталей.`,
+                        `Внимание! Обнаружены расхождения в расчетах у ${employeesWithDiscrepancy} сотрудников. Проверьте консоль для деталей.`,
                         'warning',
                         7000
                     );
@@ -3722,7 +3704,7 @@ async function printAllPayslips() {
                 ${bonusReason ? `
                 <tr>
                     <td colspan="2" class="reason-cell">
-                        <span class="reason-label">📝 Причина:</span> ${bonusReason}
+                        <span class="reason-label">Причина:</span> ${bonusReason}
                     </td>
                 </tr>` : ''}
             `;
@@ -3742,7 +3724,7 @@ async function printAllPayslips() {
                     ${penaltyReason ? `
                     <tr>
                         <td colspan="2" class="reason-cell">
-                            <span class="reason-label">📝 Причина:</span> ${penaltyReason}
+                            <span class="reason-label">Причина:</span> ${penaltyReason}
                         </td>
                     </tr>` : ''}
                 `;
@@ -3759,7 +3741,7 @@ async function printAllPayslips() {
                             ${s.description ? `
                             <tr>
                                 <td colspan="2" class="reason-cell">
-                                    <span class="reason-label">📝 Причина:</span> ${s.description}
+                                    <span class="reason-label">Причина:</span> ${s.description}
                                 </td>
                             </tr>` : ''}
                         `;
@@ -3897,7 +3879,7 @@ async function printAllPayslips() {
 
                 body {
                     font-family: Arial, sans-serif;
-                    background: white;
+                    background: var(--surface);
                 }
 
                 .page-container {
@@ -3914,7 +3896,7 @@ async function printAllPayslips() {
                 .payslip {
                     border: 1.5px solid #333;
                     overflow: hidden;
-                    background: white;
+                    background: var(--surface);
                     /* Ключевое: фиксированная высота ячейки грида */
                     min-height: 0;
                 }
@@ -4061,7 +4043,7 @@ async function printAllPayslips() {
             <div class="no-print">
                 <strong>Предварительный просмотр расчетных листов</strong><br>
                 <small>Всего листов: ${payslipCount} · Страниц A4: ${Math.ceil(payslipCount / 4)}</small><br><br>
-                <button onclick="window.print()">🖨️ Печать</button>
+                <button onclick="window.print()">Печать</button>
                 <button class="close-btn" onclick="window.close()">✕ Закрыть</button>
             </div>
             ${allPayslipsHTML}
@@ -4279,7 +4261,7 @@ async function exportFotReportToExcel() {
     const fileName = `ФОТ_${monthNames[month - 1]}_${year}.xlsx`;
     XLSX.writeFile(wb, fileName);
     
-    showStatus('fotReportStatus', `✅ Экспорт выполнен: ${fileName}`, 'success');
+    showStatus('fotReportStatus', `Экспорт выполнен: ${fileName}`, 'success');
 }
 
 // Функция очистки базы данных (для админов)
@@ -4359,7 +4341,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: white;
+            background: var(--surface);
             padding: 25px;
             border-radius: 10px;
             box-shadow: 0 10px 40px rgba(0,0,0,0.3);
@@ -4367,7 +4349,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
             min-width: 400px;
         ">
             <h3 style="margin-bottom: 20px; color: #667eea;">
-                💰 Корректировка остатка выплат
+                Корректировка остатка выплат
             </h3>
             <p><strong>Сотрудник:</strong> ${employeeName}</p>
             <hr style="margin: 15px 0;">
@@ -4382,7 +4364,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
             
             <div style="margin: 20px 0;">
                 <label style="display: block; margin-bottom: 10px; font-weight: 600;">
-                    💳 Остаток на карту (макс. ${formatNumber(maxCard)} грн):
+                    <i class="ti ti-credit-card"></i> Остаток на карту (макс. ${formatNumber(maxCard)} грн):
                 </label>
                 <input type="number" id="newCardRemainder" 
                     value="${currentCardRemainder}" 
@@ -4391,7 +4373,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
                     style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 16px;">
                 
                 <label style="display: block; margin: 15px 0 10px 0; font-weight: 600;">
-                    💵 Зарплата наличными (автоматически):
+                    <i class="ti ti-cash"></i> Зарплата наличными (автоматически):
                 </label>
                 <input type="text" id="newCashPayout" 
                     value="${formatNumber(currentCashPayout)}" 
@@ -4399,7 +4381,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
                     style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 5px; font-size: 16px; background: #f8f9fa;">
                 
                 <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px;">
-                    <small>⚠️ Лимит на карту за месяц: 8700 грн<br>
+                    <small>Лимит на карту за месяц: 8700 грн<br>
                     Уже на карте (аванс): ${formatNumber(advanceCard)} грн<br>
                     Доступно для остатка: ${formatNumber(maxCard)} грн</small>
                 </div>
@@ -4415,7 +4397,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
                     border-radius: 5px;
                     cursor: pointer;
                     font-weight: 600;
-                ">💾 Сохранить</button>
+                ">Сохранить</button>
                 <button onclick="closeAdjustmentModal()" style="
                     flex: 1;
                     padding: 12px;
@@ -4503,7 +4485,7 @@ async function saveCardRemainderAdjustment(employeeId) {
                 }
             }
             
-            showStatus('reportStatus', '✅ Корректировка остатков сохранена', 'success');
+            showStatus('reportStatus', 'Корректировка остатков сохранена', 'success');
             closeAdjustmentModal();
         } else {
             showStatus('reportStatus', result.error || 'Ошибка сохранения', 'error');
@@ -4562,7 +4544,7 @@ async function manageShortages(employeeId, employeeName) {
                             border: none;
                             border-radius: 3px;
                             cursor: pointer;
-                        ">🗑️</button>
+                        "></button>
                     </div>
                 </div>
             `;
@@ -4574,7 +4556,7 @@ async function manageShortages(employeeId, employeeName) {
                 top: 50%;
                 left: 50%;
                 transform: translate(-50%, -50%);
-                background: white;
+                background: var(--surface);
                 padding: 25px;
                 border-radius: 10px;
                 box-shadow: 0 10px 40px rgba(0,0,0,0.3);
@@ -4584,7 +4566,7 @@ async function manageShortages(employeeId, employeeName) {
                 overflow-y: auto;
             ">
                 <h3 style="margin-bottom: 20px; color: #667eea;">
-                    📉 Управление недостачами
+                    Управление недостачами
                 </h3>
                 <p><strong>Сотрудник:</strong> ${employeeName}</p>
                 <p><strong>Период:</strong> ${month}/${year}</p>
@@ -4623,7 +4605,7 @@ async function manageShortages(employeeId, employeeName) {
                         border-radius: 5px;
                         cursor: pointer;
                         font-weight: 600;
-                    ">➕ Добавить недостачу</button>
+                    ">Добавить недостачу</button>
                     <button onclick="closeShortagesModal()" style="
                         flex: 1;
                         padding: 12px;
@@ -4686,7 +4668,7 @@ async function addShortage(employeeId) {
         const result = await response.json();
         
         if (result.success) {
-            showStatus('reportStatus', '✅ Недостача добавлена', 'success');
+            showStatus('reportStatus', 'Недостача добавлена', 'success');
             closeShortagesModal();
             
             // Обновляем значение в таблице
@@ -4720,7 +4702,7 @@ async function removeShortage(shortageId) {
         const result = await response.json();
         
         if (result.success) {
-            showStatus('reportStatus', '✅ Недостача удалена', 'success');
+            showStatus('reportStatus', 'Недостача удалена', 'success');
             location.reload(); // Перезагружаем для обновления данных
         }
     } catch (error) {
@@ -4817,7 +4799,7 @@ async function initDetailsTab() {
             const select = document.getElementById('detailsEmployeeSelect');
             if (select) {
                 select.innerHTML = '<option value="">-- Выберите сотрудника --</option>';
-                select.innerHTML += '<option value="all">📊 ВСЕ СОТРУДНИКИ</option>';
+                select.innerHTML += '<option value="all">ВСЕ СОТРУДНИКИ</option>';
                 
                 result.employees.forEach(emp => {
                     const option = document.createElement('option');
@@ -4916,7 +4898,7 @@ function displayCalculationDetails(data) {
     let html = `
         <div class="details-summary-panel">
             <h3 style="margin: 0 0 15px 0;">
-                👤 ${employee.fullname} 
+                ${employee.fullname} 
                 ${employee.role === 'seller' ? '(Продавец)' : '(Старший продавец)'}
             </h3>
             <p style="margin: 0; opacity: 0.9;">
@@ -4925,23 +4907,23 @@ function displayCalculationDetails(data) {
             
             <div class="details-summary-grid">
                 <div class="details-summary-item">
-                    <div class="label">📅 Отработано дней</div>
+                    <div class="label">Отработано дней</div>
                     <div class="value">${summary.total_days}</div>
                 </div>
                 <div class="details-summary-item">
-                    <div class="label">💵 Ставка (всего)</div>
+                    <div class="label"><i class="ti ti-cash"></i> Ставка (всего)</div>
                     <div class="value">${formatNumber(summary.total_base)} грн</div>
                 </div>
                 <div class="details-summary-item">
-                    <div class="label">🎁 Бонусы за выручку</div>
+                    <div class="label">Бонусы за выручку</div>
                     <div class="value">${formatNumber(summary.total_bonus)} грн</div>
                 </div>
                 <div class="details-summary-item">
-                    <div class="label">💰 База (ставка + бонусы)</div>
+                    <div class="label">База (ставка + бонусы)</div>
                     <div class="value">${formatNumber(summary.total_earned)} грн</div>
                 </div>
                 <div class="details-summary-item">
-                    <div class="label">📊 Средняя за день</div>
+                    <div class="label">Средняя за день</div>
                     <div class="value">${formatNumber(summary.avg_per_day)} грн</div>
                 </div>
             </div>
@@ -4951,14 +4933,14 @@ function displayCalculationDetails(data) {
     if (manualBonus > 0 || totalDeductions > 0) {
         html += `
             <div style="margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
-                <h4 style="margin: 0 0 10px 0; color: #667eea;">📝 Корректировки:</h4>
+                <h4 style="margin: 0 0 10px 0; color: #667eea;">Корректировки:</h4>
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
         `;
         
         if (manualBonus > 0) {
             html += `
                 <div style="padding: 8px; background: #d4edda; border-radius: 4px;">
-                    <strong style="color: #155724;">➕ Премия:</strong> ${formatNumber(manualBonus)} грн
+                    <strong style="color: #155724;">Премия:</strong> ${formatNumber(manualBonus)} грн
                     ${summary.bonus_reason ? `<br><small style="color: #666;">Причина: ${summary.bonus_reason}</small>` : ''}
                 </div>
             `;
@@ -4967,7 +4949,7 @@ function displayCalculationDetails(data) {
         if (penalty > 0) {
             html += `
                 <div style="padding: 8px; background: #f8d7da; border-radius: 4px;">
-                    <strong style="color: #721c24;">➖ Штраф:</strong> ${formatNumber(penalty)} грн
+                    <strong style="color: #721c24;">Штраф:</strong> ${formatNumber(penalty)} грн
                     ${summary.penalty_reason ? `<br><small style="color: #666;">Причина: ${summary.penalty_reason}</small>` : ''}
                 </div>
             `;
@@ -4976,7 +4958,7 @@ function displayCalculationDetails(data) {
         if (shortage > 0) {
             html += `
                 <div style="padding: 8px; background: #fff3cd; border-radius: 4px;">
-                    <strong style="color: #856404;">➖ Недостача:</strong> ${formatNumber(shortage)} грн
+                    <strong style="color: #856404;">Недостача:</strong> ${formatNumber(shortage)} грн
                 </div>
             `;
         }
@@ -4991,7 +4973,7 @@ function displayCalculationDetails(data) {
     html += `
             <div style="margin-top: 15px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white;">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <span style="font-size: 16px;">💰 ИТОГО К ВЫПЛАТЕ:</span>
+                    <span style="font-size: 16px;">ИТОГО К ВЫПЛАТЕ:</span>
                     <span style="font-size: 24px; font-weight: bold;">${formatNumber(totalWithAdjustments)} грн</span>
                 </div>
                 ${manualBonus > 0 || totalDeductions > 0 ? `
@@ -5009,7 +4991,7 @@ function displayCalculationDetails(data) {
     if (store_stats && Object.keys(store_stats).length > 0) {
         html += `
             <div class="store-stats-panel">
-                <h4 style="margin: 0 0 10px 0; color: #667eea;">🏪 Статистика по магазинам:</h4>
+                <h4 style="margin: 0 0 10px 0; color: #667eea;">Статистика по магазинам:</h4>
         `;
         
         Object.entries(store_stats).forEach(([store, stats]) => {
@@ -5026,7 +5008,7 @@ function displayCalculationDetails(data) {
     
     // Таблица детализации по дням
     html += `
-        <h4 style="margin: 20px 0 10px 0; color: #667eea;">📅 Детализация по дням:</h4>
+        <h4 style="margin: 20px 0 10px 0; color: #667eea;">Детализация по дням:</h4>
         <div class="table-container">
             <table>
                 <thead>
@@ -5081,10 +5063,10 @@ function displayCalculationDetails(data) {
     html += `
         <div class="export-buttons">
             <button onclick="exportDetailsToExcel()" class="secondary">
-                📊 Экспорт в Excel
+                Экспорт в Excel
             </button>
             <button onclick="printDetails()" class="secondary">
-                🖨️ Печать
+                Печать
             </button>
         </div>
     `;
@@ -5194,7 +5176,7 @@ async function exportDetailsToExcel() {
             a.click();
             window.URL.revokeObjectURL(url);
             
-            showStatus('detailsStatus', '✅ Файл успешно экспортирован', 'success');
+            showStatus('detailsStatus', 'Файл успешно экспортирован', 'success');
             setTimeout(() => hideStatus('detailsStatus'), 3000);
         } else {
             showStatus('detailsStatus', result.error || 'Ошибка экспорта', 'error');
@@ -5218,13 +5200,13 @@ async function debugEmployee(employeeId) {
     const year = document.getElementById('reportYear')?.value;
     const endDate = document.getElementById('reportEndDate')?.value;
     
-    console.group(`🔍 ДИАГНОСТИКА: ${employeeId}`);
+    console.group(`ДИАГНОСТИКА: ${employeeId}`);
     console.log('Период:', { month, year, endDate });
     
     // 1. Проверяем что в таблице
     const row = document.querySelector(`tr[data-employee-id="${employeeId}"]`);
     if (row) {
-        console.log('📋 Данные из таблицы:');
+        console.log('<i class="ti ti-clipboard-list"></i> Данные из таблицы:');
         console.log('  - basePay (dataset):', row.dataset.basePay);
         console.log('  - shifts:', row.dataset.shifts);
         console.log('  - employeeName:', row.dataset.employeeName);
@@ -5242,7 +5224,7 @@ async function debugEmployee(employeeId) {
         console.log('  - cardRemainder (ячейка):', cardRemainderCell?.textContent);
         console.log('  - cashPayout (ячейка):', cashPayoutCell?.textContent);
     } else {
-        console.warn('❌ Строка не найдена в таблице!');
+        console.warn('Строка не найдена в таблице!');
     }
     
     // 2. Запрашиваем детализацию с сервера
@@ -5261,12 +5243,12 @@ async function debugEmployee(employeeId) {
         const result = await response.json();
         
         if (result.success) {
-            console.log('📊 Данные с сервера:');
+            console.log('Данные с сервера:');
             console.log('  - Всего дней:', result.details.length);
             console.log('  - Сумма (summary):', result.summary.total_earned);
             
             // Показываем каждый день
-            console.log('📅 Детализация по дням:');
+            console.log('Детализация по дням:');
             let calculatedTotal = 0;
             result.details.forEach((day, idx) => {
                 calculatedTotal += day.total_pay;
@@ -5278,18 +5260,18 @@ async function debugEmployee(employeeId) {
             // Сравниваем
             const tableBasePay = parseFloat(row?.dataset.basePay) || 0;
             if (Math.abs(tableBasePay - calculatedTotal) > 0.01) {
-                console.error('⚠️ РАСХОЖДЕНИЕ!');
+                console.error('РАСХОЖДЕНИЕ!');
                 console.error('  В таблице:', tableBasePay);
                 console.error('  На сервере:', calculatedTotal);
                 console.error('  Разница:', tableBasePay - calculatedTotal);
             } else {
-                console.log('✅ Суммы совпадают');
+                console.log('Суммы совпадают');
             }
         } else {
-            console.error('❌ Ошибка API:', result.error);
+            console.error('Ошибка API:', result.error);
         }
     } catch (error) {
-        console.error('❌ Ошибка запроса:', error);
+        console.error('Ошибка запроса:', error);
     }
     
     console.groupEnd();
@@ -5299,7 +5281,7 @@ async function debugEmployee(employeeId) {
 function debugAllCalculations() {
     const rows = document.querySelectorAll('#monthlyReportTable tbody tr:not(.summary-row)');
     
-    console.group('🔍 ПРОВЕРКА ВСЕХ РАСЧЕТОВ');
+    console.group('ПРОВЕРКА ВСЕХ РАСЧЕТОВ');
     
     let problemsFound = 0;
     
@@ -5345,7 +5327,7 @@ function debugAllCalculations() {
         
         if (hasDiscrepancy || cardOverLimit) {
             problemsFound++;
-            console.warn(`⚠️ ${employeeName} (${employeeId}):`);
+            console.warn(`${employeeName} (${employeeId}):`);
             if (hasDiscrepancy) {
                 console.warn(`   Остаток: ожидается ${expectedRemainder.toFixed(2)}, есть ${actualRemainder.toFixed(2)}`);
             }
@@ -5356,9 +5338,9 @@ function debugAllCalculations() {
     });
     
     if (problemsFound === 0) {
-        console.log('✅ Все расчеты корректны!');
+        console.log('Все расчеты корректны!');
     } else {
-        console.warn(`⚠️ Найдено проблем: ${problemsFound}`);
+        console.warn(`Найдено проблем: ${problemsFound}`);
     }
     
     console.groupEnd();
@@ -5368,6 +5350,6 @@ function debugAllCalculations() {
 window.debugEmployee = debugEmployee;
 window.debugAllCalculations = debugAllCalculations;
 
-console.log('🛠️ Диагностические функции загружены:');
+console.log('Диагностические функции загружены:');
 console.log('   debugEmployee("ID_сотрудника") - проверить конкретного сотрудника');
 console.log('   debugAllCalculations() - проверить всех');
