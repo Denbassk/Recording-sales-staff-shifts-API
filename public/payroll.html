@@ -128,19 +128,27 @@ tr.has-final-calc td{background:var(--surface-2)}
 #monthlyReportTable td:first-child{white-space:nowrap}
 .bonus-breakdown{white-space:normal}
 #reportChecksPanel{margin:0 0 14px}
-.chk-body{border:.5px solid var(--border);border-radius:12px;background:var(--surface-2);padding:12px 16px}
+.chk-body{border:.5px solid var(--border);border-radius:12px;background:var(--surface-2);padding:8px 14px}
 .chk-ok{background:var(--ok-bg);color:var(--ok);border:.5px solid var(--ok);border-radius:10px;padding:9px 14px;font-size:13px;display:flex;gap:8px;align-items:center}
-.chk-hd{display:flex;gap:8px;align-items:center;font-size:15px;font-weight:500;margin-bottom:4px}
+.chk-hd{display:flex;gap:8px;align-items:center;font-size:14px;font-weight:500;cursor:pointer;user-select:none}
+.chk-ttl{margin-right:2px}
+.chk-chips{display:inline-flex;flex-wrap:wrap;gap:4px}
+.chk-note{font-size:12px;color:var(--dgr)}
+.chk-caret{margin-left:auto;font-size:16px!important;color:var(--text-2);transition:transform .15s}
+#reportChecksPanel.collapsed .chk-caret{transform:rotate(-90deg)}
+#reportChecksPanel.collapsed .chk-list{display:none}
+.chk-list{margin-top:6px}
+.chk-tx{flex:1;line-height:1.35}
 .chk-sub{font-size:12px;color:var(--text-2);margin-bottom:10px}
 .chk-b{display:inline-flex;gap:5px;align-items:center;font-size:12px;font-weight:500;padding:2px 9px;border-radius:20px;margin-right:6px}
 .chk-b.e{background:var(--dgr-bg);color:var(--dgr);border:.5px solid var(--dgr)}
 .chk-b.w{background:var(--warn-bg);color:var(--warn);border:.5px solid var(--warn)}
 .chk-b.i{background:var(--surface);color:var(--text-2);border:.5px solid var(--border)}
-.chk-i{display:flex;gap:10px;padding:8px 0;border-top:.5px solid var(--border);font-size:13px}
+.chk-i{display:flex;gap:8px;padding:4px 0;border-top:.5px solid var(--border);font-size:13px;align-items:baseline}
 .chk-i i{font-size:17px;margin-top:1px}
 .chk-i.err i{color:var(--dgr)}.chk-i.warn i{color:var(--warn)}.chk-i.info i{color:var(--text-2)}
 .chk-i .who{font-weight:500}
-.chk-a{display:block;color:var(--text-2);margin-top:2px}
+.chk-a{color:var(--text-2)}
 #monthlyReportTable tr.row-chk-err td{background:var(--dgr-bg)}
 #monthlyReportTable tr.row-chk-err td:first-child{border-left:3px solid var(--dgr)}
 #monthlyReportTable tr.row-chk-warn td{background:var(--warn-bg)}

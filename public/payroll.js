@@ -301,20 +301,20 @@ function showModalNotification(message, type = 'info', duration = 3000) {
     switch(type) {
         case 'success':
             icon = '';
-            bgColor = '#d4edda';
-            textColor = '#155724';
+            bgColor = 'var(--ok-bg)';
+            textColor = 'var(--ok)';
             borderColor = '#c3e6cb';
             break;
         case 'error':
             icon = '';
-            bgColor = '#f8d7da';
-            textColor = '#721c24';
+            bgColor = 'var(--dgr-bg)';
+            textColor = 'var(--dgr)';
             borderColor = '#f5c6cb';
             break;
         case 'warning':
             icon = '';
-            bgColor = '#fff3cd';
-            textColor = '#856404';
+            bgColor = 'var(--warn-bg)';
+            textColor = 'var(--warn)';
             borderColor = '#ffeaa7';
             break;
     }
@@ -1175,6 +1175,8 @@ function ensureChecksPanel() {
     return p;
 }
 
+function toggleChecksPanel() { var p = document.getElementById('reportChecksPanel'); if (p) p.classList.toggle('collapsed'); }
+
 function runReportChecks() {
     var tbl = document.getElementById('monthlyReportTable');
     var p = ensureChecksPanel();
@@ -1205,7 +1207,7 @@ function runReportChecks() {
         else if (Math.abs(actual - expected) > 1) { issues.push({ s: 'err', n: name, m: 'карта+наличные (' + formatNumber(actual) + ') не сходятся с суммой к выплате (' + formatNumber(expected) + ')', a: 'проверьте распределение остатка' }); sev = 'err'; }
         if (!isFixed && advCard + cardRem > cardLimit + 1) { issues.push({ s: 'err', n: name, m: 'на карту уходит ' + formatNumber(advCard + cardRem) + ' — больше лимита ' + formatNumber(cardLimit), a: 'перенесите излишек в наличные (или увеличьте лимит карты)' }); sev = 'err'; }
         if (afterDed < -0.5) { issues.push({ s: 'warn', n: name, m: 'вычеты больше начисления, итог в минус (' + formatNumber(afterDed) + ')', a: 'уменьшите вычет или перенесите на след. месяц' }); if (sev !== 'err') sev = 'warn'; }
-        if ((pen > 0 || sh > 0) && !penReason) { issues.push({ s: 'info', n: name, m: 'вычет без указанной причины', a: 'впишите причину' }); }
+        if (pen > 0 && !penReason) { issues.push({ s: 'info', n: name, m: 'штраф без указанной причины', a: 'впишите причину депремирования' }); }
         if (!isFixed && rows.length >= 4 && (fixedCount / rows.length) > 0.7) { issues.push({ s: 'warn', n: name, m: 'строка не зафиксирована, а остальные зафиксированы', a: 'зафиксируйте или проверьте' }); if (sev !== 'err') sev = 'warn'; }
         if (sev === 'err') r.classList.add('row-chk-err');
         else if (sev === 'warn') r.classList.add('row-chk-warn');
@@ -1215,12 +1217,37 @@ function runReportChecks() {
     var infos = issues.filter(function (i) { return i.s === 'info'; }).length;
     if (p) {
         if (issues.length === 0) {
+            p.className = '';
             p.innerHTML = '<div class="chk-ok"><i class="ti ti-circle-check"></i> Проверка пройдена — расхождений и ошибок нет.</div>';
         } else {
             var icn = { err: 'ti-alert-triangle', warn: 'ti-alert-circle', info: 'ti-info-circle' };
-            var items = issues.map(function (i) { return '<div class="chk-i ' + i.s + '"><i class="ti ' + icn[i.s] + '"></i><div><span class="who">' + i.n + '</span> — ' + i.m + '.<span class="chk-a">Что сделать: ' + i.a + '.</span></div></div>'; }).join('');
+            var groups = {}, gOrder = [];
+            issues.forEach(function (i) {
+                var k = i.s + '|' + i.m + '|' + i.a;
+                if (!groups[k]) { groups[k] = { s: i.s, m: i.m, a: i.a, names: [] }; gOrder.push(k); }
+                groups[k].names.push(i.n);
+            });
+            var sevRank = { err: 0, warn: 1, info: 2 };
+            gOrder.sort(function (a, b) { return sevRank[groups[a].s] - sevRank[groups[b].s]; });
+            var items = gOrder.map(function (k) {
+                var g = groups[k], cnt = g.names.length;
+                var who = cnt === 1 ? g.names[0] : cnt + ' сотр.';
+                var tip = cnt > 1 ? ' title="' + g.names.join(', ') + '"' : '';
+                return '<div class="chk-i ' + g.s + '"' + tip + '><i class="ti ' + icn[g.s] + '"></i>'
+                    + '<span class="chk-tx"><span class="who">' + who + '</span> — ' + g.m + '. '
+                    + '<span class="chk-a">' + g.a + '</span></span></div>';
+            }).join('');
             var chip = function (cls, ci, n, w) { return n ? '<span class="chk-b ' + cls + '"><i class="ti ' + ci + '"></i> ' + n + ' ' + w + '</span>' : ''; };
-            p.innerHTML = '<div class="chk-body"><div class="chk-hd"><i class="ti ti-clipboard-check"></i> Проверка расчёта</div><div class="chk-sub">' + chip('e', 'ti-alert-triangle', errs, errs === 1 ? 'ошибка' : 'ошибок') + chip('w', 'ti-alert-circle', warns, 'предупр.') + chip('i', 'ti-info-circle', infos, 'подсказ.') + (errs ? ' — исправьте ошибки перед фиксацией выплаты.' : '') + '</div>' + items + '</div>';
+            var chips = chip('e', 'ti-alert-triangle', errs, errs === 1 ? 'ошибка' : 'ошибок') + chip('w', 'ti-alert-circle', warns, 'предупр.') + chip('i', 'ti-info-circle', infos, 'подсказ.');
+            p.className = errs ? '' : 'collapsed';
+            p.innerHTML = '<div class="chk-body">'
+                + '<div class="chk-hd" onclick="toggleChecksPanel()">'
+                + '<i class="ti ti-clipboard-check"></i><span class="chk-ttl">Проверка расчёта</span>'
+                + '<span class="chk-chips">' + chips + '</span>'
+                + (errs ? '<span class="chk-note">исправьте перед фиксацией</span>' : '')
+                + '<i class="ti ti-chevron-down chk-caret"></i></div>'
+                + '<div class="chk-list">' + items + '</div>'
+                + '</div>';
         }
     }
     return { errors: errs, warnings: warns, infos: infos };
@@ -1577,25 +1604,25 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 // Увольнение
                 if (advanceCash > 0 && advanceCard > 0) {
                     advanceCardContent = `
-                    <span style="color: #ff6b6b; font-weight: bold;" 
+                    <span style="color: var(--dgr); font-weight: bold;" 
                           title="Увольнение: ${manualAdvanceReason}">
                         <i class="ti ti-credit-card"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCard)}
                     </span>`;
                     advanceCashContent = `
-                    <span style="color: #28a745; font-weight: bold;" 
+                    <span style="color: var(--ok); font-weight: bold;" 
                           title="Увольнение: ${manualAdvanceReason}">
                         <i class="ti ti-cash"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCash)}
                     </span>`;
                 } else if (advanceCash > 0) {
                     advanceCashContent = `
-                    <span style="color: #28a745; font-weight: bold;" 
+                    <span style="color: var(--ok); font-weight: bold;" 
                           title="Увольнение: ${manualAdvanceReason}">
                         <i class="ti ti-cash"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCash)}
                     </span>`;
                     advanceCardContent = '0';
                 } else {
                     advanceCardContent = `
-                    <span style="color: #ff6b6b; font-weight: bold;" 
+                    <span style="color: var(--dgr); font-weight: bold;" 
                           title="Увольнение: ${manualAdvanceReason}">
                         <i class="ti ti-credit-card"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCard)}
                     </span>`;
@@ -1605,25 +1632,25 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 // Ручная корректировка
                 if (advanceCash > 0 && advanceCard > 0) {
                     advanceCardContent = `
-                    <span style="color: #ff6b6b; font-weight: bold;" 
+                    <span style="color: var(--dgr); font-weight: bold;" 
                           title="Ручная корректировка: ${manualAdvanceReason}">
                         <i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCard)}
                     </span>`;
                     advanceCashContent = `
-                    <span style="color: #28a745; font-weight: bold;" 
+                    <span style="color: var(--ok); font-weight: bold;" 
                           title="Ручная корректировка: ${manualAdvanceReason}">
                         <i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCash)}
                     </span>`;
                 } else if (advanceCash > 0) {
                     advanceCashContent = `
-                    <span style="color: #28a745; font-weight: bold;" 
+                    <span style="color: var(--ok); font-weight: bold;" 
                           title="Ручная корректировка: ${manualAdvanceReason}">
                         <i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCash)}
                     </span>`;
                     advanceCardContent = '0';
                 } else {
                     advanceCardContent = `
-                    <span style="color: #ff6b6b; font-weight: bold;" 
+                    <span style="color: var(--dgr); font-weight: bold;" 
                           title="Ручная корректировка: ${manualAdvanceReason}">
                         <i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCard)}
                     </span>`;
@@ -1633,13 +1660,13 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 // Зафиксированный аванс
                 if (advanceCash > 0) {
                     advanceCashContent = `
-                    <strong style="color: #28a745;" title="Аванс зафиксирован (наличные)">
+                    <strong style="color: var(--ok);" title="Аванс зафиксирован (наличные)">
                         <i class="ti ti-lock"></i> <i class="ti ti-cash"></i> ${formatNumber(advanceCash)}
                     </strong>`;
                     advanceCardContent = '0';
                 } else {
                     advanceCardContent = `
-                    <strong style="color: #f5576c;" title="Аванс зафиксирован (карта)">
+                    <strong style="color: var(--dgr);" title="Аванс зафиксирован (карта)">
                         <i class="ti ti-lock"></i> <i class="ti ti-credit-card"></i> ${formatNumber(advanceCard)}
                     </strong>`;
                     advanceCashContent = '0';
@@ -1647,7 +1674,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             } else if (finalCalc) {
                 // Есть финальный расчет, но аванс не помечен как зафиксированный
                 if (advanceCash > 0) {
-                    advanceCashContent = `<strong style="color: #28a745;"><i class="ti ti-cash"></i> ${formatNumber(advanceCash)}</strong>`;
+                    advanceCashContent = `<strong style="color: var(--ok);"><i class="ti ti-cash"></i> ${formatNumber(advanceCash)}</strong>`;
                     advanceCardContent = '0';
                 } else {
                     advanceCardContent = `<strong><i class="ti ti-credit-card"></i> ${formatNumber(advanceCard)}</strong>`;
@@ -1698,7 +1725,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
             <td class="advance-payment-cash" style="padding: 5px;">
                 <span class="advance-cash-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCashContent}</span>
             </td>
-            <td class="card-remainder" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : (cardRemainder > 0 ? 'color: #28a745; font-weight: bold;' : '')}">
+            <td class="card-remainder" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : (cardRemainder > 0 ? 'color: var(--ok); font-weight: bold;' : '')}">
     ${hasCompleteCalculation ? formatNumber(cardRemainder) : '—'}
     ${hasCompleteCalculation ? `<button onclick="adjustCardRemainder('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Корректировать остаток"><i class="ti ti-pencil"></i></button>` : ''}
 </td>
@@ -1742,10 +1769,10 @@ data-shifts='${JSON.stringify(data.shifts)}'>
         `;
         
         if (manualAdjustmentsCount > 0) {
-            infoMessage += `<br><span style="color: #ff6b6b;"><i class="ti ti-pencil"></i> Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
+            infoMessage += `<br><span style="color: var(--dgr);"><i class="ti ti-pencil"></i> Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
         }
         if (cashAdvanceCount > 0) {
-            infoMessage += `<br><span style="color: #28a745;"><i class="ti ti-cash"></i> Авансов наличными: ${cashAdvanceCount}</span>`;
+            infoMessage += `<br><span style="color: var(--ok);"><i class="ti ti-cash"></i> Авансов наличными: ${cashAdvanceCount}</span>`;
         }
         
         const existingInfoPanel = document.querySelector('#monthlyReportContent .status.info');
@@ -1774,7 +1801,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
                 if (finalCalc.card_remainder > 0) {
                     const cardRemainderCell = row.querySelector('.card-remainder');
                     if (cardRemainderCell) {
-                        cardRemainderCell.style.color = '#28a745';
+                        cardRemainderCell.style.color = 'var(--ok)';
                         cardRemainderCell.style.fontWeight = 'bold';
                     }
                 }
@@ -1910,7 +1937,7 @@ if (remainingToPay > 0) {
         cardRemainderCell.textContent = formatNumber(newCardRemainder);
         
         if (newCardRemainder > 0) {
-            cardRemainderCell.style.color = '#28a745';
+            cardRemainderCell.style.color = 'var(--ok)';
             cardRemainderCell.style.fontWeight = 'bold';
         } else {
             cardRemainderCell.style.color = '';
@@ -2145,22 +2172,22 @@ async function calculateAdvance15(silent = false) {
                         cashContent = formatNumber(result.advance_payment);
                         if (result.is_manual) {
                             hasManualAdjustments = true;
-                            cashContent = `<span style="color: #28a745; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}"><i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(result.advance_payment)}</span>`;
+                            cashContent = `<span style="color: var(--ok); font-weight: bold;" title="${result.reason || 'Ручная корректировка'}"><i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(result.advance_payment)}</span>`;
                         } else if (result.is_fixed) {
                             hasFixedAdvances = true;
-                            cashContent = `<strong style="color: #28a745;" title="Аванс зафиксирован"><i class="ti ti-lock"></i> <i class="ti ti-cash"></i> ${formatNumber(result.advance_payment)}</strong>`;
+                            cashContent = `<strong style="color: var(--ok);" title="Аванс зафиксирован"><i class="ti ti-lock"></i> <i class="ti ti-cash"></i> ${formatNumber(result.advance_payment)}</strong>`;
                         } else {
-                            cashContent = `<span style="color: #28a745;"><i class="ti ti-cash"></i> ${formatNumber(result.advance_payment)}</span>`;
+                            cashContent = `<span style="color: var(--ok);"><i class="ti ti-cash"></i> ${formatNumber(result.advance_payment)}</span>`;
                         }
                     } else {
                         // По умолчанию на карту
                         cardContent = formatNumber(result.advance_payment);
                         if (result.is_manual) {
                             hasManualAdjustments = true;
-                            cardContent = `<span style="color: #ff6b6b; font-weight: bold;" title="${result.reason || 'Ручная корректировка'}"><i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(result.advance_payment)}</span>`;
+                            cardContent = `<span style="color: var(--dgr); font-weight: bold;" title="${result.reason || 'Ручная корректировка'}"><i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(result.advance_payment)}</span>`;
                         } else if (result.is_fixed) {
                             hasFixedAdvances = true;
-                            cardContent = `<strong style="color: #f5576c;" title="Аванс зафиксирован"><i class="ti ti-lock"></i> <i class="ti ti-credit-card"></i> ${formatNumber(result.advance_payment)}</strong>`;
+                            cardContent = `<strong style="color: var(--dgr);" title="Аванс зафиксирован"><i class="ti ti-lock"></i> <i class="ti ti-credit-card"></i> ${formatNumber(result.advance_payment)}</strong>`;
                         } else {
                             cardContent = `<span><i class="ti ti-credit-card"></i> ${formatNumber(result.advance_payment)}</span>`;
                         }
@@ -2454,7 +2481,7 @@ async function adjustAdvanceManually(employeeId, employeeName) {
             const updateCellContent = (cell, amount, isCard = true) => {
                 if (amount > 0) {
                     const icon = isCard ? '<i class="ti ti-credit-card"></i>' : '<i class="ti ti-cash"></i>';
-                    const color = isCard ? '#ff6b6b' : '#28a745';
+                    const color = isCard ? 'var(--dgr)' : 'var(--ok)';
                     const terminationIcon = isTermination ? '<i class="ti ti-door-exit"></i>' : '<i class="ti ti-pencil"></i>';
                     
                     cell.innerHTML = `
@@ -2553,7 +2580,7 @@ async function showAdjustmentsHistory() {
                 const date = new Date(adj.adjusted_at).toLocaleString('ru-RU');
                 const method = adj.payment_method === 'cash' ? 'Наличные' : 
                               adj.payment_method === 'mixed' ? 'Карта+Наличные' : 'Карта';
-                const bgColor = index % 2 === 0 ? '#f9f9f9' : '#ffffff';
+                const bgColor = index % 2 === 0 ? 'var(--surface-2)' : 'var(--surface)';
                 historyHTML += `
                     <tr style="background: ${bgColor};">
                         <td style="padding: 10px; border-bottom: 1px solid var(--border);">${adj.employee_name}</td>
@@ -3142,13 +3169,13 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 border-radius: 8px;
                 padding: 15px;
                 margin-bottom: 15px;
-                background: #f9f9f9;
+                background: var(--surface-2);
             ">
                 <h3 style="margin: 0 0 10px 0; color: var(--text);">
                     ${index + 1}. ${emp.employee_name} 
                     <span style="
                         background: var(--warn-bg);
-                        color: #856404;
+                        color: var(--warn);
                         padding: 2px 8px;
                         border-radius: 4px;
                         font-size: 12px;
@@ -3489,7 +3516,7 @@ async function fixManualAdvances() {
                         // Визуальная индикация если остаток на карту > 0
                         if (result.card_remainder > 0) {
                             cardRemainderCell.style.fontWeight = 'bold';
-                            cardRemainderCell.style.color = '#28a745'; // Зеленый цвет
+                            cardRemainderCell.style.color = 'var(--ok)'; // Зеленый цвет
                             cardRemainderCell.title = `Остаток к выплате на карту: ${formatNumber(result.card_remainder)} грн`;
                         } else {
                             cardRemainderCell.style.fontWeight = 'normal';
@@ -3545,7 +3572,7 @@ async function fixManualAdvances() {
                             
                             const strongEl = totalPayoutCell.querySelector('strong');
                             if (strongEl) {
-                                strongEl.style.color = '#ff6b6b';
+                                strongEl.style.color = 'var(--dgr)';
                                 strongEl.title += ` | Расхождение: ${discrepancy.toFixed(2)} грн`;
                             }
                         }
@@ -4118,7 +4145,7 @@ async function printAllPayslips() {
                     color: white;
                 }
 
-                .no-print button.close-btn { background: #dc3545; }
+                .no-print button.close-btn { background: var(--dgr); }
 
                 @media print {
                     .no-print { display: none !important; }
@@ -4244,11 +4271,11 @@ function displayFotReport(rows) {
         // Определяем цвет для процента ФОТ
         let percentageClass = '';
         if (row.fot_percentage > 15) {
-            percentageClass = 'style="color: #dc3545; font-weight: bold;"'; // Красный если > 15%
+            percentageClass = 'style="color: var(--dgr); font-weight: bold;"'; // Красный если > 15%
         } else if (row.fot_percentage > 12) {
-            percentageClass = 'style="color: #ffc107; font-weight: bold;"'; // Желтый если > 12%
+            percentageClass = 'style="color: var(--warn); font-weight: bold;"'; // Желтый если > 12%
         } else {
-            percentageClass = 'style="color: #28a745;"'; // Зеленый если <= 12%
+            percentageClass = 'style="color: var(--ok);"'; // Зеленый если <= 12%
         }
         
         tr.innerHTML = `
@@ -4266,7 +4293,7 @@ function displayFotReport(rows) {
             <td>ИТОГО:</td>
             <td style="text-align: right;">${formatNumber(totalRevenue)} грн</td>
             <td style="text-align: right;">${formatNumber(totalFund)} грн</td>
-            <td style="text-align: center; color: ${fotPercentage > 15 ? '#dc3545' : fotPercentage > 12 ? '#ffc107' : '#28a745'};">
+            <td style="text-align: center; color: ${fotPercentage > 15 ? 'var(--dgr)' : fotPercentage > 12 ? 'var(--warn)' : 'var(--ok)'};">
                 ${fotPercentage.toFixed(2)}%
             </td>
         </tr>
@@ -4517,10 +4544,10 @@ async function adjustCardRemainder(employeeId, employeeName) {
         
         // Проверка лимитов
         if (cardValue > maxCard) {
-            this.style.borderColor = '#dc3545';
+            this.style.borderColor = 'var(--dgr)';
             this.setCustomValidity(`Превышен лимит карты. Максимум: ${maxCard} грн`);
         } else {
-            this.style.borderColor = '#28a745';
+            this.style.borderColor = 'var(--ok)';
             this.setCustomValidity('');
         }
     });
@@ -4559,7 +4586,7 @@ async function saveCardRemainderAdjustment(employeeId) {
             if (cardRemainderCell) {
                 cardRemainderCell.textContent = formatNumber(newCardRemainder);
                 if (newCardRemainder > 0) {
-                    cardRemainderCell.style.color = '#28a745';
+                    cardRemainderCell.style.color = 'var(--ok)';
                     cardRemainderCell.style.fontWeight = 'bold';
                 }
             }
@@ -4626,7 +4653,7 @@ async function manageShortages(employeeId, employeeName) {
                         </div>
                         <button onclick="removeShortage('${shortage.id}')" style="
                             padding: 5px 10px;
-                            background: #dc3545;
+                            background: var(--dgr);
                             color: white;
                             border: none;
                             border-radius: 3px;
@@ -4686,7 +4713,7 @@ async function manageShortages(employeeId, employeeName) {
                     <button onclick="addShortage('${employeeId}')" style="
                         flex: 1;
                         padding: 12px;
-                        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+                        background: var(--brand);
                         color: white;
                         border: none;
                         border-radius: 5px;
@@ -5026,8 +5053,8 @@ function displayCalculationDetails(data) {
         
         if (manualBonus > 0) {
             html += `
-                <div style="padding: 8px; background: #d4edda; border-radius: 4px;">
-                    <strong style="color: #155724;">Премия:</strong> ${formatNumber(manualBonus)} грн
+                <div style="padding: 8px; background: var(--ok-bg); border-radius: 4px;">
+                    <strong style="color: var(--ok);">Премия:</strong> ${formatNumber(manualBonus)} грн
                     ${summary.bonus_reason ? `<br><small style="color: var(--text-2);">Причина: ${summary.bonus_reason}</small>` : ''}
                 </div>
             `;
@@ -5035,8 +5062,8 @@ function displayCalculationDetails(data) {
         
         if (penalty > 0) {
             html += `
-                <div style="padding: 8px; background: #f8d7da; border-radius: 4px;">
-                    <strong style="color: #721c24;">Штраф:</strong> ${formatNumber(penalty)} грн
+                <div style="padding: 8px; background: var(--dgr-bg); border-radius: 4px;">
+                    <strong style="color: var(--dgr);">Штраф:</strong> ${formatNumber(penalty)} грн
                     ${summary.penalty_reason ? `<br><small style="color: var(--text-2);">Причина: ${summary.penalty_reason}</small>` : ''}
                 </div>
             `;
@@ -5045,7 +5072,7 @@ function displayCalculationDetails(data) {
         if (shortage > 0) {
             html += `
                 <div style="padding: 8px; background: var(--warn-bg); border-radius: 4px;">
-                    <strong style="color: #856404;">Недостача:</strong> ${formatNumber(shortage)} грн
+                    <strong style="color: var(--warn);">Недостача:</strong> ${formatNumber(shortage)} грн
                 </div>
             `;
         }
