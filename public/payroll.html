@@ -120,6 +120,12 @@ tr.has-final-calc td{background:var(--surface-2)}
 .summary-row td{color:var(--text)}
 #calculationDetailsContent table{table-layout:fixed}
 #calculationDetailsContent table td,#calculationDetailsContent table th{white-space:nowrap}
+/* Полупрозрачная вертикальная сетка во всех таблицах-контейнерах (кроме расчётных листов) */
+.table-container table th,.table-container table td{border-right:1px solid rgba(128,128,128,.16)}
+.table-container table th:last-child,.table-container table td:last-child{border-right:none}
+/* Детализация по дням: шапка выровнена по данным (числа — вправо, «Прод.» — по центру) */
+#calculationDetailsContent table th:nth-child(n+3){text-align:right}
+#calculationDetailsContent table th:nth-child(4){text-align:center}
 #calculationDetailsContent .bonus-breakdown{white-space:normal;font-size:11px;color:var(--text-2);line-height:1.4}
 .details-summary-panel{background:var(--surface-2);border:.5px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:14px}
 .details-summary-grid{display:flex;flex-wrap:wrap;gap:14px 22px}
