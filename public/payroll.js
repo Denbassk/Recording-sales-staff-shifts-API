@@ -1203,7 +1203,7 @@ function runReportChecks() {
         var sev = null;
         if (cardRem < -0.5 || cashPay < -0.5) { issues.push({ s: 'err', n: name, m: 'отрицательный остаток к выплате', a: 'пересчитайте строку' }); sev = 'err'; }
         else if (Math.abs(actual - expected) > 1) { issues.push({ s: 'err', n: name, m: 'карта+наличные (' + formatNumber(actual) + ') не сходятся с суммой к выплате (' + formatNumber(expected) + ')', a: 'проверьте распределение остатка' }); sev = 'err'; }
-        if (advCard + cardRem > cardLimit + 1) { issues.push({ s: 'err', n: name, m: 'на карту уходит ' + formatNumber(advCard + cardRem) + ' — больше лимита ' + formatNumber(cardLimit), a: 'перенесите излишек в наличные' }); sev = 'err'; }
+        if (!isFixed && advCard + cardRem > cardLimit + 1) { issues.push({ s: 'err', n: name, m: 'на карту уходит ' + formatNumber(advCard + cardRem) + ' — больше лимита ' + formatNumber(cardLimit), a: 'перенесите излишек в наличные (или увеличьте лимит карты)' }); sev = 'err'; }
         if (afterDed < -0.5) { issues.push({ s: 'warn', n: name, m: 'вычеты больше начисления, итог в минус (' + formatNumber(afterDed) + ')', a: 'уменьшите вычет или перенесите на след. месяц' }); if (sev !== 'err') sev = 'warn'; }
         if ((pen > 0 || sh > 0) && !penReason) { issues.push({ s: 'info', n: name, m: 'вычет без указанной причины', a: 'впишите причину' }); }
         if (!isFixed && rows.length >= 4 && (fixedCount / rows.length) > 0.7) { issues.push({ s: 'warn', n: name, m: 'строка не зафиксирована, а остальные зафиксированы', a: 'зафиксируйте или проверьте' }); if (sev !== 'err') sev = 'warn'; }

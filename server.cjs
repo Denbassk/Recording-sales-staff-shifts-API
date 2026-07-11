@@ -2156,6 +2156,7 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     card_remainder: cardRemainder,
                     cash_payout: cashPayout,
                     total_card_payment: advanceCard + cardRemainder,
+                    card_limit: limits.cardLimit,
                     calculation_date: reportEndDate,
                     is_fixed: isFixed,
                     is_manual_adjustment: isManualAdjustment,
