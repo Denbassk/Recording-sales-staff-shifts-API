@@ -3528,6 +3528,10 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
             base_rate: calc.base_rate || 0,
             bonus: calc.bonus || 0,
             bonus_details: calc.bonus_details || 'Нет данных',
+            sales_percent: calc.sales_percent || 0,
+            bag_bonus: calc.bag_bonus || 0,
+            coffee_bonus: calc.coffee_bonus || 0,
+            culinary_bonus: calc.culinary_bonus || 0,
             total_pay: calc.total_pay || 0,
             is_senior: calc.is_senior || false
         }));
@@ -3535,6 +3539,11 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
         // Считаем итоги
         const total_base = calculations.reduce((sum, c) => sum + (c.base_rate || 0), 0);
         const total_bonus = calculations.reduce((sum, c) => sum + (c.bonus || 0), 0);
+        const total_sales_percent = calculations.reduce((sum, c) => sum + (c.sales_percent || 0), 0);
+        const total_bag = calculations.reduce((sum, c) => sum + (c.bag_bonus || 0), 0);
+        const total_coffee = calculations.reduce((sum, c) => sum + (c.coffee_bonus || 0), 0);
+        const total_culinary = calculations.reduce((sum, c) => sum + (c.culinary_bonus || 0), 0);
+        const total_extras = total_sales_percent + total_bag + total_coffee + total_culinary;
         const total_earned = calculations.reduce((sum, c) => sum + (c.total_pay || 0), 0);
         
         // НОВОЕ: Итого с учётом корректировок
@@ -3546,6 +3555,11 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
             total_earned: total_earned,
             total_base: total_base,
             total_bonus: total_bonus,
+            total_sales_percent: total_sales_percent,
+            total_bag: total_bag,
+            total_coffee: total_coffee,
+            total_culinary: total_culinary,
+            total_extras: total_extras,
             avg_per_day: calculations.length > 0 ? total_earned / calculations.length : 0,
             // НОВОЕ: добавляем корректировки
             manual_bonus: adj.manual_bonus || 0,

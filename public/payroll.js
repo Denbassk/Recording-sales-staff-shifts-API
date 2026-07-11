@@ -1699,7 +1699,7 @@ tableHtml += `<tr class="${rowClass}"
             data-store-address="${data.primaryStore}" 
             data-month="${month}" 
             data-year="${year}" 
-            data-base-pay="${data.totalPay}" 
+            data-base-pay="${data.totalPay}" data-b-percent="${data.bPercent}" data-b-bag="${data.bBag}" data-b-coffee="${data.bCoffee}" data-b-culinary="${data.bCulinary}" 
             data-card-limit="${finalCalc?.card_limit || 8700}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
 data-shifts='${JSON.stringify(data.shifts)}'>
             <td style="padding: 5px;">
@@ -3752,6 +3752,11 @@ async function printAllPayslips() {
         const employeeName  = row.dataset.employeeName;
         const storeAddress  = row.dataset.storeAddress;
         const basePay       = parseFloat(row.dataset.basePay) || 0;
+        const bPercent      = parseFloat(row.dataset.bPercent) || 0;
+        const bBag          = parseFloat(row.dataset.bBag) || 0;
+        const bCoffee       = parseFloat(row.dataset.bCoffee) || 0;
+        const bCulinary     = parseFloat(row.dataset.bCulinary) || 0;
+        const extrasTotal   = bPercent + bBag + bCoffee + bCulinary;
         const manualBonus   = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
         const penalty       = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
         const shortage      = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
@@ -3777,6 +3782,7 @@ async function printAllPayslips() {
 
         // Считаем количество строк контента для определения размера шрифта
         let contentLines = 6; // базовые строки всегда есть
+        if (extrasTotal > 0) contentLines += 2; // строка разбивки бонусов
         if (manualBonus > 0) contentLines += 1;
         if (bonusReason)     contentLines += 1;
         if (penalty > 0)     contentLines += 1;
@@ -3807,6 +3813,20 @@ async function printAllPayslips() {
             reasonSize = '8.5pt';
         }
 
+        // Разбивка бонусов (только для периодов с новыми правилами, с 16.07)
+        let breakdownHTML = '';
+        if (extrasTotal > 0) {
+            const rateOnly = Math.max(0, basePay - extrasTotal);
+            const parts = ['Ставка ' + formatNumber(rateOnly)];
+            if (bPercent > 0)  parts.push('Процент ' + formatNumber(bPercent));
+            if (bBag > 0)      parts.push('Пакеты ' + formatNumber(bBag));
+            if (bCoffee > 0)   parts.push('Кофе ' + formatNumber(bCoffee));
+            if (bCulinary > 0) parts.push('Кулинария ' + formatNumber(bCulinary));
+            breakdownHTML = `
+                        <tr>
+                            <td class="desc" colspan="2" style="font-size: ${reasonSize}; color: #555; padding-top: 1px;">в т.ч.: ${parts.join(' · ')}</td>
+                        </tr>`;
+        }
         // БЛОК ПРЕМИИ
         let bonusHTML = '';
         if (manualBonus > 0) {
@@ -3934,6 +3954,7 @@ async function printAllPayslips() {
                             <td class="desc">База (ставка + бонусы за смены):</td>
                             <td class="amt">${formatNumber(basePay)} грн</td>
                         </tr>
+                        ${breakdownHTML}
                         ${bonusHTML}
                         <tr class="total-row">
                             <td class="desc"><strong>ВСЕГО НАЧИСЛЕНО:</strong></td>
@@ -5008,7 +5029,26 @@ function displayCalculationDetails(data) {
     const shortage = summary.shortage || 0;
     const totalDeductions = penalty + shortage;
     const totalWithAdjustments = summary.total_with_adjustments || (summary.total_earned + manualBonus - totalDeductions);
-    
+
+    // Карточки бонусов: старый «за выручку» (до 16.07) отдельно, новые (с 16.07) — разбивкой
+    const _extras = summary.total_extras || 0;
+    const _oldBonus = summary.total_bonus || 0;
+    const _bCard = (label, val) => `
+                <div class="details-summary-item">
+                    <div class="label">${label}</div>
+                    <div class="value">${formatNumber(val)} грн</div>
+                </div>`;
+    let bonusCardsHtml = '';
+    if (_oldBonus > 0) bonusCardsHtml += _bCard('Бонус за выручку (до 16.07)', _oldBonus);
+    if (_extras > 0) {
+        bonusCardsHtml += _bCard('Процент с продаж', summary.total_sales_percent || 0)
+            + _bCard('Пакеты', summary.total_bag || 0)
+            + _bCard('Кофе', summary.total_coffee || 0)
+            + _bCard('Кулинария', summary.total_culinary || 0)
+            + _bCard('Бонусы всего (с 16.07)', _extras);
+    }
+    if (!bonusCardsHtml) bonusCardsHtml = _bCard('Бонусы', 0);
+
     let html = `
         <div class="details-summary-panel">
             <h3 style="margin: 0 0 15px 0;">
@@ -5028,10 +5068,7 @@ function displayCalculationDetails(data) {
                     <div class="label"><i class="ti ti-cash"></i> Ставка (всего)</div>
                     <div class="value">${formatNumber(summary.total_base)} грн</div>
                 </div>
-                <div class="details-summary-item">
-                    <div class="label">Бонусы за выручку</div>
-                    <div class="value">${formatNumber(summary.total_bonus)} грн</div>
-                </div>
+                ${bonusCardsHtml}
                 <div class="details-summary-item">
                     <div class="label">База (ставка + бонусы)</div>
                     <div class="value">${formatNumber(summary.total_earned)} грн</div>
@@ -5127,33 +5164,42 @@ function displayCalculationDetails(data) {
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 7%;">Дата</th>
-                        <th style="width: 13%;">Магазин</th>
-                        <th style="width: 11%;">Касса магазина</th>
-                        <th style="width: 7%;">Продавцов</th>
-                        <th style="width: 9%;">Ставка</th>
-                        <th style="width: 9%;">Бонус</th>
-                        <th style="width: 34%;">Расшифровка бонуса</th>
+                        <th style="width: 6%;">Дата</th>
+                        <th style="width: 12%;">Магазин</th>
+                        <th style="width: 9%;">Касса</th>
+                        <th style="width: 5%;">Прод.</th>
+                        <th style="width: 8%;">Ставка</th>
+                        <th style="width: 9%;">Процент</th>
+                        <th style="width: 8%;">Пакеты</th>
+                        <th style="width: 8%;">Кофе</th>
+                        <th style="width: 9%;">Кулинария</th>
+                        <th style="width: 8%;" title="Старый бонус за выручку (до 16.07)">Бонус*</th>
                         <th style="width: 10%;">ИТОГО</th>
                     </tr>
                 </thead>
                 <tbody>
     `;
     
+    const _num = (v) => (v && v > 0) ? formatNumber(v) : '<span style="color:var(--text-2)">—</span>';
     details.forEach((day, index) => {
         const date = new Date(day.date);
         const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-        const rowClass = day.is_senior ? 'day-row-senior' : (isWeekend ? 'day-row-weekend' : '');
-        
+        const isNew = (day.date || '') >= '2026-07-16';
+        const rowClass = (day.is_senior ? 'day-row-senior' : (isWeekend ? 'day-row-weekend' : '')) + (isNew ? ' day-row-new' : '');
+        const oldB = day.bonus || 0;
+        const oldTip = (oldB > 0 && day.bonus_details) ? ` title="${(day.bonus_details + '').replace(/"/g, '')}"` : '';
         html += `
             <tr class="${rowClass}">
                 <td>${date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })}</td>
                 <td style="font-size: 11px;">${day.store_address}</td>
-                <td style="text-align: right;">${formatNumber(day.revenue)} грн</td>
+                <td style="text-align: right;">${formatNumber(day.revenue)}</td>
                 <td style="text-align: center;">${day.num_sellers}</td>
-                <td style="text-align: right;">${formatNumber(day.base_rate)} грн</td>
-                <td style="text-align: right;">${formatNumber(day.bonus)} грн</td>
-                <td class="bonus-breakdown">${day.bonus_details}</td>
+                <td style="text-align: right;">${formatNumber(day.base_rate)}</td>
+                <td style="text-align: right;">${_num(day.sales_percent)}</td>
+                <td style="text-align: right;">${_num(day.bag_bonus)}</td>
+                <td style="text-align: right;">${_num(day.coffee_bonus)}</td>
+                <td style="text-align: right;">${_num(day.culinary_bonus)}</td>
+                <td style="text-align: right;"${oldTip}>${_num(oldB)}</td>
                 <td style="text-align: right;"><strong>${formatNumber(day.total_pay)} грн</strong></td>
             </tr>
         `;
@@ -5162,10 +5208,13 @@ function displayCalculationDetails(data) {
     // Итоговая строка таблицы
     html += `
                     <tr class="summary-row" style="background: var(--surface-2); font-weight: bold;">
-                        <td colspan="4" style="text-align: right;">ИТОГО (база):</td>
-                        <td style="text-align: right;">${formatNumber(summary.total_base)} грн</td>
-                        <td style="text-align: right;">${formatNumber(summary.total_bonus)} грн</td>
-                        <td></td>
+                        <td colspan="4" style="text-align: right;">ИТОГО:</td>
+                        <td style="text-align: right;">${formatNumber(summary.total_base)}</td>
+                        <td style="text-align: right;">${_num(summary.total_sales_percent)}</td>
+                        <td style="text-align: right;">${_num(summary.total_bag)}</td>
+                        <td style="text-align: right;">${_num(summary.total_coffee)}</td>
+                        <td style="text-align: right;">${_num(summary.total_culinary)}</td>
+                        <td style="text-align: right;">${_num(summary.total_bonus)}</td>
                         <td style="text-align: right;"><strong>${formatNumber(summary.total_earned)} грн</strong></td>
                     </tr>
                 </tbody>
