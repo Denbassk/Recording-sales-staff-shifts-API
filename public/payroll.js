@@ -1157,6 +1157,75 @@ function toggleReasons(btn) {
     if (btn) btn.innerHTML = collapsed ? '<i class="ti ti-eye"></i> Показать причины' : '<i class="ti ti-eye-off"></i> Скрыть причины';
 }
 
+function _pmCell(el) {
+    if (!el) return 0;
+    var s = String(el.textContent || '').replace(/[^0-9,.-]/g, '').replace(',', '.');
+    return parseFloat(s) || 0;
+}
+
+function ensureChecksPanel() {
+    var p = document.getElementById('reportChecksPanel');
+    if (!p) {
+        var cont = document.getElementById('monthlyReportContent');
+        if (!cont) return null;
+        p = document.createElement('div');
+        p.id = 'reportChecksPanel';
+        cont.insertBefore(p, cont.firstChild);
+    }
+    return p;
+}
+
+function runReportChecks() {
+    var tbl = document.getElementById('monthlyReportTable');
+    var p = ensureChecksPanel();
+    if (!tbl) { if (p) p.innerHTML = ''; return { errors: 0, warnings: 0 }; }
+    var rows = Array.prototype.slice.call(tbl.querySelectorAll('tbody tr')).filter(function (r) { return r.dataset.employeeId; });
+    var fixedCount = rows.filter(function (r) { return r.dataset.isFixed === '1'; }).length;
+    var issues = [];
+    rows.forEach(function (r) {
+        r.classList.remove('row-chk-err', 'row-chk-warn');
+        var name = r.dataset.employeeName || '';
+        var basePay = parseFloat(r.dataset.basePay) || 0;
+        var cardLimit = parseFloat(r.dataset.cardLimit) || 8700;
+        var mb = parseFloat((r.querySelector('[name="manual_bonus"]') || {}).value) || 0;
+        var pen = parseFloat((r.querySelector('[name="penalty"]') || {}).value) || 0;
+        var sh = parseFloat((r.querySelector('[name="shortage"]') || {}).value) || 0;
+        var penReason = ((r.querySelector('[name="penalty_reason"]') || {}).value || '').trim();
+        var advCard = _pmCell(r.querySelector('.advance-payment-card'));
+        var advCash = _pmCell(r.querySelector('.advance-payment-cash'));
+        var cardRem = _pmCell(r.querySelector('.card-remainder'));
+        var cashPay = _pmCell(r.querySelector('.cash-payout'));
+        var isFixed = r.dataset.isFixed === '1';
+        var afterDed = basePay + mb - pen - sh;
+        var advance = advCard + advCash;
+        var expected = Math.max(0, afterDed - advance);
+        var actual = cardRem + cashPay;
+        var sev = null;
+        if (cardRem < -0.5 || cashPay < -0.5) { issues.push({ s: 'err', n: name, m: 'отрицательный остаток к выплате', a: 'пересчитайте строку' }); sev = 'err'; }
+        else if (Math.abs(actual - expected) > 1) { issues.push({ s: 'err', n: name, m: 'карта+наличные (' + formatNumber(actual) + ') не сходятся с суммой к выплате (' + formatNumber(expected) + ')', a: 'проверьте распределение остатка' }); sev = 'err'; }
+        if (advCard + cardRem > cardLimit + 1) { issues.push({ s: 'err', n: name, m: 'на карту уходит ' + formatNumber(advCard + cardRem) + ' — больше лимита ' + formatNumber(cardLimit), a: 'перенесите излишек в наличные' }); sev = 'err'; }
+        if (afterDed < -0.5) { issues.push({ s: 'warn', n: name, m: 'вычеты больше начисления, итог в минус (' + formatNumber(afterDed) + ')', a: 'уменьшите вычет или перенесите на след. месяц' }); if (sev !== 'err') sev = 'warn'; }
+        if ((pen > 0 || sh > 0) && !penReason) { issues.push({ s: 'info', n: name, m: 'вычет без указанной причины', a: 'впишите причину' }); }
+        if (!isFixed && rows.length >= 4 && (fixedCount / rows.length) > 0.7) { issues.push({ s: 'warn', n: name, m: 'строка не зафиксирована, а остальные зафиксированы', a: 'зафиксируйте или проверьте' }); if (sev !== 'err') sev = 'warn'; }
+        if (sev === 'err') r.classList.add('row-chk-err');
+        else if (sev === 'warn') r.classList.add('row-chk-warn');
+    });
+    var errs = issues.filter(function (i) { return i.s === 'err'; }).length;
+    var warns = issues.filter(function (i) { return i.s === 'warn'; }).length;
+    var infos = issues.filter(function (i) { return i.s === 'info'; }).length;
+    if (p) {
+        if (issues.length === 0) {
+            p.innerHTML = '<div class="chk-ok"><i class="ti ti-circle-check"></i> Проверка пройдена — расхождений и ошибок нет.</div>';
+        } else {
+            var icn = { err: 'ti-alert-triangle', warn: 'ti-alert-circle', info: 'ti-info-circle' };
+            var items = issues.map(function (i) { return '<div class="chk-i ' + i.s + '"><i class="ti ' + icn[i.s] + '"></i><div><span class="who">' + i.n + '</span> — ' + i.m + '.<span class="chk-a">Что сделать: ' + i.a + '.</span></div></div>'; }).join('');
+            var chip = function (cls, ci, n, w) { return n ? '<span class="chk-b ' + cls + '"><i class="ti ' + ci + '"></i> ' + n + ' ' + w + '</span>' : ''; };
+            p.innerHTML = '<div class="chk-body"><div class="chk-hd"><i class="ti ti-clipboard-check"></i> Проверка расчёта</div><div class="chk-sub">' + chip('e', 'ti-alert-triangle', errs, errs === 1 ? 'ошибка' : 'ошибок') + chip('w', 'ti-alert-circle', warns, 'предупр.') + chip('i', 'ti-info-circle', infos, 'подсказ.') + (errs ? ' — исправьте ошибки перед фиксацией выплаты.' : '') + '</div>' + items + '</div>';
+        }
+    }
+    return { errors: errs, warnings: warns, infos: infos };
+}
+
 function applyRowLockStates() {
     document.querySelectorAll('#monthlyReportContent tbody tr').forEach(function(row) {
         var locked = row.dataset.isFixed === '1';
@@ -1221,6 +1290,7 @@ async function unlockFinalRow(btn) {
         if (!data.success) throw new Error(data.error || 'Не удалось разблокировать');
         row.dataset.isFixed = '0';
         applyRowLockStates();
+        runReportChecks();
         showStatus('reportStatus', 'Строка «' + employeeName + '» разблокирована. Внесите правки и зафиксируйте заново.', 'success');
     } catch (e) {
         showStatus('reportStatus', 'Ошибка разблокировки: ' + e.message, 'error');
@@ -1232,6 +1302,7 @@ function handleAdjustmentInput(e) {
     const row = e.target.closest('tr');
     recalculateRow(row);
     if (row) row.style.boxShadow = 'inset 4px 0 0 #f0a500';
+    if (typeof runReportChecks === 'function') runReportChecks();
     adjustmentDebounceTimer = setTimeout(() => {
         saveAdjustments(row);
     }, 800);
@@ -1682,6 +1753,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
 
     reportContentEl.innerHTML = tableHtml;
     applyRowLockStates();
+    runReportChecks();
 
     // После создания таблицы применяем стили если есть финальные расчеты
     if (finalCalcMap.size > 0) {
@@ -2658,6 +2730,12 @@ async function fixAdvancePayment() {
 
     if (!year || !month || !advanceEndDate) {
         showStatus('reportStatus', 'Сначала выберите период и дату расчета', 'error');
+        return;
+    }
+
+    var _chk = runReportChecks();
+    if (_chk.errors > 0) {
+        showStatus('reportStatus', 'Нельзя зафиксировать: ' + _chk.errors + ' ошибок в расчёте — исправьте подсвеченные строки.', 'error');
         return;
     }
     
@@ -5013,13 +5091,13 @@ function displayCalculationDetails(data) {
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 10%;">Дата</th>
-                        <th style="width: 20%;">Магазин</th>
-                        <th style="width: 12%;">Касса магазина</th>
-                        <th style="width: 8%;">Продавцов</th>
-                        <th style="width: 10%;">Ставка</th>
-                        <th style="width: 10%;">Бонус</th>
-                        <th style="width: 20%;">Расшифровка бонуса</th>
+                        <th style="width: 7%;">Дата</th>
+                        <th style="width: 13%;">Магазин</th>
+                        <th style="width: 11%;">Касса магазина</th>
+                        <th style="width: 7%;">Продавцов</th>
+                        <th style="width: 9%;">Ставка</th>
+                        <th style="width: 9%;">Бонус</th>
+                        <th style="width: 34%;">Расшифровка бонуса</th>
                         <th style="width: 10%;">ИТОГО</th>
                     </tr>
                 </thead>
