@@ -1124,7 +1124,7 @@ function displayPayrollResults(calculations, summary) {
                 <td style="text-align: center;">${calc.num_sellers}</td>
                 <td>${formatNumber(calc.base_rate)} грн</td>
                 <td>${formatNumber(calc.bonus)} грн</td>
-                <td style="font-size: 11px; color: #666;">${bonusDetails}</td>
+                <td style="font-size: 11px; color: var(--text-2);">${bonusDetails}</td>
                 <td><strong>${formatNumber(calc.total_pay)} грн</strong></td>
             </tr>`;
                 });
@@ -1415,6 +1415,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             employeeData[calc.employee_id] = {
                 name: calc.employee_name,
                 totalPay: 0,
+                bonuses: 0, bPercent: 0, bBag: 0, bCoffee: 0, bCulinary: 0,
                 shifts: [],
                 stores: {},
                 primaryStore: calc.store_address || 'Не определен',
@@ -1423,6 +1424,12 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         }
         // Суммируем все начисления за период
         employeeData[calc.employee_id].totalPay += calc.total_pay;
+        var _ed = employeeData[calc.employee_id];
+        _ed.bPercent += Number(calc.sales_percent) || 0;
+        _ed.bBag += Number(calc.bag_bonus) || 0;
+        _ed.bCoffee += Number(calc.coffee_bonus) || 0;
+        _ed.bCulinary += Number(calc.culinary_bonus) || 0;
+        _ed.bonuses = _ed.bPercent + _ed.bBag + _ed.bCoffee + _ed.bCulinary;
 
         // Сохраняем дату работы
         const workDate = new Date(calc.work_date);
@@ -1471,7 +1478,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
 
     let tableHtml = `
     <h3><i class="ti ti-users"></i> Детализация по сотрудникам за ${monthNames[month - 1]} ${year}:</h3>
-    <p style="margin: 10px 0; color: #666;">Общая сумма начислений (база): <strong>${formatNumber(totalBasePay)} грн</strong></p>
+    <p style="margin: 10px 0; color: var(--text-2);">Общая сумма начислений (база): <strong>${formatNumber(totalBasePay)} грн</strong></p>
     <div class="table-container">
     <table id="monthlyReportTable" class="reasons-collapsed" style="font-size: 11px; white-space: nowrap;">
         <thead class="monthly-report-head">
@@ -1479,6 +1486,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 <th rowspan="2" style="vertical-align: middle;">Сотрудник</th>
                 <th rowspan="2" style="vertical-align: middle;">Магазин</th>
                 <th rowspan="2" style="vertical-align: middle;">Всего начислено<br/>(база)</th>
+                <th rowspan="2" style="vertical-align: middle;">Бонусы</th>
                 <th colspan="1" class="grp-prem-head">Премирование</th>
                 <th colspan="1" class="grp-deprem-head">Депремирование</th>
                 <th rowspan="2" style="vertical-align: middle;">Вычет за<br/>недостачу</th>
@@ -1494,7 +1502,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         <tbody>`;
 
     if (sortedEmployees.length === 0) {
-        tableHtml += '<tr><td colspan="14" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
+        tableHtml += '<tr><td colspan="15" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
     } else {
         for (const [id, data] of sortedEmployees) {
             const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
@@ -1648,7 +1656,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
             } else {
                 // Расчетный аванс (еще не зафиксирован) - по умолчанию на карту
                 advanceCardContent = `
-                <span style="color: #666;" title="Расчетный аванс">
+                <span style="color: var(--text-2);" title="Расчетный аванс">
                     ${formatNumber(advanceCard)}
                 </span>`;
                 advanceCashContent = '0';
@@ -1675,6 +1683,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
 </td>
             <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
             <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
+            <td class="bonus-cell" style="padding: 5px; text-align:right;" title="${data.bonuses > 0 ? 'Процент ' + formatNumber(data.bPercent) + ' · Пакеты ' + formatNumber(data.bBag) + ' · Кофе ' + formatNumber(data.bCoffee) + ' · Кулинария ' + formatNumber(data.bCulinary) : 'Бонусы начисляются с 16.07'}">${data.bonuses > 0 ? formatNumber(data.bonuses) : '—'}</td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
             <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
@@ -3118,7 +3127,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 <h2 style="color: var(--brand); margin-bottom: 20px;">
                     Обнаружены сотрудники с малым количеством смен
                 </h2>
-                <p style="margin-bottom: 20px; color: #666;">
+                <p style="margin-bottom: 20px; color: var(--text-2);">
                     Следующие сотрудники отработали от 1 до 5 смен. Примите решение по каждому:
                 </p>
                 <div id="newEmployeesList">`;
@@ -3135,7 +3144,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 margin-bottom: 15px;
                 background: #f9f9f9;
             ">
-                <h3 style="margin: 0 0 10px 0; color: #333;">
+                <h3 style="margin: 0 0 10px 0; color: var(--text);">
                     ${index + 1}. ${emp.employee_name} 
                     <span style="
                         background: var(--warn-bg);
@@ -3152,7 +3161,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                     <div>Расчетный аванс (90%): <strong>${formatNumber(calculatedAdvance)} грн</strong></div>
                 </div>
                 
-                <div style="border-top: 1px solid #dee2e6; margin: 15px 0; padding-top: 15px;">
+                <div style="border-top: 1px solid var(--border); margin: 15px 0; padding-top: 15px;">
                     <div style="margin-bottom: 10px;">
                         <label style="display: inline-block; margin-right: 15px;">
                             <input type="radio" name="advance_decision_${emp.employee_id}" value="none" checked>
@@ -3232,7 +3241,7 @@ async function showNewEmployeesDialog(newEmployees, month, year) {
                 ">
                     <button onclick="cancelNewEmployeesDialog()" style="
                         padding: 10px 20px;
-                        background: #6c757d;
+                        background: var(--text-2);
                         color: white;
                         border: none;
                         border-radius: 5px;
@@ -3972,7 +3981,7 @@ async function printAllPayslips() {
                 }
 
                 .payslip {
-                    border: 1.5px solid #333;
+                    border: 1.5px solid var(--text);
                     overflow: hidden;
                     background: var(--surface);
                     /* Ключевое: фиксированная высота ячейки грида */
@@ -4047,11 +4056,11 @@ async function printAllPayslips() {
 
                 .reason-label {
                     font-weight: bold;
-                    color: #222;
+                    color: var(--text);
                 }
 
                 .total-row td {
-                    border-top: 1px solid #999;
+                    border-top: 1px solid var(--text-2);
                     padding-top: 1mm !important;
                 }
 
@@ -4479,7 +4488,7 @@ async function adjustCardRemainder(employeeId, employeeName) {
                 <button onclick="closeAdjustmentModal()" style="
                     flex: 1;
                     padding: 12px;
-                    background: #6c757d;
+                    background: var(--text-2);
                     color: white;
                     border: none;
                     border-radius: 5px;
@@ -4606,7 +4615,7 @@ async function manageShortages(employeeId, employeeName) {
         shortages.forEach((shortage, index) => {
             totalShortage += shortage.amount;
             shortagesHTML += `
-                <div style="border: 1px solid #dee2e6; border-radius: 5px; padding: 10px; margin-bottom: 10px;">
+                <div style="border: 1px solid var(--border); border-radius: 5px; padding: 10px; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: start;">
                         <div style="flex: 1;">
                             <strong>Недостача #${index + 1}</strong><br>
@@ -4660,13 +4669,13 @@ async function manageShortages(employeeId, employeeName) {
                 <h4>Добавить новую недостачу:</h4>
                 <div style="margin: 20px 0;">
                     <label style="display: block; margin-bottom: 5px;">Сумма недостачи (грн):</label>
-                    <input type="number" id="shortageAmount" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 5px;">
+                    <input type="number" id="shortageAmount" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 5px;">
                     
                     <label style="display: block; margin: 10px 0 5px;">Описание (накладная, период, причина):</label>
-                    <textarea id="shortageDescription" rows="3" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 5px;"></textarea>
+                    <textarea id="shortageDescription" rows="3" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 5px;"></textarea>
                     
                     <label style="display: block; margin: 10px 0 5px;">Вычесть из:</label>
-                    <select id="shortageDeduction" style="width: 100%; padding: 8px; border: 1px solid #dee2e6; border-radius: 5px;">
+                    <select id="shortageDeduction" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 5px;">
                         <option value="advance">Аванс (15 число)</option>
                         <option value="salary">Зарплата (конец месяца)</option>
                         <option value="both">Разделить 50/50</option>
@@ -4687,7 +4696,7 @@ async function manageShortages(employeeId, employeeName) {
                     <button onclick="closeShortagesModal()" style="
                         flex: 1;
                         padding: 12px;
-                        background: #6c757d;
+                        background: var(--text-2);
                         color: white;
                         border: none;
                         border-radius: 5px;
@@ -5019,7 +5028,7 @@ function displayCalculationDetails(data) {
             html += `
                 <div style="padding: 8px; background: #d4edda; border-radius: 4px;">
                     <strong style="color: #155724;">Премия:</strong> ${formatNumber(manualBonus)} грн
-                    ${summary.bonus_reason ? `<br><small style="color: #666;">Причина: ${summary.bonus_reason}</small>` : ''}
+                    ${summary.bonus_reason ? `<br><small style="color: var(--text-2);">Причина: ${summary.bonus_reason}</small>` : ''}
                 </div>
             `;
         }
@@ -5028,7 +5037,7 @@ function displayCalculationDetails(data) {
             html += `
                 <div style="padding: 8px; background: #f8d7da; border-radius: 4px;">
                     <strong style="color: #721c24;">Штраф:</strong> ${formatNumber(penalty)} грн
-                    ${summary.penalty_reason ? `<br><small style="color: #666;">Причина: ${summary.penalty_reason}</small>` : ''}
+                    ${summary.penalty_reason ? `<br><small style="color: var(--text-2);">Причина: ${summary.penalty_reason}</small>` : ''}
                 </div>
             `;
         }

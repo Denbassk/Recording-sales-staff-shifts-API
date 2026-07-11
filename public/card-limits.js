@@ -160,7 +160,7 @@ function renderLimitTypeSelector() {
                    style="margin-right: 10px;">
             <div style="flex: 1;">
                 <strong>${type.limit_name}</strong><br>
-                <small style="color: #666;">
+                <small style="color: var(--text-2);">
                     Лимит: ${type.card_limit} грн | Макс. аванс: ${type.max_advance} грн
                 </small>
             </div>
@@ -245,7 +245,7 @@ async function openEditLimitModal(employeeId, employeeName) {
                                    style="margin-right: 10px;">
                             <div style="flex: 1;">
                                 <strong>${type.limit_name}</strong><br>
-                                <small style="color: #666;">
+                                <small style="color: var(--text-2);">
                                     Лимит: ${type.card_limit} грн | Макс. аванс: ${type.max_advance} грн
                                 </small>
                             </div>
@@ -260,7 +260,7 @@ async function openEditLimitModal(employeeId, employeeName) {
                         Сохранить
                     </button>
                     <button onclick="closeEditLimitModal()" style="
-                        flex: 1; padding: 12px; background: #6c757d; color: white;
+                        flex: 1; padding: 12px; background: var(--text-2); color: white;
                         border: none; border-radius: 5px; cursor: pointer;">
                         Отмена
                     </button>
@@ -410,7 +410,7 @@ async function loadLimitTypesEditor() {
     const container = document.getElementById('limitTypesEditor');
     if (!container) return;
     
-    container.innerHTML = '<p style="text-align: center; color: #999;">⏳ Загрузка...</p>';
+    container.innerHTML = '<p style="text-align: center; color: var(--text-2);">⏳ Загрузка...</p>';
     
     try {
         const response = await fetch(`${window.API_BASE}/api/card-limit-types`, {
@@ -445,15 +445,15 @@ function renderLimitTypesEditor(types) {
         html += `
         <div class="limit-type-card" data-type-id="${type.id}" style="
             background: ${isDefault ? 'var(--surface-2)' : isPremium ? '#e3f2fd' : '#fff3e0'};
-            border: 2px solid ${isDefault ? '#dee2e6' : isPremium ? '#2196f3' : '#ff9800'};
+            border: 2px solid ${isDefault ? 'var(--border)' : isPremium ? '#2196f3' : '#ff9800'};
             border-radius: 10px;
             padding: 15px;
         ">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h5 style="margin: 0; color: #333; display: flex; align-items: center; gap: 8px;">
+                <h5 style="margin: 0; color: var(--text); display: flex; align-items: center; gap: 8px;">
                     ${isDefault ? '' : isPremium ? '' : ''} 
                     <span class="limit-type-name">${type.limit_name}</span>
-                    ${isDefault ? '<span style="color: #666; font-size: 11px; background: #e9ecef; padding: 2px 6px; border-radius: 3px;">по умолчанию</span>' : ''}
+                    ${isDefault ? '<span style="color: var(--text-2); font-size: 11px; background: var(--surface-2); padding: 2px 6px; border-radius: 3px;">по умолчанию</span>' : ''}
                 </h5>
                 ${canDelete ? `
                 <button onclick="deleteLimitType(${type.id}, '${type.limit_name}')" 
@@ -467,7 +467,7 @@ function renderLimitTypesEditor(types) {
             
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
                 <div class="control-group">
-                    <label style="font-size: 11px; color: #666; display: block; margin-bottom: 4px;">
+                    <label style="font-size: 11px; color: var(--text-2); display: block; margin-bottom: 4px;">
                         Название:
                     </label>
                     <input type="text" 
@@ -476,11 +476,11 @@ function renderLimitTypesEditor(types) {
                            value="${type.limit_name}"
                            ${isDefault || isPremium ? 'readonly' : ''}
                            style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px;
-                                  ${isDefault || isPremium ? 'background: #f5f5f5; color: #666;' : ''}">
+                                  ${isDefault || isPremium ? 'background: var(--surface-2); color: var(--text-2);' : ''}">
                 </div>
                 
                 <div class="control-group">
-                    <label style="font-size: 11px; color: #666; display: block; margin-bottom: 4px;">
+                    <label style="font-size: 11px; color: var(--text-2); display: block; margin-bottom: 4px;">
                         Лимит на карту (грн/мес):
                     </label>
                     <input type="number" 
@@ -492,7 +492,7 @@ function renderLimitTypesEditor(types) {
                 </div>
                 
                 <div class="control-group">
-                    <label style="font-size: 11px; color: #666; display: block; margin-bottom: 4px;">
+                    <label style="font-size: 11px; color: var(--text-2); display: block; margin-bottom: 4px;">
                         Макс. аванс (грн):
                     </label>
                     <input type="number" 
@@ -504,7 +504,7 @@ function renderLimitTypesEditor(types) {
                 </div>
                 
                 <div class="control-group">
-                    <label style="font-size: 11px; color: #666; display: block; margin-bottom: 4px;">
+                    <label style="font-size: 11px; color: var(--text-2); display: block; margin-bottom: 4px;">
                         % аванса от начислений:
                     </label>
                     <input type="number" 
@@ -532,7 +532,7 @@ function renderLimitTypesEditor(types) {
     html += `
         <div style="margin-top: 15px; text-align: right;">
             <button onclick="showLimitTypesHistory()" 
-                    style="background: #6c757d; color: white; border: none; 
+                    style="background: var(--text-2); color: white; border: none; 
                            padding: 8px 15px; border-radius: 5px; cursor: pointer;">
                 История изменений
             </button>
@@ -773,12 +773,12 @@ async function showLimitTypesHistory() {
                     <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                         <thead>
                             <tr style="background: var(--surface-2);">
-                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Дата</th>
-                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Тип</th>
-                                <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Лимит</th>
-                                <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Макс. аванс</th>
-                                <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">%</th>
-                                <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Действие</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid var(--border);">Дата</th>
+                                <th style="padding: 10px; text-align: left; border-bottom: 2px solid var(--border);">Тип</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 2px solid var(--border);">Лимит</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 2px solid var(--border);">Макс. аванс</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 2px solid var(--border);">%</th>
+                                <th style="padding: 10px; text-align: center; border-bottom: 2px solid var(--border);">Действие</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -787,7 +787,7 @@ async function showLimitTypesHistory() {
         result.history.forEach(record => {
             const date = new Date(record.changed_at).toLocaleString('ru-RU');
             historyHTML += `
-                <tr style="border-bottom: 1px solid #eee;">
+                <tr style="border-bottom: 1px solid var(--border);">
                     <td style="padding: 8px;">${date}</td>
                     <td style="padding: 8px;">${record.limit_name}</td>
                     <td style="padding: 8px; text-align: center;">${record.card_limit} грн</td>
@@ -795,7 +795,7 @@ async function showLimitTypesHistory() {
                     <td style="padding: 8px; text-align: center;">${Math.round(record.advance_percentage * 100)}%</td>
                     <td style="padding: 8px; text-align: center;">
                         <button onclick="rollbackLimitType(${record.id})" 
-                                style="background: #ffc107; color: #333; border: none; 
+                                style="background: #ffc107; color: var(--text); border: none; 
                                        padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;">
                             ↩Откатить
                         </button>
@@ -809,7 +809,7 @@ async function showLimitTypesHistory() {
                     </table>
                     <div style="text-align: center; margin-top: 20px;">
                         <button onclick="closeLimitHistoryModal()" 
-                                style="padding: 10px 30px; background: #6c757d; color: white; 
+                                style="padding: 10px 30px; background: var(--text-2); color: white; 
                                        border: none; border-radius: 5px; cursor: pointer;">
                             Закрыть
                         </button>

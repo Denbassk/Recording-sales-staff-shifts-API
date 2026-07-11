@@ -252,7 +252,7 @@ improvedStyle.innerHTML = `
     .ucm-employee-info {
         padding: 6px 20px;
         background: var(--surface-2);
-        border-bottom: 1px solid #dee2e6;
+        border-bottom: 1px solid var(--border);
     }
     
     .ucm-info-card {
@@ -264,7 +264,7 @@ improvedStyle.innerHTML = `
     .ucm-info-card h3 {
         font-size: 14px;
         margin: 0;
-        color: #2c3e50;
+        color: var(--text);
     }
     
     .ucm-period {
@@ -281,7 +281,7 @@ improvedStyle.innerHTML = `
         display: flex;
         background: var(--surface-2);
         padding: 0 20px;
-        border-bottom: 1px solid #dee2e6;
+        border-bottom: 1px solid var(--border);
         height: 36px;
     }
 
@@ -289,7 +289,7 @@ improvedStyle.innerHTML = `
         padding: 8px 12px;
         font-size: 11px;
         font-weight: 500;
-        color: #6c757d;
+        color: var(--text-2);
         border: none;
         background: transparent;
         cursor: pointer;
@@ -299,7 +299,7 @@ improvedStyle.innerHTML = `
     }
     
     .ucm-tab:hover {
-        color: #495057;
+        color: var(--text);
         background: rgba(0,0,0,0.03);
     }
     
@@ -343,7 +343,7 @@ improvedStyle.innerHTML = `
 /* Каждый блок */
 .ucm-summary-block {
     background: var(--surface-2);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 0;
     overflow: hidden;
@@ -351,14 +351,14 @@ improvedStyle.innerHTML = `
 
 /* Заголовок блока */
 .ucm-summary-title {
-    background: #e9ecef;
+    background: var(--surface-2);
     padding: 10px 15px;
     font-size: 13px;
     font-weight: 600;
-    color: #495057;
+    color: var(--text);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-bottom: 1px solid #dee2e6;
+    border-bottom: 1px solid var(--border);
 }
 
 /* Контент блока */
@@ -373,16 +373,16 @@ improvedStyle.innerHTML = `
     align-items: center;
     padding: 6px 0;
     font-size: 13px;
-    color: #495057;
+    color: var(--text);
 }
 
 .ucm-summary-line span {
-    color: #6c757d;
+    color: var(--text-2);
 }
 
 .ucm-summary-line strong {
     font-size: 14px;
-    color: #212529;
+    color: var(--text);
     font-weight: 600;
 }
 
@@ -390,12 +390,12 @@ improvedStyle.innerHTML = `
 .ucm-summary-line.total {
     margin-top: 8px;
     padding-top: 8px;
-    border-top: 1px solid #dee2e6;
+    border-top: 1px solid var(--border);
 }
 
 .ucm-summary-line.total strong {
     font-size: 16px;
-    color: #212529;
+    color: var(--text);
 }
 
 /* Цветовые акценты */
@@ -418,13 +418,13 @@ improvedStyle.innerHTML = `
     padding: 15px;
     background: var(--surface-2);
     border-radius: 8px;
-    border: 1px solid #e9ecef;
+    border: 1px solid var(--surface-2);
 }
 
 .ucm-section-header {
     font-size: 13px;
     font-weight: 600;
-    color: #495057;
+    color: var(--text);
     margin-bottom: 12px;
     text-transform: uppercase;
 }
@@ -441,19 +441,19 @@ improvedStyle.innerHTML = `
     align-items: center;
     padding: 8px;
     background: var(--surface);
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 11px;
 }
 
 .day-date {
-    color: #6c757d;
+    color: var(--text-2);
     margin-bottom: 4px;
 }
 
 .day-amount {
     font-weight: 600;
-    color: #212529;
+    color: var(--text);
 }
 
 /* Статус валидации */
@@ -497,7 +497,7 @@ improvedStyle.innerHTML = `
 /* Убираем яркие градиенты из старых карточек */
 .ucm-summary-card {
     background: var(--surface-2) !important;
-    color: #212529 !important;
+    color: var(--text) !important;
     box-shadow: none !important;
 }
     /* Компактные формы */
@@ -511,7 +511,7 @@ improvedStyle.innerHTML = `
     .ucm-form-compact h4 {
         font-size: 13px;
         margin: 0 0 10px 0;
-        color: #2c3e50;
+        color: var(--text);
         font-weight: 600;
     }
 
@@ -530,7 +530,7 @@ improvedStyle.innerHTML = `
     .ucm-form-col h4 {
         font-size: 13px;
         margin: 0 0 10px 0;
-        color: #2c3e50;
+        color: var(--text);
         font-weight: 600;
     }
 
@@ -542,7 +542,7 @@ improvedStyle.innerHTML = `
         display: block;
         font-size: 11px;
         margin-bottom: 4px;
-        color: #495057;
+        color: var(--text);
         font-weight: 500;
     }
     
@@ -551,7 +551,7 @@ improvedStyle.innerHTML = `
         width: 100%;
         padding: 5px 8px;
         font-size: 12px;
-        border: 1px solid #ced4da;
+        border: 1px solid var(--border);
         border-radius: 4px;
         background: var(--surface);
     }
@@ -567,7 +567,7 @@ improvedStyle.innerHTML = `
         display: block;
         font-size: 10px;
         margin-top: 2px;
-        color: #6c757d;
+        color: var(--text-2);
     }
     
     /* Компактная сетка особых случаев */
@@ -584,7 +584,7 @@ improvedStyle.innerHTML = `
         align-items: center;
         padding: 15px 8px;
         background: var(--surface);
-        border: 2px solid #e9ecef;
+        border: 2px solid var(--surface-2);
         border-radius: 6px;
         cursor: pointer;
         transition: all 0.2s;
@@ -609,7 +609,7 @@ improvedStyle.innerHTML = `
     .ucm-special-btn-compact .title {
         font-size: 11px;
         font-weight: 500;
-        color: #2c3e50;
+        color: var(--text);
         text-align: center;
     }
     
@@ -646,14 +646,14 @@ improvedStyle.innerHTML = `
 
     .ucm-preview-col .label {
         font-size: 9px;
-        color: #6c757d;
+        color: var(--text-2);
         text-transform: uppercase;
     }
 
     .ucm-preview-col .value {
         font-size: 14px;
         font-weight: 600;
-        color: #2c3e50;
+        color: var(--text);
     }
 
     .ucm-preview-col .value.total {
@@ -703,7 +703,7 @@ improvedStyle.innerHTML = `
         padding: 8px;
         background: var(--surface);
         border-radius: 6px;
-        border: 1px solid #e9ecef;
+        border: 1px solid var(--surface-2);
     }
     
     .ucm-shortage-item {
@@ -720,7 +720,7 @@ improvedStyle.innerHTML = `
         display: flex;
         justify-content: space-between;
         padding: 10px 20px;
-        border-top: 1px solid #dee2e6;
+        border-top: 1px solid var(--border);
         background: var(--surface-2);
         border-radius: 0 0 10px 10px;
     }
@@ -752,13 +752,13 @@ improvedStyle.innerHTML = `
     }
     
     .ucm-btn-secondary {
-        background: #6c757d;
+        background: var(--text-2);
         color: white;
     }
     
     .ucm-btn-warning {
         background: #ffc107;
-        color: #212529;
+        color: var(--text);
     }
     
     .ucm-btn-info {
@@ -806,7 +806,7 @@ improvedStyle.innerHTML = `
         margin: 0;
         padding-left: 14px;
         font-size: 10px;
-        color: #495057;
+        color: var(--text);
         line-height: 1.3;
     }
 
@@ -817,7 +817,7 @@ improvedStyle.innerHTML = `
     .ucm-no-changes {
         text-align: center;
         padding: 10px;
-        color: #6c757d;
+        color: var(--text-2);
         font-size: 11px;
     }
     
@@ -838,7 +838,7 @@ improvedStyle.innerHTML = `
     .ucm-content::-webkit-scrollbar-thumb,
     .ucm-shortages-list::-webkit-scrollbar-thumb,
     .ucm-live-preview::-webkit-scrollbar-thumb {
-        background: #888;
+        background: var(--text-2);
         border-radius: 10px;
     }
     
@@ -1203,7 +1203,7 @@ renderBonusesTab() {
         <div class="ucm-form-compact">
             <h4>Лимит карты</h4>
             
-            <p style="margin-bottom: 20px; color: #495057; font-size: 13px;">
+            <p style="margin-bottom: 20px; color: var(--text); font-size: 13px;">
                 <strong>Сотрудник:</strong> ${this.currentEmployee.name}
             </p>
             
@@ -1219,8 +1219,8 @@ renderBonusesTab() {
                            onchange="ucModal.changeCardLimit()"
                            style="margin-right: 12px;">
                     <div style="flex: 1;">
-                        <strong style="font-size: 14px; color: #212529;">ОБЫЧНАЯ КАРТА</strong><br>
-                        <small style="color: #6c757d;">
+                        <strong style="font-size: 14px; color: var(--text);">ОБЫЧНАЯ КАРТА</strong><br>
+                        <small style="color: var(--text-2);">
                             Лимит: <strong>8700 грн</strong> | Макс. аванс: <strong>7900 грн</strong>
                         </small>
                     </div>
@@ -1237,8 +1237,8 @@ renderBonusesTab() {
                            onchange="ucModal.changeCardLimit()"
                            style="margin-right: 12px;">
                     <div style="flex: 1;">
-                        <strong style="font-size: 14px; color: #212529;">ПОВЫШЕННАЯ КАРТА</strong><br>
-                        <small style="color: #6c757d;">
+                        <strong style="font-size: 14px; color: var(--text);">ПОВЫШЕННАЯ КАРТА</strong><br>
+                        <small style="color: var(--text-2);">
                             Лимит: <strong>16000 грн</strong> | Макс. аванс: <strong>11500 грн</strong>
                         </small>
                     </div>
@@ -1342,7 +1342,7 @@ togglePreview() {
     // Рендер списка недостач
     renderShortagesList() {
         if (!this.adjustedData || !this.adjustedData.shortagesList || this.adjustedData.shortagesList.length === 0) {
-            return '<p style="text-align: center; color: #6c757d; padding: 20px;">Нет зарегистрированных недостач</p>';
+            return '<p style="text-align: center; color: var(--text-2); padding: 20px;">Нет зарегистрированных недостач</p>';
         }
         
         const shortages = this.adjustedData.shortagesList;
@@ -2219,7 +2219,7 @@ if (totalCard > cardLimit) {
                 overflow-y: auto;
                 z-index: 10001;
             " id="history-modal">
-                <h3 style="margin-bottom: 20px; color: #2c3e50;">История изменений</h3>
+                <h3 style="margin-bottom: 20px; color: var(--text);">История изменений</h3>
                 <div style="max-height: 350px; overflow-y: auto;">`;
         
         history.reverse().forEach((item, index) => {
@@ -2234,9 +2234,9 @@ if (totalCard > cardLimit) {
                 ">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong style="color: #2c3e50;">${item.employee_name || this.currentEmployee.name}</strong><br>
-                            <small style="color: #6c757d;">${date.toLocaleString('ru-RU')}</small><br>
-                            <small style="color: #495057;">
+                            <strong style="color: var(--text);">${item.employee_name || this.currentEmployee.name}</strong><br>
+                            <small style="color: var(--text-2);">${date.toLocaleString('ru-RU')}</small><br>
+                            <small style="color: var(--text);">
                                 Аванс: ${this.formatNumber(item.data.advanceTotal || 0)} грн | 
                                 Зарплата: ${this.formatNumber(item.data.salaryTotal || 0)} грн
                             </small>
@@ -2254,7 +2254,7 @@ if (totalCard > cardLimit) {
                 </div>
                 <div style="text-align: center; margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
                     <button onclick="document.getElementById('history-modal').remove(); document.getElementById('history-overlay').remove();" 
-                            style="padding: 10px 25px; background: #6c757d; color: white; 
+                            style="padding: 10px 25px; background: var(--text-2); color: white; 
                                    border: none; border-radius: 6px; cursor: pointer;">
                         Закрыть
                     </button>
