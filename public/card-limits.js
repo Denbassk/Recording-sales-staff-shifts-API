@@ -94,7 +94,7 @@ function renderEmployeesTable() {
             <td style="text-align: center;">${limitInfo.card_limit} грн</td>
             <td style="text-align: center;">
                 <button onclick="openEditLimitModal('${emp.id}', '${emp.fullname}')" 
-                        style="padding: 5px 10px; background: #667eea; color: white; 
+                        style="padding: 5px 10px; background: var(--brand); color: white; 
                                border: none; border-radius: 4px; cursor: pointer;">
                     Изменить
                 </button>
@@ -154,7 +154,7 @@ function renderLimitTypeSelector() {
     
     container.innerHTML = cardLimitTypes.map(type => `
         <label style="display: flex; align-items: center; padding: 10px; 
-                      background: var(--surface); border: 2px solid #e0e0e0; 
+                      background: var(--surface); border: 2px solid var(--border); 
                       border-radius: 8px; cursor: pointer; margin-bottom: 10px;">
             <input type="radio" name="bulk_limit_type" value="${type.id}" 
                    style="margin-right: 10px;">
@@ -230,7 +230,7 @@ async function openEditLimitModal(employeeId, employeeName) {
             justify-content: center; z-index: 10000;">
             <div style="background: var(--surface); padding: 25px; border-radius: 10px;
                         box-shadow: 0 10px 40px rgba(0,0,0,0.3); max-width: 500px; width: 90%;">
-                <h3 style="margin-bottom: 20px; color: #667eea;">Лимит карты</h3>
+                <h3 style="margin-bottom: 20px; color: var(--brand);">Лимит карты</h3>
                 <p><strong>Сотрудник:</strong> ${employeeName}</p>
                 <hr style="margin: 15px 0;">
                 
@@ -238,7 +238,7 @@ async function openEditLimitModal(employeeId, employeeName) {
                     ${cardLimitTypes.map(type => `
                         <label style="display: flex; align-items: center; padding: 12px;
                                       background: ${type.id === currentLimitId ? '#e8f5e9' : 'white'};
-                                      border: 2px solid ${type.id === currentLimitId ? '#28a745' : '#e0e0e0'};
+                                      border: 2px solid ${type.id === currentLimitId ? '#28a745' : 'var(--border)'};
                                       border-radius: 8px; cursor: pointer; margin-bottom: 10px;">
                             <input type="radio" name="single_limit_type" value="${type.id}"
                                    ${type.id === currentLimitId ? 'checked' : ''}
@@ -255,7 +255,7 @@ async function openEditLimitModal(employeeId, employeeName) {
                 
                 <div style="display: flex; gap: 10px; margin-top: 20px;">
                     <button onclick="saveSingleLimitChange('${employeeId}')" style="
-                        flex: 1; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        flex: 1; padding: 12px; background: var(--anthra);
                         color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: 600;">
                         Сохранить
                     </button>
@@ -363,7 +363,7 @@ function filterEmployees() {
             <td style="text-align: center;">${limitInfo.card_limit} грн</td>
             <td style="text-align: center;">
                 <button onclick="openEditLimitModal('${emp.id}', '${emp.fullname}')" 
-                        style="padding: 5px 10px; background: #667eea; color: white; 
+                        style="padding: 5px 10px; background: var(--brand); color: white; 
                                border: none; border-radius: 4px; cursor: pointer;">
                     Изменить
                 </button>
@@ -444,7 +444,7 @@ function renderLimitTypesEditor(types) {
         
         html += `
         <div class="limit-type-card" data-type-id="${type.id}" style="
-            background: ${isDefault ? '#f8f9fa' : isPremium ? '#e3f2fd' : '#fff3e0'};
+            background: ${isDefault ? 'var(--surface-2)' : isPremium ? '#e3f2fd' : '#fff3e0'};
             border: 2px solid ${isDefault ? '#dee2e6' : isPremium ? '#2196f3' : '#ff9800'};
             border-radius: 10px;
             padding: 15px;
@@ -475,7 +475,7 @@ function renderLimitTypesEditor(types) {
                            data-type-id="${type.id}"
                            value="${type.limit_name}"
                            ${isDefault || isPremium ? 'readonly' : ''}
-                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;
+                           style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px;
                                   ${isDefault || isPremium ? 'background: #f5f5f5; color: #666;' : ''}">
                 </div>
                 
@@ -488,7 +488,7 @@ function renderLimitTypesEditor(types) {
                            data-type-id="${type.id}"
                            value="${type.card_limit}"
                            min="1000" max="100000" step="100"
-                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                           style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px;">
                 </div>
                 
                 <div class="control-group">
@@ -500,7 +500,7 @@ function renderLimitTypesEditor(types) {
                            data-type-id="${type.id}"
                            value="${type.max_advance}"
                            min="0" max="100000" step="100"
-                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                           style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px;">
                 </div>
                 
                 <div class="control-group">
@@ -512,7 +512,7 @@ function renderLimitTypesEditor(types) {
                            data-type-id="${type.id}"
                            value="${Math.round((type.advance_percentage || 0.9) * 100)}"
                            min="0" max="100" step="5"
-                           style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                           style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px;">
                 </div>
             </div>
             
@@ -573,7 +573,7 @@ function updateLimitPreview(event) {
         card.querySelector('.max-advance-input').style.borderColor = '#dc3545';
     } else {
         card.style.borderColor = '';
-        card.querySelector('.max-advance-input').style.borderColor = '#ddd';
+        card.querySelector('.max-advance-input').style.borderColor = 'var(--border)';
     }
 }
 
@@ -769,10 +769,10 @@ async function showLimitTypesHistory() {
                 <div style="background: var(--surface); padding: 25px; border-radius: 10px;
                             box-shadow: 0 10px 40px rgba(0,0,0,0.3); max-width: 800px; 
                             width: 90%; max-height: 80vh; overflow-y: auto;">
-                    <h3 style="margin-bottom: 20px; color: #667eea;">История изменений лимитов</h3>
+                    <h3 style="margin-bottom: 20px; color: var(--brand);">История изменений лимитов</h3>
                     <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                         <thead>
-                            <tr style="background: #f8f9fa;">
+                            <tr style="background: var(--surface-2);">
                                 <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Дата</th>
                                 <th style="padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6;">Тип</th>
                                 <th style="padding: 10px; text-align: center; border-bottom: 2px solid #dee2e6;">Лимит</th>

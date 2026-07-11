@@ -219,7 +219,7 @@ improvedStyle.innerHTML = `
         justify-content: space-between;
         align-items: center;
         padding: 10px 20px;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        background: var(--anthra);
         border-radius: 10px 10px 0 0;
     }
 
@@ -251,7 +251,7 @@ improvedStyle.innerHTML = `
     /* Информация о сотруднике */
     .ucm-employee-info {
         padding: 6px 20px;
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-bottom: 1px solid #dee2e6;
     }
     
@@ -272,14 +272,14 @@ improvedStyle.innerHTML = `
         padding: 3px 12px;
         border-radius: 15px;
         font-size: 12px;
-        color: #667eea;
-        border: 1px solid #667eea;
+        color: var(--brand);
+        border: 1px solid var(--brand);
     }
     
     /* Компактные вкладки */
     .ucm-tabs {
         display: flex;
-        background: #f8f9fa;
+        background: var(--surface-2);
         padding: 0 20px;
         border-bottom: 1px solid #dee2e6;
         height: 36px;
@@ -304,8 +304,8 @@ improvedStyle.innerHTML = `
     }
     
     .ucm-tab.active {
-        color: #667eea;
-        border-bottom-color: #667eea;
+        color: var(--brand);
+        border-bottom-color: var(--brand);
         background: var(--surface);
     }
     
@@ -342,7 +342,7 @@ improvedStyle.innerHTML = `
 
 /* Каждый блок */
 .ucm-summary-block {
-    background: #f8f9fa;
+    background: var(--surface-2);
     border: 1px solid #dee2e6;
     border-radius: 8px;
     padding: 0;
@@ -408,7 +408,7 @@ improvedStyle.innerHTML = `
 }
 
 .ucm-summary-line strong.primary {
-    color: #667eea;
+    color: var(--brand);
 }
 
 
@@ -416,7 +416,7 @@ improvedStyle.innerHTML = `
 .ucm-work-days {
     margin-top: 20px;
     padding: 15px;
-    background: #f8f9fa;
+    background: var(--surface-2);
     border-radius: 8px;
     border: 1px solid #e9ecef;
 }
@@ -482,7 +482,7 @@ improvedStyle.innerHTML = `
 }
 
 .ucm-validation-status.warning {
-    background: #fff3cd;
+    background: var(--warn-bg);
     color: #856404;
     border: 1px solid #ffeaa7;
 }
@@ -496,13 +496,13 @@ improvedStyle.innerHTML = `
 
 /* Убираем яркие градиенты из старых карточек */
 .ucm-summary-card {
-    background: #f8f9fa !important;
+    background: var(--surface-2) !important;
     color: #212529 !important;
     box-shadow: none !important;
 }
     /* Компактные формы */
     .ucm-form-compact {
-        background: #f8f9fa;
+        background: var(--surface-2);
         padding: 12px;
         border-radius: 6px;
         margin-bottom: 10px;
@@ -522,7 +522,7 @@ improvedStyle.innerHTML = `
     }
 
     .ucm-form-col {
-        background: #f8f9fa;
+        background: var(--surface-2);
         padding: 12px;
         border-radius: 6px;
     }
@@ -559,7 +559,7 @@ improvedStyle.innerHTML = `
     .ucm-form-group input:focus,
     .ucm-form-group select:focus {
         outline: none;
-        border-color: #667eea;
+        border-color: var(--brand);
         box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
     }
     
@@ -591,8 +591,8 @@ improvedStyle.innerHTML = `
     }
 
     .ucm-special-btn-compact:hover {
-        border-color: #667eea;
-        background: #f8f9fa;
+        border-color: var(--brand);
+        background: var(--surface-2);
         transform: translateY(-1px);
     }
 
@@ -615,7 +615,7 @@ improvedStyle.innerHTML = `
     
     /* КОМПАКТНЫЙ предварительный расчет */
     .ucm-live-preview {
-        background: #fff3cd;
+        background: var(--warn-bg);
         padding: 8px 20px;
         border-top: 1px solid #ffc107;
         min-height: 50px;
@@ -657,12 +657,12 @@ improvedStyle.innerHTML = `
     }
 
     .ucm-preview-col .value.total {
-        color: #667eea;
+        color: var(--brand);
         font-size: 16px;
     }
 
     .ucm-preview-col .value.changed {
-        color: #667eea;
+        color: var(--brand);
         animation: pulse 1s infinite;
     }
 
@@ -709,7 +709,7 @@ improvedStyle.innerHTML = `
     .ucm-shortage-item {
         padding: 8px;
         margin-bottom: 8px;
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-radius: 6px;
         border-left: 3px solid #dc3545;
         font-size: 11px;
@@ -721,7 +721,7 @@ improvedStyle.innerHTML = `
         justify-content: space-between;
         padding: 10px 20px;
         border-top: 1px solid #dee2e6;
-        background: #f8f9fa;
+        background: var(--surface-2);
         border-radius: 0 0 10px 10px;
     }
     
@@ -747,7 +747,7 @@ improvedStyle.innerHTML = `
     }
     
     .ucm-btn-primary {
-        background: #667eea;
+        background: var(--brand);
         color: white;
     }
     
@@ -782,7 +782,7 @@ improvedStyle.innerHTML = `
         margin: 8px 0;
         border-radius: 4px;
         font-size: 11px;
-        background: #fff3cd;
+        background: var(--warn-bg);
         color: #856404;
         border: 1px solid #ffeeba;
     }
@@ -1212,7 +1212,7 @@ renderBonusesTab() {
                 <label style="
                     display: flex; align-items: center; padding: 15px;
                     background: ${currentLimits.limitTypeId === 1 ? '#e8f5e9' : 'white'};
-                    border: 2px solid ${currentLimits.limitTypeId === 1 ? '#28a745' : '#e0e0e0'};
+                    border: 2px solid ${currentLimits.limitTypeId === 1 ? '#28a745' : 'var(--border)'};
                     border-radius: 8px; cursor: pointer;">
                     <input type="radio" name="card_limit_type" value="1"
                            ${currentLimits.limitTypeId === 1 ? 'checked' : ''}
@@ -1230,7 +1230,7 @@ renderBonusesTab() {
                 <label style="
                     display: flex; align-items: center; padding: 15px;
                     background: ${currentLimits.limitTypeId === 2 ? '#e3f2fd' : 'white'};
-                    border: 2px solid ${currentLimits.limitTypeId === 2 ? '#2196f3' : '#e0e0e0'};
+                    border: 2px solid ${currentLimits.limitTypeId === 2 ? '#2196f3' : 'var(--border)'};
                     border-radius: 8px; cursor: pointer;">
                     <input type="radio" name="card_limit_type" value="2"
                            ${currentLimits.limitTypeId === 2 ? 'checked' : ''}
@@ -2228,9 +2228,9 @@ if (totalCard > cardLimit) {
                 <div style="
                     padding: 15px;
                     margin-bottom: 12px;
-                    background: #f8f9fa;
+                    background: var(--surface-2);
                     border-radius: 8px;
-                    border-left: 3px solid #667eea;
+                    border-left: 3px solid var(--brand);
                 ">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
@@ -2242,7 +2242,7 @@ if (totalCard > cardLimit) {
                             </small>
                         </div>
                         <button onclick="ucModal.restoreFromHistory(${history.length - 1 - index})" 
-                                style="padding: 6px 12px; background: #667eea; color: white; 
+                                style="padding: 6px 12px; background: var(--brand); color: white; 
                                        border: none; border-radius: 6px; cursor: pointer; font-size: 12px;">
                             Восстановить
                         </button>

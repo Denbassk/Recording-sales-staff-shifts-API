@@ -282,19 +282,19 @@ function calculateDailyPay(revenue, numSellers, isSenior = false, fixedRate = nu
     
     bonusPerPerson = wholeThousands * ratePerThousand;
     
-    bonusDetails = `📊 РАСЧЕТ БОНУСА:\n` +
+    bonusDetails = `РАСЧЕТ БОНУСА:\n` +
                    `• Касса магазина: ${revenue.toFixed(2)}грн\n` +
                    `• Диапазон выручки: ${bracket}\n` +
                    `• Вычитаем минимум: ${revenue.toFixed(2)} - 13000 = ${bonusBase.toFixed(2)}грн\n` +
                    `• Полных тысяч: ${wholeThousands}\n` +
                    `• Ставка за тысячу: ${ratePerThousand}грн\n` +
                    `• Бонус: ${wholeThousands} × ${ratePerThousand} = ${bonusPerPerson}грн\n` +
-                   `✅ ПРОВЕРКА: ${wholeThousands} × ${ratePerThousand} = ${bonusPerPerson}грн`;
+                   `ПРОВЕРКА: ${wholeThousands} × ${ratePerThousand} = ${bonusPerPerson}грн`;
   } else {
-    bonusDetails = `📊 РАСЧЕТ БОНУСА:\n` +
+    bonusDetails = `РАСЧЕТ БОНУСА:\n` +
                    `• Касса магазина: ${revenue.toFixed(2)}грн\n` +
                    `• Минимум для бонуса: 13000грн\n` +
-                   `❌ Бонус не начисляется (касса < 13000грн)`;
+                   `Бонус не начисляется (касса < 13000грн)`;
   }
   
   return { 
