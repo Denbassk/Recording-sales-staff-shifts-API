@@ -3644,8 +3644,11 @@ app.post('/api/export-calculation-details', checkAuth, canViewDetails, async (re
             'Выручка магазина': calc.revenue || 0,
             'Продавцов в смене': calc.num_sellers || 1,
             'Ставка': calc.base_rate || 0,
-            'Бонус': calc.bonus || 0,
-            'Расшифровка бонуса': calc.bonus_details || '',
+            'Процент с продаж': calc.sales_percent || 0,
+            'Пакеты': calc.bag_bonus || 0,
+            'Кофе': calc.coffee_bonus || 0,
+            'Кулинария': calc.culinary_bonus || 0,
+            'Бонус (до 16.07)': calc.bonus || 0,
             'ИТОГО за день': calc.total_pay || 0,
             'Старший продавец': calc.is_senior ? 'Да' : 'Нет'
         }));
@@ -3654,6 +3657,10 @@ app.post('/api/export-calculation-details', checkAuth, canViewDetails, async (re
         const totalEarned = calculations.reduce((sum, c) => sum + (c.total_pay || 0), 0);
         const totalBase = calculations.reduce((sum, c) => sum + (c.base_rate || 0), 0);
         const totalBonus = calculations.reduce((sum, c) => sum + (c.bonus || 0), 0);
+        const totalSalesPercent = calculations.reduce((sum, c) => sum + (c.sales_percent || 0), 0);
+        const totalBag = calculations.reduce((sum, c) => sum + (c.bag_bonus || 0), 0);
+        const totalCoffee = calculations.reduce((sum, c) => sum + (c.coffee_bonus || 0), 0);
+        const totalCulinary = calculations.reduce((sum, c) => sum + (c.culinary_bonus || 0), 0);
         
         excelData.push({
             '№': '',
@@ -3662,8 +3669,11 @@ app.post('/api/export-calculation-details', checkAuth, canViewDetails, async (re
             'Выручка магазина': '',
             'Продавцов в смене': calculations.length + ' дней',
             'Ставка': totalBase,
-            'Бонус': totalBonus,
-            'Расшифровка бонуса': '',
+            'Процент с продаж': totalSalesPercent,
+            'Пакеты': totalBag,
+            'Кофе': totalCoffee,
+            'Кулинария': totalCulinary,
+            'Бонус (до 16.07)': totalBonus,
             'ИТОГО за день': totalEarned,
             'Старший продавец': ''
         });

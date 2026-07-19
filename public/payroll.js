@@ -634,6 +634,12 @@ async function exportMonthlyReportToExcel() {
         
         // Получаем все значения из строки таблицы
         const basePay = parseFloat(row.dataset.basePay) || 0;
+        const bPercent = parseFloat(row.dataset.bPercent) || 0;
+        const bBag = parseFloat(row.dataset.bBag) || 0;
+        const bCoffee = parseFloat(row.dataset.bCoffee) || 0;
+        const bCulinary = parseFloat(row.dataset.bCulinary) || 0;
+        const extrasTotal = bPercent + bBag + bCoffee + bCulinary;
+        const rateOnly = Math.max(0, basePay - extrasTotal);
         const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
         const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
         const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
@@ -722,6 +728,12 @@ async function exportMonthlyReportToExcel() {
             'Магазин': row.dataset.storeAddress || '',
             'Месяц': `${monthNames[month - 1]} ${year}`,
             'База начислений': basePay,
+            'Ставка': rateOnly,
+            'Процент с продаж': bPercent,
+            'Пакеты': bBag,
+            'Кофе': bCoffee,
+            'Кулинария': bCulinary,
+            'Бонусы всего': extrasTotal,
             'Премирование': manualBonus,
             'Причина премии': row.querySelector('[name="bonus_reason"]')?.value || '',
             'Всего начислено': totalGross,
@@ -1183,6 +1195,10 @@ function runReportChecks() {
     if (!tbl) { if (p) p.innerHTML = ''; return { errors: 0, warnings: 0 }; }
     var rows = Array.prototype.slice.call(tbl.querySelectorAll('tbody tr')).filter(function (r) { return r.dataset.employeeId; });
     var fixedCount = rows.filter(function (r) { return r.dataset.isFixed === '1'; }).length;
+    // Несоответствия показываем только когда есть строки с готовым итоговым расчётом (после расчёта зарплаты),
+    // а не на этапе аванса — иначе бухгалтера пугают ложные предупреждения до распределения остатка.
+    var anyFinal = rows.some(function (r) { return r.classList.contains('has-final-calc') || r.dataset.isFixed === '1'; });
+    if (!anyFinal) { if (p) { p.className = ''; p.innerHTML = ''; } rows.forEach(function (r) { r.classList.remove('row-chk-err', 'row-chk-warn'); }); return { errors: 0, warnings: 0, infos: 0 }; }
     var issues = [];
     rows.forEach(function (r) {
         r.classList.remove('row-chk-err', 'row-chk-warn');
