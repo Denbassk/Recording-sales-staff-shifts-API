@@ -1411,6 +1411,22 @@ async function generateMonthlyReport() {
     reportContentEl.style.display = 'none';
 
     try {
+        // Авто-пересчёт бонусов (extras) для дней >= 16.07 — чтобы отчёт всегда показывал актуальные бонусы
+        // без отдельного нажатия «Пересчитать бонусы». Идемпотентно; ошибки не блокируют отчёт.
+        const _startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        if (reportEndDate >= '2026-07-16') {
+            try {
+                showStatus('reportStatus', 'Пересчёт бонусов…', 'info');
+                const exRes = await fetch(`${API_BASE}/calculate-payroll-extras`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                    body: JSON.stringify({ startDate: _startDate, endDate: reportEndDate })
+                });
+                const exData = await exRes.json().catch(() => ({}));
+                if (!exData.success) console.warn('Авто-пересчёт бонусов не выполнен:', exData.error || exRes.status);
+                showStatus('reportStatus', 'Формирование отчета...', 'info');
+            } catch (e) { console.warn('Авто-пересчёт бонусов пропущен:', e.message); }
+        }
+
         const result = await fetchData(
             `${API_BASE}/get-monthly-data`,
             {
