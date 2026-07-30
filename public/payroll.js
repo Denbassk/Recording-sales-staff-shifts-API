@@ -3744,6 +3744,7 @@ async function fixManualAdvances() {
         }
         reportHtml += `<h4 style="margin-top: 20px; text-align: right;">Общий итог: ${formatNumber(grandTotalCash)} грн</h4></div>`;
         const printWindow = window.open('', '_blank');
+        if (!printWindow) { showStatus('reportStatus', 'Браузер заблокировал окно печати. Разрешите всплывающие окна для сайта и повторите.', 'error'); return; }
         printWindow.document.write(`<html><head><title>Ведомость по наличным</title></head><body>${reportHtml}</body></html>`);
         printWindow.document.close();
         printWindow.focus();
@@ -4031,12 +4032,21 @@ async function printAllPayslips() {
     allPayslipsHTML += '</div>';
 
     const printWindow = window.open('', '_blank');
+    if (!printWindow) { showStatus('reportStatus', 'Браузер заблокировал окно печати. Разрешите всплывающие окна для сайта и повторите.', 'error'); return; }
     printWindow.document.write(`
         <!DOCTYPE html>
         <html>
         <head>
             <title>Расчетные листы — ${monthNames[month - 1]} ${year}</title>
             <style>
+                /* Печать всегда на белой бумаге: задаём переменные темы конкретными светлыми значениями,
+                   иначе в отдельном окне печати var(--...) не определены и рамки/фон/цвета ломаются. */
+                :root {
+                    --surface:#ffffff; --surface-2:#f6f7f9; --surface-3:#eef0f3;
+                    --text:#20242b; --text-2:#5c626c;
+                    --border:#e3e6ea; --border-strong:#cdd2d8;
+                    --brand:#c0392b; --dgr:#b3261e; --warn-bg:#fbf1df;
+                }
                 @page {
                     size: A4 portrait;
                     margin: 5mm;
