@@ -1449,7 +1449,8 @@ async function generateMonthlyReport() {
                 result.adjustments,
                 month,
                 year,
-                result.finalCalculations || [] // Добавляем финальные расчеты
+                result.finalCalculations || [], // Добавляем финальные расчеты
+                result.cardLimits || {}          // реальные лимиты карт
             );
         }
     } catch (error) {
@@ -1458,7 +1459,7 @@ async function generateMonthlyReport() {
     }
 }
 
-function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = []) {
+function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = [], cardLimits = {}) {
     const reportContentEl = document.getElementById('monthlyReportContent');
     if (!reportContentEl) return;
 
@@ -1732,7 +1733,7 @@ tableHtml += `<tr class="${rowClass}"
             data-month="${month}" 
             data-year="${year}" 
             data-base-pay="${data.totalPay}" data-b-percent="${data.bPercent}" data-b-bag="${data.bBag}" data-b-coffee="${data.bCoffee}" data-b-culinary="${data.bCulinary}" 
-            data-card-limit="${finalCalc?.card_limit || 8700}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
+            data-card-limit="${(cardLimits && cardLimits[id]) || finalCalc?.card_limit || 8700}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
 data-shifts='${JSON.stringify(data.shifts)}'>
             <td style="padding: 5px;">
     ${data.name}

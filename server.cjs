@@ -1010,12 +1010,27 @@ const { data: dailyDataRaw, error: dailyError } = await supabase
             console.log('Таблица final_payroll_calculations не найдена, пропускаем загрузку финальных расчетов');
         }
 
+        // Реальные лимиты карт из вкладки лимитов (employees → card_limit_types),
+        // чтобы проверка и распределение использовали настоящий лимит, а не дефолт 8700.
+        let cardLimits = {};
+        try {
+            const { data: limRows } = await supabase
+                .from('employees')
+                .select('id, card_limit_types!card_limit_type_id ( card_limit )')
+                .in('id', employeeIds);
+            (limRows || []).forEach(e => {
+                const cl = e.card_limit_types?.card_limit;
+                if (cl != null) cardLimits[e.id] = Number(cl);
+            });
+        } catch (e) { console.warn('Лимиты карт для отчёта не загружены:', e.message); }
+
         // Возвращаем все данные включая финальные расчеты
         res.json({ 
             success: true, 
             dailyData: enrichedDailyData, 
             adjustments,
-            finalCalculations // Добавляем финальные расчеты в ответ
+            finalCalculations, // Добавляем финальные расчеты в ответ
+            cardLimits         // реальные лимиты карт по сотрудникам
         });
         
     } catch (error) {
