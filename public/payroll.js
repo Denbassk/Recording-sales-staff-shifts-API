@@ -1204,7 +1204,7 @@ function runReportChecks() {
         r.classList.remove('row-chk-err', 'row-chk-warn');
         var name = r.dataset.employeeName || '';
         var basePay = parseFloat(r.dataset.basePay) || 0;
-        var cardLimit = parseFloat(r.dataset.cardLimit) || 8700;
+        var cardLimit = parseFloat(r.dataset.cardLimit) || 16000;
         var mb = parseFloat((r.querySelector('[name="manual_bonus"]') || {}).value) || 0;
         var pen = parseFloat((r.querySelector('[name="penalty"]') || {}).value) || 0;
         var sh = parseFloat((r.querySelector('[name="shortage"]') || {}).value) || 0;
@@ -1449,8 +1449,7 @@ async function generateMonthlyReport() {
                 result.adjustments,
                 month,
                 year,
-                result.finalCalculations || [], // Добавляем финальные расчеты
-                result.cardLimits || {}          // реальные лимиты карт
+                result.finalCalculations || [] // Добавляем финальные расчеты
             );
         }
     } catch (error) {
@@ -1459,7 +1458,7 @@ async function generateMonthlyReport() {
     }
 }
 
-function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = [], cardLimits = {}) {
+function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = []) {
     const reportContentEl = document.getElementById('monthlyReportContent');
     if (!reportContentEl) return;
 
@@ -1733,7 +1732,7 @@ tableHtml += `<tr class="${rowClass}"
             data-month="${month}" 
             data-year="${year}" 
             data-base-pay="${data.totalPay}" data-b-percent="${data.bPercent}" data-b-bag="${data.bBag}" data-b-coffee="${data.bCoffee}" data-b-culinary="${data.bCulinary}" 
-            data-card-limit="${(cardLimits && cardLimits[id]) || finalCalc?.card_limit || 8700}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
+            data-card-limit="${finalCalc?.card_limit || 16000}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
 data-shifts='${JSON.stringify(data.shifts)}'>
             <td style="padding: 5px;">
     ${data.name}
@@ -1942,7 +1941,7 @@ function recalculateRow(row) {
     
 if (remainingToPay > 0) {
         // Есть остаток к выплате - используем ДИНАМИЧЕСКИЙ лимит из data-атрибута
-        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 8700;
+        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 16000;
         const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
         
         newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);

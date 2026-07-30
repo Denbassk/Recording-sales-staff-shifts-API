@@ -1010,27 +1010,12 @@ const { data: dailyDataRaw, error: dailyError } = await supabase
             console.log('Таблица final_payroll_calculations не найдена, пропускаем загрузку финальных расчетов');
         }
 
-        // Реальные лимиты карт из вкладки лимитов (employees → card_limit_types),
-        // чтобы проверка и распределение использовали настоящий лимит, а не дефолт 8700.
-        let cardLimits = {};
-        try {
-            const { data: limRows } = await supabase
-                .from('employees')
-                .select('id, card_limit_types!card_limit_type_id ( card_limit )')
-                .in('id', employeeIds);
-            (limRows || []).forEach(e => {
-                const cl = e.card_limit_types?.card_limit;
-                if (cl != null) cardLimits[e.id] = Number(cl);
-            });
-        } catch (e) { console.warn('Лимиты карт для отчёта не загружены:', e.message); }
-
         // Возвращаем все данные включая финальные расчеты
         res.json({ 
             success: true, 
             dailyData: enrichedDailyData, 
             adjustments,
-            finalCalculations, // Добавляем финальные расчеты в ответ
-            cardLimits         // реальные лимиты карт по сотрудникам
+            finalCalculations // Добавляем финальные расчеты в ответ
         });
         
     } catch (error) {
@@ -2021,6 +2006,9 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 
                 // Получаем лимиты сотрудника
                 const limits = await getEmployeeCardLimit(employeeId);
+                // Потолок карты: индивидуальный, но не ниже 16000 — чтобы полный расчёт не резал
+                // карту до типового значения (напр. 9140) и не переливал излишек в наличные.
+                limits.cardLimit = Math.max(Number(limits.cardLimit) || 0, 16000);
                 
                 // 4. Инициализация переменных
                 let advancePayment = 0;
