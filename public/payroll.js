@@ -1459,6 +1459,23 @@ async function generateMonthlyReport() {
     }
 }
 
+function filterMonthlyReport() {
+    var q = (document.getElementById("reportSearchName")?.value || "").trim().toLowerCase();
+    var store = document.getElementById("reportSearchStore")?.value || "";
+    var rows = document.querySelectorAll("#monthlyReportTable tbody tr");
+    var shown = 0;
+    rows.forEach(function (r) {
+        if (!r.dataset.employeeId) return;
+        var name = (r.dataset.employeeName || "").toLowerCase();
+        var st = r.dataset.storeAddress || "";
+        var ok = (!q || name.indexOf(q) !== -1) && (!store || st === store);
+        r.style.display = ok ? "" : "none";
+        if (ok) shown++;
+    });
+    var cnt = document.getElementById("reportFilterCount");
+    if (cnt) cnt.textContent = (q || store) ? ("Найдено: " + shown) : "";
+}
+
 function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = [], cardLimits = {}) {
     const reportContentEl = document.getElementById('monthlyReportContent');
     if (!reportContentEl) return;
@@ -1535,10 +1552,17 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
     const totalBasePay = Object.values(employeeData).reduce((sum, data) => sum + data.totalPay, 0);
     const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
         "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+    const _storeOptions = [...new Set(sortedEmployees.map(function(e){return e[1].primaryStore;}))].sort()
+        .map(function(s){return '<option value="' + s + '">' + s + '</option>';}).join('');
 
     let tableHtml = `
     <h3><i class="ti ti-users"></i> Детализация по сотрудникам за ${monthNames[month - 1]} ${year}:</h3>
     <p style="margin: 10px 0; color: var(--text-2);">Общая сумма начислений (база): <strong>${formatNumber(totalBasePay)} грн</strong></p>
+    <div class="report-filter">
+        <div class="rf-search"><i class="ti ti-search"></i><input type="text" id="reportSearchName" placeholder="Поиск по фамилии…" oninput="filterMonthlyReport()"></div>
+        <select id="reportSearchStore" onchange="filterMonthlyReport()"><option value="">Все магазины</option>${_storeOptions}</select>
+        <span id="reportFilterCount"></span>
+    </div>
     <div class="table-container">
     <table id="monthlyReportTable" class="reasons-collapsed" style="font-size: 11px; white-space: nowrap;">
         <thead class="monthly-report-head">
@@ -3754,11 +3778,26 @@ async function fixManualAdvances() {
         setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
     }
 
+function showPrintBusy(text) {
+    hidePrintBusy();
+    var d = document.createElement("div");
+    d.id = "printBusyOverlay";
+    d.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:99999;display:flex;align-items:center;justify-content:center;";
+    d.innerHTML = '<div style="background:var(--surface);color:var(--text);padding:22px 34px;border-radius:12px;border:.5px solid var(--border);font-size:15px;display:flex;gap:12px;align-items:center;box-shadow:0 8px 30px rgba(0,0,0,.25);"><i class="ti ti-loader-2" style="display:inline-block;animation:pmspin .9s linear infinite;font-size:20px;"></i>' + (text || "Формирование…") + '</div>';
+    document.body.appendChild(d);
+}
+function hidePrintBusy() {
+    var d = document.getElementById("printBusyOverlay");
+    if (d) d.remove();
+}
+
 async function printAllPayslips() {
     const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
     if (tableRows.length === 0) { 
         return showStatus('reportStatus', 'Нет данных для печати', 'error'); 
     }
+    showPrintBusy('Формирование расчётных листов, подождите…');
+    await new Promise(function (r) { setTimeout(r, 50); });
     
     const month = tableRows[0].dataset.month;
     const year = tableRows[0].dataset.year;
@@ -4035,6 +4074,7 @@ async function printAllPayslips() {
     allPayslipsHTML += '</div>';
 
     const printWindow = window.open('', '_blank');
+    hidePrintBusy();
     if (!printWindow) { showStatus('reportStatus', 'Браузер заблокировал окно печати. Разрешите всплывающие окна для сайта и повторите.', 'error'); return; }
     printWindow.document.write(`
         <!DOCTYPE html>
