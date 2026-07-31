@@ -1591,10 +1591,11 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         </thead>
         <tbody>`;
 
+    let _sGross=0, _sBonus=0, _sAdvCard=0, _sAdvCash=0, _sCardRem=0, _sCash=0, _sTotal=0;
     if (sortedEmployees.length === 0) {
         tableHtml += '<tr><td colspan="15" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
     } else {
-        let _sGross=0, _sBonus=0, _sAdvCard=0, _sAdvCash=0, _sCardRem=0, _sCash=0, _sTotal=0;        for (const [id, data] of sortedEmployees) {
+        for (const [id, data] of sortedEmployees) {
             const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
 
             // Получаем финальный расчет если он есть
