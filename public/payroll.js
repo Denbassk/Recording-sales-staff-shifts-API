@@ -1563,6 +1563,12 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         <select id="reportSearchStore" onchange="filterMonthlyReport()"><option value="">Все магазины</option>${_storeOptions}</select>
         <span id="reportFilterCount"></span>
     </div>
+    <datalist id="dlBonusReason">
+        <option value="Перевыполнение плана"><option value="Инициативность"><option value="Замена / подмена"><option value="Дополнительная работа"><option value="Наставничество">
+    </datalist>
+    <datalist id="dlPenaltyReason">
+        <option value="Нарушение дисциплины"><option value="Опоздание"><option value="Брак / порча товара"><option value="Недостача"><option value="Невыполнение обязанностей">
+    </datalist>
     <div class="table-container">
     <table id="monthlyReportTable" class="reasons-collapsed" style="font-size: 11px; white-space: nowrap;">
         <thead class="monthly-report-head">
@@ -1588,7 +1594,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
     if (sortedEmployees.length === 0) {
         tableHtml += '<tr><td colspan="15" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
     } else {
-        for (const [id, data] of sortedEmployees) {
+        let _sGross=0, _sBonus=0, _sAdvCard=0, _sAdvCash=0, _sCardRem=0, _sCash=0, _sTotal=0;        for (const [id, data] of sortedEmployees) {
             const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
 
             // Получаем финальный расчет если он есть
@@ -1652,6 +1658,10 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 remainingToPay = totalAfterDeductions - advancePayment;
                 hasCompleteCalculation = false;
             }
+
+            _sGross += totalGross; _sBonus += (data.bonuses || 0);
+            _sAdvCard += advanceCard; _sAdvCash += advanceCash;
+            _sCardRem += cardRemainder; _sCash += cashPayout; _sTotal += Math.max(0, remainingToPay);
 
             // Определяем содержимое для авансов на карту и наличными
             let advanceCardContent = '0';
@@ -1770,9 +1780,9 @@ data-shifts='${JSON.stringify(data.shifts)}'>
             <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
             <td class="bonus-cell" style="padding: 5px; text-align:right;" title="${data.bonuses > 0 ? 'Процент ' + formatNumber(data.bPercent) + ' · Пакеты ' + formatNumber(data.bBag) + ' · Кофе ' + formatNumber(data.bCoffee) + ' · Кулинария ' + formatNumber(data.bCulinary) : 'Бонусы начисляются с 16.07'}">${data.bonuses > 0 ? formatNumber(data.bonuses) : '—'}</td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
-            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" list="dlBonusReason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
-            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" list="dlPenaltyReason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;">
     <input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;">
     <button onclick="manageShortages('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Управление недостачами"><i class="ti ti-clipboard-list"></i></button>
@@ -1800,6 +1810,20 @@ data-shifts='${JSON.stringify(data.shifts)}'>
         }
     }
 
+    tableHtml += `<tr class="report-total-row summary-row" style="font-weight:600;background:var(--surface-2);position:sticky;bottom:0;">
+        <td>ИТОГО</td>
+        <td></td>
+        <td style="text-align:right;">${formatNumber(_sGross)}</td>
+        <td style="text-align:right;">${formatNumber(_sBonus)}</td>
+        <td></td><td class="col-reason"></td><td></td><td class="col-reason"></td>
+        <td></td>
+        <td style="text-align:right;">${formatNumber(_sAdvCard)}</td>
+        <td style="text-align:right;">${formatNumber(_sAdvCash)}</td>
+        <td style="text-align:right;color:var(--ok);">${formatNumber(_sCardRem)}</td>
+        <td style="text-align:right;color:var(--brand);">${formatNumber(_sCash)}</td>
+        <td style="text-align:right;">${formatNumber(_sTotal)}</td>
+        <td></td>
+    </tr>`;
     tableHtml += `</tbody></table></div>`;
 
     if (finalCalcMap.size > 0) {
@@ -3738,6 +3762,35 @@ async function fixManualAdvances() {
     }
 }
 
+
+function showCashSummary() {
+    var rows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    var pnum = function (cell) { if (!cell) return 0; var s = (cell.textContent || '').replace(/[^0-9.,\-]/g, '').replace(',', '.'); var v = parseFloat(s); return isNaN(v) ? 0 : v; };
+    var byStore = {}, grand = 0;
+    rows.forEach(function (r) {
+        if (!r.dataset.employeeId) return;
+        var store = r.dataset.storeAddress || '—';
+        var cash = pnum(r.querySelector('.cash-payout')) + pnum(r.querySelector('.advance-payment-cash'));
+        if (cash <= 0) return;
+        byStore[store] = (byStore[store] || 0) + cash;
+        grand += cash;
+    });
+    var stores = Object.keys(byStore).sort();
+    if (stores.length === 0) { showStatus('reportStatus', 'Нет наличных к выдаче (сформируйте отчёт/расчёт)', 'info'); return; }
+    var rowsHtml = stores.map(function (s) { return '<tr><td style="padding:8px 12px;border-bottom:.5px solid var(--border);">' + s + '</td><td style="padding:8px 12px;border-bottom:.5px solid var(--border);text-align:right;font-weight:600;">' + formatNumber(byStore[s]) + ' грн</td></tr>'; }).join('');
+    var close = "document.getElementById('cashSummaryModal').remove();var o=document.getElementById('cashSummaryOverlay');if(o)o.remove();";
+    var html = '<div id="cashSummaryModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(520px,92vw);max-height:82vh;overflow:auto;">'
+        + '<div style="padding:16px 20px;border-bottom:.5px solid var(--border);display:flex;align-items:center;gap:8px;font-size:16px;font-weight:500;"><i class="ti ti-report-money" style="color:var(--brand);"></i> Наличные к выдаче по магазинам</div>'
+        + '<div style="padding:8px 20px 4px;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr><th style="text-align:left;padding:8px 12px;color:var(--text-2);">Магазин</th><th style="text-align:right;padding:8px 12px;color:var(--text-2);">Наличными</th></tr></thead><tbody>' + rowsHtml
+        + '<tr><td style="padding:10px 12px;font-weight:700;">ИТОГО</td><td style="padding:10px 12px;text-align:right;font-weight:700;color:var(--brand);">' + formatNumber(grand) + ' грн</td></tr>'
+        + '</tbody></table></div>'
+        + '<div style="padding:14px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:.5px solid var(--border);">'
+        + '<button class="secondary" onclick="generateCashPayoutReport()"><i class="ti ti-printer"></i> Печать ведомости</button>'
+        + '<button class="primary" onclick="' + close + '">Закрыть</button>'
+        + '</div></div>'
+        + '<div id="cashSummaryOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;" onclick="' + close + '"></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+}
 
     function generateCashPayoutReport() {
         const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
