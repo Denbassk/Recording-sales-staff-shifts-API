@@ -5165,6 +5165,7 @@ function displayCalculationDetails(data) {
     if (!container) return;
     
     const { employee, details, summary, store_stats, adjustments } = data;
+    window._detailData = data;
     
     if (!details || details.length === 0) {
         container.innerHTML = `
@@ -5386,8 +5387,8 @@ function displayCalculationDetails(data) {
             <button onclick="exportDetailsToExcel()" class="secondary">
                 Экспорт в Excel
             </button>
-            <button onclick="printDetails()" class="secondary">
-                Печать
+            <button onclick="showDetailBreakdown()" class="secondary">
+                <i class="ti ti-file-invoice"></i> Расшифровка (печать)
             </button>
         </div>
     `;
@@ -5511,6 +5512,70 @@ async function exportDetailsToExcel() {
 // Печать детализации
 function printDetails() {
     window.print();
+}
+
+function buildDetailBreakdownHtml(data) {
+    if (!data) return '<p>Нет данных</p>';
+    var emp = data.employee || {}, s = data.summary || {}, details = data.details || [];
+    var monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+    var m = document.getElementById('detailsMonth') ? document.getElementById('detailsMonth').value : '';
+    var y = document.getElementById('detailsYear') ? document.getElementById('detailsYear').value : '';
+    var period = (m ? monthNames[parseInt(m) - 1] + ' ' : '') + (y || '');
+    var num = function (v) { return (v && v > 0) ? formatNumber(v) : '—'; };
+    var rows = details.map(function (d) {
+        var dt = new Date(d.date);
+        var isNew = (d.date || '') >= '2026-07-16';
+        return '<tr' + (isNew ? ' class="bd-new"' : '') + '>'
+            + '<td>' + dt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) + '</td>'
+            + '<td class="bd-store">' + (d.store_address || '') + '</td>'
+            + '<td class="r">' + formatNumber(d.base_rate || 0) + '</td>'
+            + '<td class="r">' + num(d.sales_percent) + '</td>'
+            + '<td class="r">' + num(d.bag_bonus) + '</td>'
+            + '<td class="r">' + num(d.coffee_bonus) + '</td>'
+            + '<td class="r">' + num(d.culinary_bonus) + '</td>'
+            + '<td class="r">' + num(d.bonus) + '</td>'
+            + '<td class="r b">' + formatNumber(d.total_pay || 0) + '</td></tr>';
+    }).join('');
+    return '<div class="bd-head"><strong>' + (emp.fullname || '') + '</strong>' + (emp.role === 'seller' ? ' (Продавец)' : ' (Старший продавец)') + ' · ' + period + '</div>'
+        + '<div class="bd-sum">Ставка ' + formatNumber(s.total_base || 0) + ' · Процент ' + formatNumber(s.total_sales_percent || 0) + ' · Пакеты ' + formatNumber(s.total_bag || 0) + ' · Кофе ' + formatNumber(s.total_coffee || 0) + ' · Кулинария ' + formatNumber(s.total_culinary || 0) + (s.total_bonus > 0 ? ' · Бонус(до 16.07) ' + formatNumber(s.total_bonus) : '') + ' · <strong>База ' + formatNumber(s.total_earned || 0) + '</strong></div>'
+        + '<table class="bd-table"><thead><tr><th>Дата</th><th>Магазин</th><th class="r">Ставка</th><th class="r">Процент</th><th class="r">Пакеты</th><th class="r">Кофе</th><th class="r">Кулинария</th><th class="r">Бонус*</th><th class="r">ИТОГО</th></tr></thead><tbody>'
+        + rows
+        + '<tr class="bd-total"><td colspan="2" class="r">ИТОГО:</td><td class="r">' + formatNumber(s.total_base || 0) + '</td><td class="r">' + num(s.total_sales_percent) + '</td><td class="r">' + num(s.total_bag) + '</td><td class="r">' + num(s.total_coffee) + '</td><td class="r">' + num(s.total_culinary) + '</td><td class="r">' + num(s.total_bonus) + '</td><td class="r b">' + formatNumber(s.total_earned || 0) + '</td></tr>'
+        + '</tbody></table>';
+}
+
+function showDetailBreakdown() {
+    if (!window._detailData) { showStatus('detailsStatus', 'Сначала загрузите детализацию сотрудника', 'error'); return; }
+    var inner = buildDetailBreakdownHtml(window._detailData);
+    var close = "document.getElementById('bdModal').remove();var o=document.getElementById('bdOverlay');if(o)o.remove();";
+    var css = '<style>#bdModal .bd-head{font-size:14px;margin-bottom:6px}#bdModal .bd-sum{font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.5}#bdModal .bd-table{width:100%;border-collapse:collapse;font-size:12px}#bdModal .bd-table th,#bdModal .bd-table td{border:1px solid rgba(128,128,128,.18);padding:4px 6px}#bdModal .bd-table th{background:var(--surface-2);color:var(--text-2);font-weight:500}#bdModal .r{text-align:right}#bdModal .b{font-weight:600}#bdModal .bd-store{font-size:11px}#bdModal .bd-new td:first-child{border-left:3px solid var(--brand)}#bdModal .bd-total td{font-weight:600;background:var(--surface-2)}</style>';
+    var html = '<div id="bdModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(860px,94vw);max-height:88vh;overflow:auto;">'
+        + css
+        + '<div style="padding:14px 20px;border-bottom:.5px solid var(--border);display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500;"><i class="ti ti-file-invoice" style="color:var(--brand)"></i> Расшифровка начислений</div>'
+        + '<div style="padding:16px 20px;">' + inner + '</div>'
+        + '<div style="padding:12px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:.5px solid var(--border);">'
+        + '<button class="secondary" onclick="printDetailBreakdown()"><i class="ti ti-printer"></i> Печать</button>'
+        + '<button class="primary" onclick="' + close + '">Закрыть</button>'
+        + '</div></div>'
+        + '<div id="bdOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;" onclick="' + close + '"></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function printDetailBreakdown() {
+    if (!window._detailData) return;
+    var inner = buildDetailBreakdownHtml(window._detailData);
+    var w = window.open('', '_blank');
+    if (!w) { showStatus('detailsStatus', 'Браузер заблокировал окно печати. Разрешите всплывающие окна и повторите.', 'error'); return; }
+    w.document.write('<!DOCTYPE html><html><head><title>Расшифровка начислений</title><style>'
+        + '@page{size:A4 portrait;margin:10mm}*{margin:0;padding:0;box-sizing:border-box}'
+        + 'body{font-family:Arial,sans-serif;color:#20242b;font-size:12px;padding:4mm}'
+        + '.bd-head{font-size:15px;margin-bottom:8px}.bd-sum{font-size:12px;color:#555;margin-bottom:12px;line-height:1.5}'
+        + '.bd-table{width:100%;border-collapse:collapse;font-size:11px}.bd-table th,.bd-table td{border:1px solid #cfd3d8;padding:4px 6px}'
+        + '.bd-table th{background:#f2f3f5;font-weight:600}.r{text-align:right}.b{font-weight:700}.bd-store{font-size:10px}'
+        + '.bd-new td:first-child{border-left:3px solid #c0392b}.bd-total td{font-weight:700;background:#f2f3f5}'
+        + '</style></head><body>' + inner + '</body></html>');
+    w.document.close(); w.focus();
+    setTimeout(function () { w.print(); }, 250);
 }
 
 // ========== ДИАГНОСТИКА (временный код) ==========
