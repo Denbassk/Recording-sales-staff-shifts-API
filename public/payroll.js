@@ -1204,7 +1204,7 @@ function runReportChecks() {
         r.classList.remove('row-chk-err', 'row-chk-warn');
         var name = r.dataset.employeeName || '';
         var basePay = parseFloat(r.dataset.basePay) || 0;
-        var cardLimit = parseFloat(r.dataset.cardLimit) || 16000;
+        var cardLimit = parseFloat(r.dataset.cardLimit) || 8700;
         var mb = parseFloat((r.querySelector('[name="manual_bonus"]') || {}).value) || 0;
         var pen = parseFloat((r.querySelector('[name="penalty"]') || {}).value) || 0;
         var sh = parseFloat((r.querySelector('[name="shortage"]') || {}).value) || 0;
@@ -1449,7 +1449,8 @@ async function generateMonthlyReport() {
                 result.adjustments,
                 month,
                 year,
-                result.finalCalculations || [] // Добавляем финальные расчеты
+                result.finalCalculations || [], // Добавляем финальные расчеты
+                result.cardLimits || {}          // реальные лимиты карт
             );
         }
     } catch (error) {
@@ -1458,7 +1459,7 @@ async function generateMonthlyReport() {
     }
 }
 
-function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = []) {
+function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = [], cardLimits = {}) {
     const reportContentEl = document.getElementById('monthlyReportContent');
     if (!reportContentEl) return;
 
@@ -1615,9 +1616,10 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                     
                     // Если остаток не был рассчитан, распределяем его
                     if (remainingToPay > 0 && cardRemainder === 0 && cashPayout === 0) {
-                        const maxCardTotal = finalCalc.card_limit || 16000;
+                        const maxCardTotal = (cardLimits && cardLimits[id]) || finalCalc.card_limit || 8700;
                         const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
-                        cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+                        remainingToPay = Math.round(remainingToPay);
+                        cardRemainder = Math.round(Math.min(remainingCardCapacity, remainingToPay));
                         cashPayout = Math.max(0, remainingToPay - cardRemainder);
                     }
                 }
@@ -1732,7 +1734,7 @@ tableHtml += `<tr class="${rowClass}"
             data-month="${month}" 
             data-year="${year}" 
             data-base-pay="${data.totalPay}" data-b-percent="${data.bPercent}" data-b-bag="${data.bBag}" data-b-coffee="${data.bCoffee}" data-b-culinary="${data.bCulinary}" 
-            data-card-limit="${finalCalc?.card_limit || 16000}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
+            data-card-limit="${(cardLimits && cardLimits[id]) || finalCalc?.card_limit || 8700}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
 data-shifts='${JSON.stringify(data.shifts)}'>
             <td style="padding: 5px;">
     ${data.name}
@@ -1941,11 +1943,11 @@ function recalculateRow(row) {
     
 if (remainingToPay > 0) {
         // Есть остаток к выплате - используем ДИНАМИЧЕСКИЙ лимит из data-атрибута
-        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 16000;
+        const maxCardTotal = parseFloat(row.dataset.cardLimit) || 8700;
         const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
         
-        newCardRemainder = Math.min(remainingCardCapacity, remainingToPay);
-        newCashPayout = remainingToPay - newCardRemainder;
+        newCardRemainder = Math.round(Math.min(remainingCardCapacity, remainingToPay));
+        newCashPayout = Math.max(0, Math.round(remainingToPay) - newCardRemainder);
     } else {
         // Аванс покрывает все или переплата - остатки должны быть 0
         newCardRemainder = 0;
@@ -2749,11 +2751,12 @@ async function validatePayrollCalculations() {
         }
         
         // Проверяем лимит карты
+        const cardLimit = parseFloat(row.dataset.cardLimit) || 8700;
         const totalOnCard = advanceCard + cardRemainder;
-        if (totalOnCard > 8700) {
+        if (totalOnCard > cardLimit + 1) {
             errors.push({
                 employee: employeeName,
-                error: `Превышен лимит карты: ${totalOnCard} > 8700`
+                error: `Превышен лимит карты: ${totalOnCard} > ${cardLimit}`
             });
         }
     });
@@ -4224,6 +4227,26 @@ async function printAllPayslips() {
                 <button class="close-btn" onclick="window.close()">✕ Закрыть</button>
             </div>
             ${allPayslipsHTML}
+            <script>
+                (function(){
+                    function fit(){
+                        document.querySelectorAll('.payslip').forEach(function(p){
+                            var inner = p.querySelector('.payslip-inner');
+                            if(!inner) return;
+                            var size = parseFloat(getComputedStyle(p).fontSize) || 13;
+                            var guard = 0;
+                            // Уменьшаем шрифт листа, пока содержимое не влезет в ячейку (без переносов/обрезки)
+                            while (inner.scrollHeight > inner.clientHeight + 1 && size > 6 && guard < 80) {
+                                size -= 0.5;
+                                p.style.fontSize = size + 'px';
+                                guard++;
+                            }
+                        });
+                    }
+                    if (document.readyState === 'complete') fit();
+                    else window.addEventListener('load', fit);
+                })();
+            </script>
         </body>
         </html>
     `);
@@ -5528,7 +5551,8 @@ function debugAllCalculations() {
         
         // Проверяем
         const hasDiscrepancy = Math.abs(expectedRemainder - actualRemainder) > 0.01;
-        const cardOverLimit = (advanceCard + cardRemainder) > 8700;
+        const _cardLimit = parseFloat(row.dataset.cardLimit) || 8700;
+        const cardOverLimit = (advanceCard + cardRemainder) > _cardLimit + 1;
         
         if (hasDiscrepancy || cardOverLimit) {
             problemsFound++;

@@ -13,9 +13,9 @@
 // advanceCard     — часть аванса, ушедшая на карту (занимает лимит карты за месяц)
 // cardLimit       — индивидуальный месячный лимит карты сотрудника
 function distributeRemainder({ afterDeductions, advancePayment, advanceCard, cardLimit }) {
-  const remainingToPay = Math.max(0, (Number(afterDeductions) || 0) - (Number(advancePayment) || 0));
+  const remainingToPay = Math.round(Math.max(0, (Number(afterDeductions) || 0) - (Number(advancePayment) || 0)));
   const remainingCardCapacity = Math.max(0, (Number(cardLimit) || 0) - (Number(advanceCard) || 0));
-  const cardRemainder = Math.min(remainingCardCapacity, remainingToPay);
+  const cardRemainder = Math.round(Math.min(remainingCardCapacity, remainingToPay));
   const cashPayout = Math.max(0, remainingToPay - cardRemainder);
   return { remainingToPay, remainingCardCapacity, cardRemainder, cashPayout };
 }

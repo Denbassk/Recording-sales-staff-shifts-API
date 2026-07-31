@@ -1010,12 +1010,26 @@ const { data: dailyDataRaw, error: dailyError } = await supabase
             console.log('Таблица final_payroll_calculations не найдена, пропускаем загрузку финальных расчетов');
         }
 
+        // Реальные (плавающие) лимиты карт из вкладки лимитов — без потолков/полов.
+        let cardLimits = {};
+        try {
+            const { data: limRows } = await supabase
+                .from('employees')
+                .select('id, card_limit_types!card_limit_type_id ( card_limit )')
+                .in('id', employeeIds);
+            (limRows || []).forEach(e => {
+                const cl = e.card_limit_types?.card_limit;
+                if (cl != null) cardLimits[e.id] = Number(cl);
+            });
+        } catch (e) { console.warn('Лимиты карт для отчёта не загружены:', e.message); }
+
         // Возвращаем все данные включая финальные расчеты
         res.json({ 
             success: true, 
             dailyData: enrichedDailyData, 
             adjustments,
-            finalCalculations // Добавляем финальные расчеты в ответ
+            finalCalculations, // Добавляем финальные расчеты в ответ
+            cardLimits         // реальные лимиты карт по сотрудникам
         });
         
     } catch (error) {
@@ -2006,9 +2020,6 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                 
                 // Получаем лимиты сотрудника
                 const limits = await getEmployeeCardLimit(employeeId);
-                // Потолок карты: индивидуальный, но не ниже 16000 — чтобы полный расчёт не резал
-                // карту до типового значения (напр. 9140) и не переливал излишек в наличные.
-                limits.cardLimit = Math.max(Number(limits.cardLimit) || 0, 16000);
                 
                 // 4. Инициализация переменных
                 let advancePayment = 0;
@@ -2131,7 +2142,20 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     console.warn(`${employeeId}: расхождение! Ожидается ${expectedTotal}, получено ${actualTotal}`);
                     cashPayout = Math.max(0, expectedTotal - cardRemainder);
                 }
-                
+
+                // Округление выплат до целых гривен (без копеек)
+                advancePayment = Math.round(advancePayment);
+                advanceCard = Math.round(advanceCard);
+                advanceCash = Math.round(advanceCash);
+                cardRemainder = Math.round(cardRemainder);
+                if (isTermination) {
+                    cashPayout = Math.round(cashPayout);
+                } else {
+                    const _payTarget = Math.round(Math.max(0, totalAfterDeductions - advancePayment));
+                    if (cardRemainder > _payTarget) cardRemainder = _payTarget;
+                    cashPayout = Math.max(0, _payTarget - cardRemainder);
+                }
+
                 finalResults[employeeId] = { 
                     total_gross: totalGross,
                     total_deductions: totalDeductions,
@@ -2806,7 +2830,13 @@ async function buildFotReport({ startDate, endDate }) {
     // ШАГ 4: Считаем ФОТ по магазинам, как и раньше
     const fotByStore = {};
     const TAX = 0.22;
-    const cardLimit = 16000;
+    // Реальные лимиты карт по сотрудникам (без хардкода 16000)
+    const _fotEmpIds = [...new Set(calcs.map(c => c.employee_id))];
+    const _fotLimits = {};
+    try {
+        const { data: _lr } = await supabase.from('employees').select('id, card_limit_types!card_limit_type_id ( card_limit )').in('id', _fotEmpIds);
+        (_lr || []).forEach(e => { const cl = e.card_limit_types?.card_limit; if (cl != null) _fotLimits[e.id] = Number(cl); });
+    } catch (e) { console.warn('ФОТ: лимиты не загружены:', e.message); }
     const employeeCardTracker = {}; 
   
     for (const c of calcs) {
@@ -2816,6 +2846,7 @@ async function buildFotReport({ startDate, endDate }) {
           employeeCardTracker[c.employee_id] = { paid_to_card: 0 };
         }
   
+        const cardLimit = _fotLimits[c.employee_id] || 8700;
         const remainingCardCapacity = cardLimit - employeeCardTracker[c.employee_id].paid_to_card;
         let paidToCardToday = 0;
         if (remainingCardCapacity > 0) {
@@ -3800,7 +3831,8 @@ app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) =
             if (Math.abs(calculatedRemainder - actualRemainder) > 0.01) {
                 console.warn(`Расхождение для ${record.employee_id}: должно быть ${calculatedRemainder}, есть ${actualRemainder}`);
                 // Исправляем
-                const cardCapacity = Math.max(0, 16000 - dataToRestore.advance_card);
+                const _restLimit = (await getEmployeeCardLimit(record.employee_id)).cardLimit || 8700;
+                const cardCapacity = Math.max(0, _restLimit - dataToRestore.advance_card);
                 dataToRestore.card_remainder = Math.min(cardCapacity, calculatedRemainder);
                 dataToRestore.cash_payout = Math.max(0, calculatedRemainder - dataToRestore.card_remainder);
             }
