@@ -1474,6 +1474,25 @@ function filterMonthlyReport() {
     });
     var cnt = document.getElementById("reportFilterCount");
     if (cnt) cnt.textContent = (q || store) ? ("Найдено: " + shown) : "";
+    updateReportTotals();
+}
+
+function updateReportTotals() {
+    var pnum = function (cell) { if (!cell) return 0; var s = (cell.textContent || '').replace(/[^0-9.,\-]/g, '').replace(',', '.'); var v = parseFloat(s); return isNaN(v) ? 0 : v; };
+    var rows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    var g=0,b=0,ac=0,an=0,cr=0,ch=0,tt=0;
+    rows.forEach(function (r) {
+        if (!r.dataset.employeeId || r.style.display === 'none') return;
+        g += pnum(r.querySelector('.total-gross'));
+        b += pnum(r.querySelector('.bonus-cell'));
+        ac += pnum(r.querySelector('.advance-payment-card'));
+        an += pnum(r.querySelector('.advance-payment-cash'));
+        cr += pnum(r.querySelector('.card-remainder'));
+        ch += pnum(r.querySelector('.cash-payout'));
+        tt += pnum(r.querySelector('.total-payout'));
+    });
+    var set = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = formatNumber(v); };
+    set('ft-gross', g); set('ft-bonus', b); set('ft-advcard', ac); set('ft-advcash', an); set('ft-cardrem', cr); set('ft-cash', ch); set('ft-total', tt);
 }
 
 function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculations = [], cardLimits = {}) {
@@ -1778,7 +1797,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
         : ''}
 </td>
             <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
-            <td class="total-gross" style="padding: 5px;">${formatNumber(totalGross)}</td>
+            <td class="total-gross" style="padding: 5px;text-align:right;">${formatNumber(totalGross)}</td>
             <td class="bonus-cell" style="padding: 5px; text-align:right;" title="${data.bonuses > 0 ? 'Процент ' + formatNumber(data.bPercent) + ' · Пакеты ' + formatNumber(data.bBag) + ' · Кофе ' + formatNumber(data.bCoffee) + ' · Кулинария ' + formatNumber(data.bCulinary) : 'Бонусы начисляются с 16.07'}">${data.bonuses > 0 ? formatNumber(data.bonuses) : '—'}</td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
             <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" list="dlBonusReason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
@@ -1788,20 +1807,20 @@ data-shifts='${JSON.stringify(data.shifts)}'>
     <input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;">
     <button onclick="manageShortages('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Управление недостачами"><i class="ti ti-clipboard-list"></i></button>
 </td>
-            <td class="advance-payment-card" style="padding: 5px;">
+            <td class="advance-payment-card" style="padding: 5px;text-align:right;">
                 <span class="advance-card-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCardContent}</span>
             </td>
-            <td class="advance-payment-cash" style="padding: 5px;">
+            <td class="advance-payment-cash" style="padding: 5px;text-align:right;">
                 <span class="advance-cash-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCashContent}</span>
             </td>
-            <td class="card-remainder" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : (cardRemainder > 0 ? 'color: var(--ok); font-weight: bold;' : '')}">
+            <td class="card-remainder" style="padding: 5px;text-align:right; ${!hasCompleteCalculation ? 'color: #ccc;' : (cardRemainder > 0 ? 'color: var(--ok); font-weight: bold;' : '')}">
     ${hasCompleteCalculation ? formatNumber(cardRemainder) : '—'}
     ${hasCompleteCalculation ? `<button onclick="adjustCardRemainder('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Корректировать остаток"><i class="ti ti-pencil"></i></button>` : ''}
 </td>
-            <td class="cash-payout" style="padding: 5px; ${!hasCompleteCalculation ? 'color: #ccc;' : ''}">
+            <td class="cash-payout" style="padding: 5px;text-align:right; ${!hasCompleteCalculation ? 'color: #ccc;' : ''}">
                 ${hasCompleteCalculation ? (cashPayout > 0 ? `<strong style="color: #007bff;">${formatNumber(cashPayout)}</strong>` : formatNumber(cashPayout)) : '—'}
             </td>
-            <td class="total-payout" style="padding: 5px;">
+            <td class="total-payout" style="padding: 5px;text-align:right;">
                 <strong title="${hasCompleteCalculation ? 'Итоговый расчет выполнен' : 'Предварительный расчет'}">${formatNumber(remainingToPay)}</strong>
             </td>
             <td style="padding: 5px;">
@@ -1811,18 +1830,18 @@ data-shifts='${JSON.stringify(data.shifts)}'>
         }
     }
 
-    tableHtml += `<tr class="report-total-row summary-row" style="font-weight:600;background:var(--surface-2);position:sticky;bottom:0;">
+    tableHtml += `<tr class="report-total-row summary-row" style="font-weight:600;background:var(--surface-2);border-top:2px solid var(--border-strong);">
         <td>ИТОГО</td>
         <td></td>
-        <td style="text-align:right;">${formatNumber(_sGross)}</td>
-        <td style="text-align:right;">${formatNumber(_sBonus)}</td>
+        <td id="ft-gross" style="text-align:right;">${formatNumber(_sGross)}</td>
+        <td id="ft-bonus" style="text-align:right;">${formatNumber(_sBonus)}</td>
         <td></td><td class="col-reason"></td><td></td><td class="col-reason"></td>
         <td></td>
-        <td style="text-align:right;">${formatNumber(_sAdvCard)}</td>
-        <td style="text-align:right;">${formatNumber(_sAdvCash)}</td>
-        <td style="text-align:right;color:var(--ok);">${formatNumber(_sCardRem)}</td>
-        <td style="text-align:right;color:var(--brand);">${formatNumber(_sCash)}</td>
-        <td style="text-align:right;">${formatNumber(_sTotal)}</td>
+        <td id="ft-advcard" style="text-align:right;">${formatNumber(_sAdvCard)}</td>
+        <td id="ft-advcash" style="text-align:right;">${formatNumber(_sAdvCash)}</td>
+        <td id="ft-cardrem" style="text-align:right;color:var(--ok);">${formatNumber(_sCardRem)}</td>
+        <td id="ft-cash" style="text-align:right;color:var(--brand);">${formatNumber(_sCash)}</td>
+        <td id="ft-total" style="text-align:right;">${formatNumber(_sTotal)}</td>
         <td></td>
     </tr>`;
     tableHtml += `</tbody></table></div>`;
@@ -1873,6 +1892,7 @@ data-shifts='${JSON.stringify(data.shifts)}'>
     reportContentEl.innerHTML = tableHtml;
     applyRowLockStates();
     runReportChecks();
+    updateReportTotals();
 
     // После создания таблицы применяем стили если есть финальные расчеты
     if (finalCalcMap.size > 0) {
