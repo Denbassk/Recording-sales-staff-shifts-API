@@ -2134,15 +2134,6 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     cashPayout = dNew.cashPayout;
                 }
                 
-                // Финальная проверка математики
-                const expectedTotal = totalAfterDeductions - advancePayment;
-                const actualTotal = cardRemainder + cashPayout;
-                if (Math.abs(expectedTotal - actualTotal) > 1 && !isTermination) {
-                    warnings.push({ employee_id: employeeId, expected: Math.round(expectedTotal * 100) / 100, got: Math.round(actualTotal * 100) / 100 });
-                    console.warn(`${employeeId}: расхождение! Ожидается ${expectedTotal}, получено ${actualTotal}`);
-                    cashPayout = Math.max(0, expectedTotal - cardRemainder);
-                }
-
                 // Округление выплат до целых гривен (без копеек)
                 advancePayment = Math.round(advancePayment);
                 advanceCard = Math.round(advanceCard);
@@ -2154,6 +2145,14 @@ app.post('/calculate-final-payroll', checkAuth, canManagePayroll, async (req, re
                     const _payTarget = Math.round(Math.max(0, totalAfterDeductions - advancePayment));
                     if (cardRemainder > _payTarget) cardRemainder = _payTarget;
                     cashPayout = Math.max(0, _payTarget - cardRemainder);
+                }
+
+                // Проверка математики по ФИНАЛЬНЫМ (округлённым) значениям — без ложных расхождений от округления
+                const expectedTotal = Math.round(Math.max(0, totalAfterDeductions - advancePayment));
+                const actualTotal = cardRemainder + cashPayout;
+                if (Math.abs(expectedTotal - actualTotal) > 1 && !isTermination) {
+                    warnings.push({ employee_id: employeeId, expected: expectedTotal, got: actualTotal });
+                    console.warn(`${employeeId}: расхождение! Ожидается ${expectedTotal}, получено ${actualTotal}`);
                 }
 
                 finalResults[employeeId] = { 

@@ -3689,7 +3689,7 @@ async function fixManualAdvances() {
                     row.dataset.finalTotal = result.card_remainder + result.cash_payout;
                     
                     // ИЗМЕНЕНИЕ 7: Добавляем атрибуты для отслеживания состояния
-                    row.dataset.hasDiscrepancy = Math.abs((result.card_remainder + result.cash_payout) - (result.total_after_deductions - result.advance_payment)) > 0.01 ? 'true' : 'false';
+                    row.dataset.hasDiscrepancy = Math.abs((result.card_remainder + result.cash_payout) - (result.total_after_deductions - result.advance_payment)) > 1 ? 'true' : 'false';
 
                     // ВАЖНО: Вызываем пересчет строки для обновления итогов
                     setTimeout(() => {
@@ -3739,9 +3739,9 @@ async function fixManualAdvances() {
                 summaryMessage += `Обнаружены расхождения у ${employeesWithDiscrepancy} сотрудников (см. консоль)\n`;
             }
             
-            summaryMessage += `\n<i class="ti ti-credit-card"></i> Уже выплачено авансом: ${formatNumber(totalAdvance)} грн\n` +
-                `<i class="ti ti-credit-card"></i> Остаток на карту у ${employeesWithCardRemainder} чел.: ${formatNumber(totalCardRemainder)} грн\n` +
-                `<i class="ti ti-cash"></i> Зарплата наличными у ${employeesWithCash} чел.: ${formatNumber(totalCash)} грн\n` +
+            summaryMessage += `\nУже выплачено авансом: ${formatNumber(totalAdvance)} грн\n` +
+                `Остаток на карту у ${employeesWithCardRemainder} чел.: ${formatNumber(totalCardRemainder)} грн\n` +
+                `Зарплата наличными у ${employeesWithCash} чел.: ${formatNumber(totalCash)} грн\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
                 `ИТОГО к доплате: ${formatNumber(totalRemaining)} грн`;
             
@@ -3771,6 +3771,9 @@ async function fixManualAdvances() {
                     );
                 }, 2000);
             }
+
+            // Перечитываем отчёт из базы: показать сохранённые (округлённые, сведённые) значения и убрать ложные подсветки
+            setTimeout(function () { if (typeof generateMonthlyReport === 'function') generateMonthlyReport(); }, 2500);
         }
     } catch (error) {
         console.error('Ошибка при окончательном расчете:', error);
