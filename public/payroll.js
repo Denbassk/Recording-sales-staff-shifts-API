@@ -3789,6 +3789,35 @@ async function fixManualAdvances() {
 }
 
 
+async function showAuditLog() {
+    let logs = [];
+    try {
+        const res = await fetch(`${API_BASE}/api/list-financial-logs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ limit: 200 }) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Ошибка');
+        logs = data.logs || [];
+    } catch (e) { showStatus('reportStatus', 'Не удалось загрузить журнал: ' + e.message, 'error'); return; }
+    const opRu = { calculate_final_payroll: 'Итоговый расчёт', calculate_payroll_extras: 'Пересчёт бонусов', payroll_adjustment: 'Корректировка (премия/штраф)', fix_advance_payment: 'Фиксация аванса', fix_manual_advances: 'Фиксация ручных авансов', bulk_update_card_limits: 'Изменение лимитов карт', update_employee_card_limit: 'Лимит сотрудника', restore_from_backup: 'Восстановление из бэкапа', calculate_advance: 'Расчёт аванса', clear_database: 'Очистка данных', create_backup: 'Создание бэкапа' };
+    const rows = logs.map(function (l) {
+        const dt = new Date(l.created_at);
+        const when = isNaN(dt.getTime()) ? l.created_at : dt.toLocaleString('ru-RU');
+        const op = opRu[l.operation_type] || l.operation_type;
+        let det = '';
+        try { const d = typeof l.data === 'string' ? JSON.parse(l.data) : l.data; if (d && typeof d === 'object') { det = Object.keys(d).slice(0, 4).map(function (k) { return k + ': ' + d[k]; }).join(', '); } } catch (_) { det = (l.data || '').slice(0, 80); }
+        return '<tr><td style="padding:7px 10px;border-bottom:.5px solid var(--border);white-space:nowrap;">' + when + '</td>'
+            + '<td style="padding:7px 10px;border-bottom:.5px solid var(--border);">' + (l.user_id || '—') + '</td>'
+            + '<td style="padding:7px 10px;border-bottom:.5px solid var(--border);">' + op + '</td>'
+            + '<td style="padding:7px 10px;border-bottom:.5px solid var(--border);font-size:11px;color:var(--text-2);">' + det + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-2);">Журнал пуст (операции логируются с момента создания таблицы)</td></tr>';
+    const close = "document.getElementById('alModal').remove();var o=document.getElementById('alOverlay');if(o)o.remove();";
+    const html = '<div id="alModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(900px,95vw);max-height:86vh;overflow:auto;">'
+        + '<div style="padding:14px 20px;border-bottom:.5px solid var(--border);display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500;"><i class="ti ti-clipboard-list" style="color:var(--brand)"></i> Журнал операций — кто · когда · что</div>'
+        + '<div style="padding:8px 20px 4px;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr><th style="text-align:left;padding:7px 10px;color:var(--text-2);">Когда</th><th style="text-align:left;padding:7px 10px;color:var(--text-2);">Кто</th><th style="text-align:left;padding:7px 10px;color:var(--text-2);">Операция</th><th style="text-align:left;padding:7px 10px;color:var(--text-2);">Детали</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        + '<div style="padding:12px 20px;display:flex;justify-content:flex-end;border-top:.5px solid var(--border);"><button class="primary" onclick="' + close + '">Закрыть</button></div>'
+        + '</div><div id="alOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;" onclick="' + close + '"></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
 async function showBackupsModal() {
     const month = document.getElementById('reportMonth')?.value;
     const year = document.getElementById('reportYear')?.value;
@@ -3809,14 +3838,15 @@ async function showBackupsModal() {
         const safe = (b.backup_date || '').replace(/'/g, '');
         return '<tr><td style="padding:8px 10px;border-bottom:.5px solid var(--border);">' + when + '</td>'
             + '<td style="padding:8px 10px;border-bottom:.5px solid var(--border);">' + reason + '</td>'
+            + '<td style="padding:8px 10px;border-bottom:.5px solid var(--border);">' + (b.backup_by || '—') + '</td>'
             + '<td style="padding:8px 10px;border-bottom:.5px solid var(--border);text-align:center;">' + b.count + '</td>'
             + '<td style="padding:8px 10px;border-bottom:.5px solid var(--border);text-align:right;"><button class="secondary" onclick="restoreBackup(\'' + safe + '\')"><i class="ti ti-restore"></i> Восстановить</button></td></tr>';
-    }).join('') || '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-2);">Нет резервных копий за этот период</td></tr>';
+    }).join('') || '<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-2);">Нет резервных копий за этот период</td></tr>';
     const close = "document.getElementById('bkModal').remove();var o=document.getElementById('bkOverlay');if(o)o.remove();";
     const html = '<div id="bkModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(840px,95vw);max-height:86vh;overflow:auto;">'
         + '<div style="padding:14px 20px;border-bottom:.5px solid var(--border);display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500;"><i class="ti ti-history" style="color:var(--brand)"></i> Резервные копии финальных расчётов — ' + monthNames[parseInt(month) - 1] + ' ' + year + '</div>'
         + '<div style="padding:8px 20px 4px;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr>'
-        + '<th style="text-align:left;padding:8px 10px;color:var(--text-2);">Когда</th><th style="text-align:left;padding:8px 10px;color:var(--text-2);">Причина</th><th style="text-align:center;padding:8px 10px;color:var(--text-2);">Записей</th><th></th></tr></thead><tbody>'
+        + '<th style="text-align:left;padding:8px 10px;color:var(--text-2);">Когда</th><th style="text-align:left;padding:8px 10px;color:var(--text-2);">Причина</th><th style="text-align:left;padding:8px 10px;color:var(--text-2);">Кто</th><th style="text-align:center;padding:8px 10px;color:var(--text-2);">Записей</th><th></th></tr></thead><tbody>'
         + rows + '</tbody></table></div>'
         + '<div style="padding:12px 20px;display:flex;justify-content:space-between;align-items:center;border-top:.5px solid var(--border);"><span style="font-size:12px;color:var(--text-2);">Перед восстановлением создаётся свежий бэкап текущего состояния.</span><button class="primary" onclick="' + close + '">Закрыть</button></div>'
         + '</div><div id="bkOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;" onclick="' + close + '"></div>';

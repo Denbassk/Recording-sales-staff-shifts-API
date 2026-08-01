@@ -3780,6 +3780,20 @@ app.post('/backup-payroll-state', checkAuth, canManagePayroll, async (req, res) 
 
 // Восстановление из резервной копии
 // Список резервных копий финальных расчётов (для админ-восстановления)
+// Журнал операций (кто/когда/что) — для админа
+app.post('/api/list-financial-logs', checkAuth, checkRole(['admin']), async (req, res) => {
+    try {
+        const lim = Math.min(parseInt(req.body && req.body.limit) || 150, 400);
+        const { data, error } = await supabase
+            .from('financial_logs')
+            .select('created_at, operation_type, user_id, data')
+            .order('created_at', { ascending: false })
+            .limit(lim);
+        if (error) throw error;
+        res.json({ success: true, logs: data || [] });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 app.post('/api/list-backups', checkAuth, checkRole(['admin']), async (req, res) => {
     const { year, month } = req.body;
     try {
