@@ -640,6 +640,8 @@ async function exportMonthlyReportToExcel() {
         const bCulinary = parseFloat(row.dataset.bCulinary) || 0;
         const extrasTotal = bPercent + bBag + bCoffee + bCulinary;
         const rateOnly = Math.max(0, basePay - extrasTotal);
+        const pureRate = parseFloat(row.dataset.baseRate) || 0;
+        const oldRevBonus = parseFloat(row.dataset.oldBonus) || 0;
         const manualBonus = parseFloat(row.querySelector('[name="manual_bonus"]')?.value) || 0;
         const penalty = parseFloat(row.querySelector('[name="penalty"]')?.value) || 0;
         const shortage = parseFloat(row.querySelector('[name="shortage"]')?.value) || 0;
@@ -728,7 +730,8 @@ async function exportMonthlyReportToExcel() {
             'Магазин': row.dataset.storeAddress || '',
             'Месяц': `${monthNames[month - 1]} ${year}`,
             'База начислений': basePay,
-            'Ставка': rateOnly,
+            'Ставка': pureRate,
+            'Бонус за выручку (до 16.07)': oldRevBonus,
             'Процент с продаж': bPercent,
             'Пакеты': bBag,
             'Кофе': bCoffee,
@@ -1512,6 +1515,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 name: calc.employee_name,
                 totalPay: 0,
                 bonuses: 0, bPercent: 0, bBag: 0, bCoffee: 0, bCulinary: 0,
+                baseRate: 0, oldBonus: 0,
                 shifts: [],
                 stores: {},
                 primaryStore: calc.store_address || 'Не определен',
@@ -1526,6 +1530,8 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
         _ed.bCoffee += Number(calc.coffee_bonus) || 0;
         _ed.bCulinary += Number(calc.culinary_bonus) || 0;
         _ed.bonuses = _ed.bPercent + _ed.bBag + _ed.bCoffee + _ed.bCulinary;
+        _ed.baseRate += Number(calc.base_rate) || 0;
+        _ed.oldBonus += Number(calc.bonus) || 0;
 
         // Сохраняем дату работы
         const workDate = new Date(calc.work_date);
@@ -1789,7 +1795,7 @@ tableHtml += `<tr class="${rowClass}"
             data-store-address="${data.primaryStore}" 
             data-month="${month}" 
             data-year="${year}" 
-            data-base-pay="${data.totalPay}" data-b-percent="${data.bPercent}" data-b-bag="${data.bBag}" data-b-coffee="${data.bCoffee}" data-b-culinary="${data.bCulinary}" 
+            data-base-pay="${data.totalPay}" data-b-percent="${data.bPercent}" data-b-bag="${data.bBag}" data-b-coffee="${data.bCoffee}" data-b-culinary="${data.bCulinary}" data-base-rate="${data.baseRate}" data-old-bonus="${data.oldBonus}" 
             data-card-limit="${(cardLimits && cardLimits[id]) || finalCalc?.card_limit || 8700}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
 data-shifts='${JSON.stringify(data.shifts)}'>
             <td style="padding: 5px;">
