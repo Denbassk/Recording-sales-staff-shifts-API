@@ -3779,6 +3779,28 @@ app.post('/backup-payroll-state', checkAuth, canManagePayroll, async (req, res) 
 });
 
 // Восстановление из резервной копии
+// Список резервных копий финальных расчётов (для админ-восстановления)
+app.post('/api/list-backups', checkAuth, checkRole(['admin']), async (req, res) => {
+    const { year, month } = req.body;
+    try {
+        const { data, error } = await supabase
+            .from('final_payroll_calculations_backup')
+            .select('backup_date, backup_reason, backup_by')
+            .eq('year', parseInt(year)).eq('month', parseInt(month))
+            .order('backup_date', { ascending: false })
+            .limit(5000);
+        if (error) throw error;
+        const map = new Map();
+        (data || []).forEach(r => {
+            const k = r.backup_date;
+            if (!map.has(k)) map.set(k, { backup_date: k, backup_reason: r.backup_reason || '', backup_by: r.backup_by || '', count: 0 });
+            map.get(k).count++;
+        });
+        const backups = [...map.values()].sort((a, b) => (b.backup_date || '').localeCompare(a.backup_date || '')).slice(0, 50);
+        res.json({ success: true, backups });
+    } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
 app.post('/restore-from-backup', checkAuth, canManagePayroll, async (req, res) => {
     const { year, month, backupDate } = req.body;
     

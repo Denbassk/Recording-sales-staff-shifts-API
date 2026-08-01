@@ -1576,7 +1576,7 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
 
     let tableHtml = `
     <h3><i class="ti ti-users"></i> Детализация по сотрудникам за ${monthNames[month - 1]} ${year}:</h3>
-    <p style="margin: 10px 0; color: var(--text-2);">Общая сумма начислений (база): <strong>${formatNumber(totalBasePay)} грн</strong></p>
+    <p style="margin: 10px 0; color: var(--text-2);">Общая сумма начислений (база): <strong>${formatNumber(Math.round(totalBasePay))} грн</strong></p>
     <div class="report-filter">
         <div class="rf-search"><i class="ti ti-search"></i><input type="text" id="reportSearchName" placeholder="Поиск по фамилии…" oninput="filterMonthlyReport()"></div>
         <select id="reportSearchStore" onchange="filterMonthlyReport()"><option value="">Все магазины</option>${_storeOptions}</select>
@@ -1799,8 +1799,8 @@ data-shifts='${JSON.stringify(data.shifts)}'>
         : ''}
 </td>
             <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
-            <td class="total-gross" style="padding: 5px;text-align:right;">${formatNumber(totalGross)}</td>
-            <td class="bonus-cell" style="padding: 5px; text-align:right;" title="${data.bonuses > 0 ? 'Процент ' + formatNumber(data.bPercent) + ' · Пакеты ' + formatNumber(data.bBag) + ' · Кофе ' + formatNumber(data.bCoffee) + ' · Кулинария ' + formatNumber(data.bCulinary) : 'Бонусы начисляются с 16.07'}">${data.bonuses > 0 ? formatNumber(data.bonuses) : '—'}</td>
+            <td class="total-gross" style="padding: 5px;text-align:right;">${formatNumber(Math.round(totalGross))}</td>
+            <td class="bonus-cell" style="padding: 5px; text-align:right;" title="${data.bonuses > 0 ? 'Процент ' + formatNumber(data.bPercent) + ' · Пакеты ' + formatNumber(data.bBag) + ' · Кофе ' + formatNumber(data.bCoffee) + ' · Кулинария ' + formatNumber(data.bCulinary) : 'Бонусы начисляются с 16.07'}">${data.bonuses > 0 ? formatNumber(Math.round(data.bonuses)) : '—'}</td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
             <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" list="dlBonusReason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
@@ -3788,6 +3788,58 @@ async function fixManualAdvances() {
     }
 }
 
+
+async function showBackupsModal() {
+    const month = document.getElementById('reportMonth')?.value;
+    const year = document.getElementById('reportYear')?.value;
+    if (!month || !year) { showStatus('reportStatus', 'Выберите месяц и год отчёта', 'error'); return; }
+    let backups = [];
+    try {
+        const res = await fetch(`${API_BASE}/api/list-backups`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ year: parseInt(year), month: parseInt(month) }) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Ошибка');
+        backups = data.backups || [];
+    } catch (e) { showStatus('reportStatus', 'Не удалось загрузить резервные копии: ' + e.message, 'error'); return; }
+    const monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+    const reasonRu = { before_update: 'перед изменением', before_restore: 'перед восстановлением', manual_backup: 'ручной бэкап', before_final_calc: 'перед итоговым расчётом' };
+    const rows = backups.map(function (b) {
+        const dt = new Date(b.backup_date);
+        const when = isNaN(dt.getTime()) ? b.backup_date : dt.toLocaleString('ru-RU');
+        const reason = reasonRu[b.backup_reason] || b.backup_reason || '—';
+        const safe = (b.backup_date || '').replace(/'/g, '');
+        return '<tr><td style="padding:8px 10px;border-bottom:.5px solid var(--border);">' + when + '</td>'
+            + '<td style="padding:8px 10px;border-bottom:.5px solid var(--border);">' + reason + '</td>'
+            + '<td style="padding:8px 10px;border-bottom:.5px solid var(--border);text-align:center;">' + b.count + '</td>'
+            + '<td style="padding:8px 10px;border-bottom:.5px solid var(--border);text-align:right;"><button class="secondary" onclick="restoreBackup(\'' + safe + '\')"><i class="ti ti-restore"></i> Восстановить</button></td></tr>';
+    }).join('') || '<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--text-2);">Нет резервных копий за этот период</td></tr>';
+    const close = "document.getElementById('bkModal').remove();var o=document.getElementById('bkOverlay');if(o)o.remove();";
+    const html = '<div id="bkModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(840px,95vw);max-height:86vh;overflow:auto;">'
+        + '<div style="padding:14px 20px;border-bottom:.5px solid var(--border);display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500;"><i class="ti ti-history" style="color:var(--brand)"></i> Резервные копии финальных расчётов — ' + monthNames[parseInt(month) - 1] + ' ' + year + '</div>'
+        + '<div style="padding:8px 20px 4px;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr>'
+        + '<th style="text-align:left;padding:8px 10px;color:var(--text-2);">Когда</th><th style="text-align:left;padding:8px 10px;color:var(--text-2);">Причина</th><th style="text-align:center;padding:8px 10px;color:var(--text-2);">Записей</th><th></th></tr></thead><tbody>'
+        + rows + '</tbody></table></div>'
+        + '<div style="padding:12px 20px;display:flex;justify-content:space-between;align-items:center;border-top:.5px solid var(--border);"><span style="font-size:12px;color:var(--text-2);">Перед восстановлением создаётся свежий бэкап текущего состояния.</span><button class="primary" onclick="' + close + '">Закрыть</button></div>'
+        + '</div><div id="bkOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;" onclick="' + close + '"></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function restoreBackup(backupDate) {
+    const month = document.getElementById('reportMonth')?.value;
+    const year = document.getElementById('reportYear')?.value;
+    if (!confirm('Восстановить финальные расчёты из этой резервной копии?\n\nТекущее состояние будет заменено. Перед восстановлением автоматически создаётся свежий бэкап.')) return;
+    if (!confirm('Точно восстановить? Действие затрагивает выплаты за период ' + month + '/' + year + '.')) return;
+    try {
+        showStatus('reportStatus', 'Восстановление из резервной копии…', 'info');
+        await fetch(`${API_BASE}/create-backup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ year: parseInt(year), month: parseInt(month), reason: 'before_restore' }) }).catch(function () {});
+        const res = await fetch(`${API_BASE}/restore-from-backup`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ year: parseInt(year), month: parseInt(month), backupDate: backupDate }) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'Ошибка восстановления');
+        const m = document.getElementById('bkModal'); if (m) m.remove();
+        const o = document.getElementById('bkOverlay'); if (o) o.remove();
+        showStatus('reportStatus', 'Готово: ' + (data.message || 'восстановлено'), 'success');
+        if (typeof generateMonthlyReport === 'function') setTimeout(generateMonthlyReport, 800);
+    } catch (e) { showStatus('reportStatus', 'Ошибка восстановления: ' + e.message, 'error'); }
+}
 
 function showCashSummary() {
     var rows = document.querySelectorAll('#monthlyReportTable tbody tr');
