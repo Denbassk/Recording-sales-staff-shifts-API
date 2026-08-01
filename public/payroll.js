@@ -1672,6 +1672,8 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                         cardRemainder = Math.round(Math.min(remainingCardCapacity, remainingToPay));
                         cashPayout = Math.max(0, remainingToPay - cardRemainder);
                     }
+                    // «Итого к выплате» = фактическая выплата (карта + наличные) — целое, без копеек
+                    remainingToPay = cardRemainder + cashPayout;
                 }
             } else {
                 // Нет финального расчета - предварительный расчет
