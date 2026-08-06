@@ -818,9 +818,9 @@ app.post('/calculate-payroll-extras', checkAuth, canManagePayroll, async (req, r
     if (!endDate) endDate = startDate;
     const v1 = validateDate(startDate), v2 = validateDate(endDate);
     if (!v1.valid || !v2.valid) return res.status(400).json({ success: false, error: 'Некорректные даты' });
-    const from = startDate < NEW_RULES_START ? NEW_RULES_START : startDate;
+    const from = startDate;   // флэт-бонусы (пакеты/кофе/кулинария) — за весь период; процент 3% клампится по дате ВНУТРИ buildExtrasRows
     const to = endDate;
-    if (from > to) return res.json({ success: true, updated: 0, message: `Нет дат >= ${NEW_RULES_START} в диапазоне` });
+    if (from > to) return res.json({ success: true, updated: 0, message: 'Пустой диапазон дат' });
 
     return withLock(`extras_${from}_${to}`, async () => {
         try {

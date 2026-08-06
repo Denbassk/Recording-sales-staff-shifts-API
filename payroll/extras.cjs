@@ -23,6 +23,7 @@ const {
   CULINARY_EXCLUDE_NAME_PREFIX,
   CULINARY_WRITEOFF_REASON,
 } = require('./bonus-config.cjs');
+const { NEW_RULES_START } = require('./floating-rate.cjs');  // '2026-07-16' — граница для процента 3%
 
 const BQ_PROJECT = 'family-market-analytics';
 const BQ_DATASET = 'family_market';
@@ -288,15 +289,17 @@ async function buildExtrasRows({ supabase, from, to }) {
     const n = g.sellers.length;
     if (n === 0) continue;
 
+    const applyPercent = g.date >= NEW_RULES_START;  // процент 3% — только новые правила (≥16.07)
     const adjusted = Math.max(0, cash - dlSales);
-    const spShare = (adjusted * SALES_PERCENT) / n;
-    const bagShare = (fb.bag_qty * PACKAGE_BONUS_PER_UNIT) / n;
+    const spShare = applyPercent ? (adjusted * SALES_PERCENT) / n : 0;
+    const bagShare = (fb.bag_qty * PACKAGE_BONUS_PER_UNIT) / n;      // флэт-бонусы — за весь период
     const coffeeShare = (fb.coffee_qty * COFFEE_BONUS_PER_UNIT) / n;
     const culShare = culPool / n;
 
     for (const empId of g.sellers) {
       const hasBase = baseRateMap.has(key(empId, g.date));
       const base = hasBase ? baseRateMap.get(key(empId, g.date)) : null;
+      const oldBonus = oldBonusMap.get(key(empId, g.date)) || 0;    // старый бонус за выручку (дни 01–15); для ≥16.07 = 0
       const extrasSum = spShare + bagShare + coffeeShare + culShare;
       out.push({
         employee_id: empId,
@@ -307,10 +310,11 @@ async function buildExtrasRows({ supabase, from, to }) {
         bag_bonus: round2(bagShare),
         coffee_bonus: round2(coffeeShare),
         culinary_bonus: round2(culShare),
-        dl_sales_deducted: round2(dlSales),
-        adjusted_cash: round2(adjusted),
+        dl_sales_deducted: round2(applyPercent ? dlSales : 0),
+        adjusted_cash: round2(applyPercent ? adjusted : 0),
         base_rate: base,
-        total_pay: hasBase ? round2(base + extrasSum) : null, // null → ставка ещё не посчитана /calculate-payroll
+        // ставка + старый бонус (01–15) + новые бонусы (пакеты/кофе/кулинария + процент с 16.07)
+        total_pay: hasBase ? round2(base + oldBonus + extrasSum) : null, // null → ставка ещё не посчитана /calculate-payroll
       });
     }
   }
