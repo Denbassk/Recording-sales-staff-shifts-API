@@ -13,6 +13,7 @@ const {
   SALES_PERCENT,
   DL_SUPPLIER_NAME,
   PACKAGE_BARCODES,
+  FAMILY_PACKAGE_BARCODES,
   COFFEE_BARCODES,
   PACKAGE_BONUS_PER_UNIT,
   COFFEE_BONUS_PER_UNIT,
@@ -108,6 +109,7 @@ async function getFlatBonusByStoreDay(from, to, storeMapping) {
     )
     SELECT d, store,
       SUM(IF(barcode IN UNNEST(@bags), quantity, 0)) AS bag_qty,
+      SUM(IF(barcode IN UNNEST(@family), quantity, 0)) AS family_bag_qty,
       SUM(IF(barcode IN UNNEST(@coffee) AND NOT LOWER(product_name) LIKE @teaLike, quantity, 0)) AS coffee_qty
     FROM t
     GROUP BY d, store`;
@@ -116,6 +118,7 @@ async function getFlatBonusByStoreDay(from, to, storeMapping) {
     params: {
       from, to,
       bags: PACKAGE_BARCODES,
+      family: FAMILY_PACKAGE_BARCODES,
       coffee: COFFEE_BARCODES,
       teaLike: `%${COFFEE_EXCLUDE_NAME_SUBSTR}%`,
     },
@@ -130,6 +133,7 @@ async function getFlatBonusByStoreDay(from, to, storeMapping) {
       date: d,
       store_id,
       bag_qty: Number(r.bag_qty) || 0,
+      family_bag_qty: Number(r.family_bag_qty) || 0,
       coffee_qty: Number(r.coffee_qty) || 0,
     });
   }
@@ -173,7 +177,7 @@ async function getCulinaryByStoreDay(from, to, storeMapping) {
            SUM(price_purchase * quantity) AS sold_cost
     FROM \`${BQ_PROJECT}.${BQ_DATASET}.turnover_transactions\`
     WHERE DATE(transaction_datetime) BETWEEN DATE(@from) AND DATE(@to)
-      AND barcode IN UNNEST(@cul) AND NOT STARTS_WITH(product_name, @excl)
+      AND STARTS_WITH(product_name, 'Кулінарія')
     GROUP BY d, store, barcode`;
   const woSql = `
     SELECT writeoff_date AS d, TRIM(store) AS store, barcode, SUM(cost) AS wo_cost
@@ -181,7 +185,7 @@ async function getCulinaryByStoreDay(from, to, storeMapping) {
     WHERE writeoff_date BETWEEN DATE(@from) AND DATE(@to) AND reason = @reason
     GROUP BY d, store, barcode`;
   const [[soldRows], [woRows]] = await Promise.all([
-    bq.query({ query: soldSql, params: { from, to, cul: CULINARY_BARCODES, excl: CULINARY_EXCLUDE_NAME_PREFIX } }),
+    bq.query({ query: soldSql, params: { from, to } }),
     bq.query({ query: woSql, params: { from, to, reason: CULINARY_WRITEOFF_REASON } }),
   ]);
 
@@ -269,9 +273,10 @@ async function buildExtrasRows({ supabase, from, to }) {
   }
 
   const { data: pcs } = await supabase
-    .from('payroll_calculations').select('employee_id, work_date, base_rate')
+    .from('payroll_calculations').select('employee_id, work_date, base_rate, bonus')
     .gte('work_date', from).lte('work_date', to);
   const baseRateMap = new Map((pcs || []).map((p) => [key(p.employee_id, p.work_date), Number(p.base_rate) || 0]));
+  const oldBonusMap = new Map((pcs || []).map((p) => [key(p.employee_id, p.work_date), Number(p.bonus) || 0]));
 
   const out = [];
   for (const g of groups.values()) {
@@ -309,6 +314,52 @@ async function buildExtrasRows({ supabase, from, to }) {
       });
     }
   }
+  // ── Полевая (store 38): остаётся на старых правилах (ставка + старый бонус за выручку),
+  //    но продавцу дополнительно начисляем КУЛИНАРИЮ + КОФЕ + пакеты ФЕМЕЛІ (без процента и
+  //    обычных пакетов). Бонус за день делится на число продавцов на смене. ──
+  const polGroups = new Map();
+  for (const s of shiftsRaw || []) {
+    if (s.store_id !== POLEVAYA_STORE_ID) continue;
+    const emp = empMap.get(s.employee_id);
+    if (!emp || emp.role === 'admin' || emp.role === 'accountant' || !(emp.fullname || '').trim()) continue;
+    if (String(emp.id).startsWith('SProd')) continue; // старший продавец — без этих бонусов
+    const k = key(s.shift_date, s.store_id);
+    const g = polGroups.get(k) || { date: s.shift_date, store_id: s.store_id, sellers: [] };
+    g.sellers.push(s.employee_id);
+    polGroups.set(k, g);
+  }
+  for (const g of polGroups.values()) {
+    const k = key(g.date, g.store_id);
+    const fb = flatMap.get(k) || { family_bag_qty: 0, coffee_qty: 0 };
+    const culPool = culMap.get(k) || 0;
+    const n = g.sellers.length;
+    if (n === 0) continue;
+    const familyShare = ((fb.family_bag_qty || 0) * PACKAGE_BONUS_PER_UNIT) / n;
+    const coffeeShare = ((fb.coffee_qty || 0) * COFFEE_BONUS_PER_UNIT) / n;
+    const culShare = culPool / n;
+    for (const empId of g.sellers) {
+      const hasBase = baseRateMap.has(key(empId, g.date));
+      const base = hasBase ? baseRateMap.get(key(empId, g.date)) : null;
+      const oldBonus = oldBonusMap.get(key(empId, g.date)) || 0;
+      const extrasSum = familyShare + coffeeShare + culShare;
+      out.push({
+        employee_id: empId,
+        work_date: g.date,
+        store_id: g.store_id,
+        num_sellers: n,
+        sales_percent: 0,                          // Полевая — без процента с продаж
+        bag_bonus: round2(familyShare),            // только пакеты Фемелі
+        coffee_bonus: round2(coffeeShare),
+        culinary_bonus: round2(culShare),
+        dl_sales_deducted: 0,
+        adjusted_cash: 0,
+        base_rate: base,
+        // Полевая по-старому: ставка + СТАРЫЙ бонус за выручку + новые (кулинария/кофе/Фемелі)
+        total_pay: hasBase ? round2(base + oldBonus + extrasSum) : null,
+      });
+    }
+  }
+
   return { rows: out, unmatched: { dl: dl.unmatched, flat: flat.unmatched, cul: cul.unmatched } };
 }
 
