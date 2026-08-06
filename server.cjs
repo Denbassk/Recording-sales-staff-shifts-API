@@ -602,6 +602,14 @@ const { data: employeesPayroll, error: empPayError } = await supabase
                 employeesPayroll.map(emp => [emp.id, emp])
             );
 
+            // Уже начисленные бонусы за этот день — чтобы «Зарплата по дням» НЕ затирала их в total_pay.
+            // Иначе пересчёт дня после «Пересчитать бонусы» обнуляет бонусы в итоге (колонки остаются, а total_pay = ставка).
+            const { data: _existExtras } = await supabase.from('payroll_calculations')
+                .select('employee_id, sales_percent, bag_bonus, coffee_bonus, culinary_bonus')
+                .eq('work_date', date);
+            const extrasByEmp = new Map((_existExtras || []).map(e => [e.employee_id,
+                (Number(e.sales_percent) || 0) + (Number(e.bag_bonus) || 0) + (Number(e.coffee_bonus) || 0) + (Number(e.culinary_bonus) || 0)]));
+
             // ✅ ШАГ 5: Обогащаем смены данными о сотрудниках и фильтруем
             const shifts = shiftsRaw
                 .map(shift => {
@@ -767,7 +775,8 @@ for (const employee of storeEmployees) {
                         is_senior: isSenior,
                         base_rate: payDetails.baseRate,
                         bonus: payDetails.bonus,
-                        total_pay: payDetails.totalPay,
+                        // total_pay = ставка + старый бонус + уже начисленные новые бонусы (сохраняем, не затираем)
+                        total_pay: payDetails.totalPay + (extrasByEmp.get(employee.employee_id) || 0),
                         bonus_details: payDetails.bonusDetails  // ВАЖНО: добавлено поле bonus_details
                     };
                     
