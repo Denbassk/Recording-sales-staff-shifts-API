@@ -5623,6 +5623,153 @@ async function exportDetailsToExcel() {
     }
 }
 
+// ================= МУЛЬТИ-ОТЧЁТ по нескольким продавцам (понятные расчёты) =================
+var _mrEmployees = null;
+
+async function openMultiReport() {
+    if (!_mrEmployees) {
+        try {
+            const r = await fetch(`${API_BASE}/api/get-employees-list`, { credentials: 'include' });
+            const j = await r.json();
+            _mrEmployees = (j.success && j.employees) ? j.employees : [];
+        } catch (e) { _mrEmployees = []; }
+    }
+    var m = document.getElementById('detailsMonth') ? document.getElementById('detailsMonth').value : (new Date().getMonth() + 1);
+    var y = document.getElementById('detailsYear') ? document.getElementById('detailsYear').value : (new Date().getFullYear());
+    var monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+    var opts = '';
+    for (var i = 1; i <= 12; i++) opts += '<option value="' + i + '"' + (i == m ? ' selected' : '') + '>' + monthNames[i - 1] + '</option>';
+    var list = _mrEmployees.map(function (e) {
+        var nm = (e.fullname || '').replace(/"/g, '&quot;');
+        return '<label class="mr-item"><input type="checkbox" class="mr-cb" value="' + e.id + '" data-name="' + nm + '"> ' + (e.fullname || '') + '</label>';
+    }).join('');
+    var close = "var x=document.getElementById('mrModal');if(x)x.remove();var o=document.getElementById('mrOv');if(o)o.remove();";
+    var css = '<style>#mrModal .mr-list{max-height:44vh;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px}#mrModal .mr-item{display:block;padding:4px 6px;font-size:13px;border-radius:6px;cursor:pointer}#mrModal .mr-item:hover{background:var(--surface-2)}#mrModal .mr-bar{display:flex;gap:8px;align-items:center;margin:10px 0}#mrModal input[type=search]{flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}#mrModal select,#mrModal input[type=number]{padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}</style>';
+    var html = '<div id="mrModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(620px,94vw);max-height:90vh;overflow:auto;">'
+        + css
+        + '<div style="padding:14px 20px;border-bottom:.5px solid var(--border);font-size:15px;font-weight:500;"><i class="ti ti-users" style="color:var(--brand)"></i> Отчёт по продавцам</div>'
+        + '<div style="padding:16px 20px;">'
+        + '<div class="mr-bar"><label>Период:</label><select id="mrMonth">' + opts + '</select><input type="number" id="mrYear" value="' + y + '" min="2024" max="2030" style="width:90px"></div>'
+        + '<div class="mr-bar"><input type="search" id="mrSearch" placeholder="Поиск по фамилии..." oninput="filterMrList()"><button class="secondary" onclick="mrSelectAll(true)">Все</button><button class="secondary" onclick="mrSelectAll(false)">Снять</button></div>'
+        + '<div class="mr-list" id="mrList" onchange="updateMrCount()">' + list + '</div>'
+        + '<div style="font-size:12px;color:var(--text-2);margin-top:8px" id="mrCount">Выбрано: 0</div>'
+        + '</div>'
+        + '<div style="padding:12px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:.5px solid var(--border);">'
+        + '<button class="secondary" onclick="' + close + '">Отмена</button>'
+        + '<button class="primary" id="mrGoBtn" onclick="generateMultiReport()"><i class="ti ti-file-spreadsheet"></i> Сформировать Excel</button>'
+        + '</div></div>'
+        + '<div id="mrOv" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;" onclick="' + close + '"></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    updateMrCount();
+}
+
+function filterMrList() {
+    var q = (document.getElementById('mrSearch').value || '').toLowerCase();
+    document.querySelectorAll('#mrList .mr-item').forEach(function (el) {
+        el.style.display = (el.textContent || '').toLowerCase().indexOf(q) >= 0 ? 'block' : 'none';
+    });
+}
+function mrSelectAll(v) {
+    document.querySelectorAll('#mrList .mr-item').forEach(function (el) {
+        if (el.style.display !== 'none') { var cb = el.querySelector('.mr-cb'); if (cb) cb.checked = v; }
+    });
+    updateMrCount();
+}
+function updateMrCount() {
+    var n = document.querySelectorAll('#mrList .mr-cb:checked').length;
+    var c = document.getElementById('mrCount'); if (c) c.textContent = 'Выбрано: ' + n;
+}
+
+async function generateMultiReport() {
+    var checked = Array.prototype.slice.call(document.querySelectorAll('#mrList .mr-cb:checked'));
+    if (!checked.length) { alert('Выберите хотя бы одного продавца'); return; }
+    var month = parseInt(document.getElementById('mrMonth').value);
+    var year = parseInt(document.getElementById('mrYear').value);
+    var btn = document.getElementById('mrGoBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = 'Формирую…'; }
+    try {
+        var emps = checked.map(function (cb) { return { id: cb.value, name: cb.getAttribute('data-name') }; });
+        var datasets = [];
+        for (var i = 0; i < emps.length; i++) {
+            var resp = await fetch(`${API_BASE}/api/get-calculation-details`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                body: JSON.stringify({ employee_id: emps[i].id, year: year, month: month })
+            });
+            var j = await resp.json();
+            if (j.success) datasets.push({ emp: emps[i], details: j.details || [], summary: j.summary || {} });
+        }
+        await buildMultiReportExcel(datasets, month, year);
+    } catch (e) {
+        alert('Ошибка формирования отчёта: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-file-spreadsheet"></i> Сформировать Excel'; }
+    }
+}
+
+function _mrRound(v) { return Math.round((Number(v) || 0) * 100) / 100; }
+function _mrBorder() { var s = { style: 'thin', color: { argb: 'FFD5D5D5' } }; return { top: s, bottom: s, left: s, right: s }; }
+
+async function buildMultiReportExcel(datasets, month, year) {
+    var monthNames = ["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+    var period = monthNames[month - 1] + ' ' + year;
+    var PACK = 0.5, COF = 2, CUL = 0.1, RATE = 0.03;
+    var wb = new ExcelJS.Workbook();
+    var ws = wb.addWorksheet('Отчёт ' + period);
+    var headers = ['Дата','Магазин','Прод.','Касса','ДЛ Солюшн','База % (касса−ДЛ)','Процент 3%','Пакеты, шт','Пакеты, грн','Кофе, стак','Кофе, грн','Кулинария база','Кулинария 10%','Ставка','Бонус до 16.07','ИТОГО'];
+    var nCols = headers.length;
+    var moneyCols = [4,5,6,7,9,11,12,13,14,15,16];
+    ws.mergeCells(1, 1, 1, nCols);
+    var t = ws.getCell(1, 1); t.value = 'ОТЧЁТ ПО НАЧИСЛЕНИЯМ ПРОДАВЦАМ · ' + period;
+    t.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }; t.alignment = { horizontal: 'center', vertical: 'middle' };
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC0392B' } }; ws.getRow(1).height = 24;
+    ws.mergeCells(2, 1, 2, nCols);
+    var lg = ws.getCell(2, 1);
+    lg.value = 'Процент = 3% от (касса − продажи ДЛ Солюшн) ÷ число продавцов смены (с 16.07). Пакеты = 0.50 грн/шт. Кофе = 2.00 грн/стакан. Кулинария = 10% от (себестоимость проданного − списания «в счёт зп»). Каждый бонус делится на число продавцов смены.';
+    lg.font = { italic: true, size: 9, color: { argb: 'FF555555' } }; lg.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }; ws.getRow(2).height = 32;
+    var rowIdx = 4;
+    datasets.forEach(function (ds) {
+        ws.mergeCells(rowIdx, 1, rowIdx, nCols);
+        var nm = ws.getCell(rowIdx, 1); nm.value = ds.emp.name || '';
+        nm.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+        nm.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2C3E50' } };
+        nm.alignment = { horizontal: 'left', vertical: 'middle' }; ws.getRow(rowIdx).height = 20; rowIdx++;
+        var hr = ws.getRow(rowIdx);
+        headers.forEach(function (h, i) { var c = hr.getCell(i + 1); c.value = h; c.font = { bold: true, size: 10 }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECECEC' } }; c.border = _mrBorder(); });
+        hr.height = 30; rowIdx++;
+        var sub = { pct: 0, bagQ: 0, bag: 0, cofQ: 0, cof: 0, cul: 0, base: 0, bonus: 0, total: 0 };
+        (ds.details || []).forEach(function (d) {
+            var N = d.num_sellers || 1;
+            var pct = d.sales_percent || 0, bag = d.bag_bonus || 0, cof = d.coffee_bonus || 0, cul = d.culinary_bonus || 0;
+            var adj = d.adjusted_cash > 0 ? d.adjusted_cash : (pct > 0 ? pct * N / RATE : 0);
+            var dl = d.dl_sales_deducted > 0 ? d.dl_sales_deducted : Math.max(0, (d.revenue || 0) - adj);
+            var bagQ = Math.round(bag * N / PACK), cofQ = Math.round(cof * N / COF), culBase = cul * N / CUL;
+            var dt = new Date(d.date);
+            var vals = [dt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }), d.store_address || '', N,
+                _mrRound(d.revenue), _mrRound(dl), _mrRound(adj), _mrRound(pct), bagQ || '', _mrRound(bag),
+                cofQ || '', _mrRound(cof), culBase ? _mrRound(culBase) : '', _mrRound(cul), _mrRound(d.base_rate), _mrRound(d.bonus), _mrRound(d.total_pay)];
+            var row = ws.getRow(rowIdx);
+            vals.forEach(function (v, i) { var c = row.getCell(i + 1); c.value = v; c.border = _mrBorder(); c.alignment = { horizontal: (i < 2 ? 'left' : 'right'), vertical: 'middle' }; if (moneyCols.indexOf(i + 1) >= 0) c.numFmt = '#,##0.00'; });
+            row.height = 15;
+            sub.pct += pct; sub.bagQ += bagQ; sub.bag += bag; sub.cofQ += cofQ; sub.cof += cof; sub.cul += cul; sub.base += (d.base_rate || 0); sub.bonus += (d.bonus || 0); sub.total += (d.total_pay || 0);
+            rowIdx++;
+        });
+        var sr = ws.getRow(rowIdx);
+        var sv = ['ИТОГО', '', '', '', '', '', _mrRound(sub.pct), sub.bagQ || '', _mrRound(sub.bag), sub.cofQ || '', _mrRound(sub.cof), '', _mrRound(sub.cul), _mrRound(sub.base), _mrRound(sub.bonus), _mrRound(sub.total)];
+        sv.forEach(function (v, i) { var c = sr.getCell(i + 1); c.value = v; c.font = { bold: true }; c.border = _mrBorder(); c.alignment = { horizontal: (i < 2 ? 'left' : 'right'), vertical: 'middle' }; if (moneyCols.indexOf(i + 1) >= 0) c.numFmt = '#,##0.00'; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5EEEC' } }; });
+        ws.mergeCells(rowIdx, 1, rowIdx, 2);
+        rowIdx += 2;
+    });
+    var widths = [9, 22, 6, 11, 11, 15, 10, 9, 11, 9, 11, 12, 13, 10, 13, 12];
+    widths.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
+    ws.views = [{ state: 'frozen', ySplit: 2 }];
+    var buffer = await wb.xlsx.writeBuffer();
+    var blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var url = URL.createObjectURL(blob); var a = document.createElement('a');
+    a.href = url; a.download = 'Отчёт_бонусы_' + monthNames[month - 1] + '_' + year + '.xlsx'; a.click(); URL.revokeObjectURL(url);
+    var cl = document.getElementById('mrModal'); if (cl) cl.remove();
+    var ov = document.getElementById('mrOv'); if (ov) ov.remove();
+}
+
 // Печать детализации
 function printDetails() {
     window.print();
