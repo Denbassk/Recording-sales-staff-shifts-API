@@ -3574,6 +3574,8 @@ app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, 
             bag_bonus: calc.bag_bonus || 0,
             coffee_bonus: calc.coffee_bonus || 0,
             culinary_bonus: calc.culinary_bonus || 0,
+            dl_sales_deducted: calc.dl_sales_deducted || 0,
+            adjusted_cash: calc.adjusted_cash || 0,
             total_pay: calc.total_pay || 0,
             is_senior: calc.is_senior || false
         }));

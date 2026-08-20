@@ -5658,16 +5658,66 @@ function buildDetailBreakdownHtml(data) {
         + '</tbody></table>';
 }
 
+// Принцип расчёта: показывает, ИЗ ЧЕГО получены суммы бонусов (для ответов продавцам).
+// Все входные величины восстанавливаются из уже сохранённых колонок:
+//   пакеты: доля = кол-во × 0.50 ÷ N  → кол-во = доля × N ÷ 0.50
+//   кофе:   доля = стаканы × 2.00 ÷ N → стаканы = доля × N ÷ 2.00
+//   кулинария: доля = (себест.−списания) × 10% ÷ N → база = доля × N ÷ 0.10
+//   процент: доля = (касса − ДЛ) × 3% ÷ N
+function buildPrincipleHtml(data) {
+    if (!data) return '';
+    var details = data.details || [];
+    var RATE = 0.03, PACK = 0.50, COF = 2.00, CUL = 0.10;
+    var f = function (v) { return formatNumber(Math.round((v || 0) * 100) / 100); };
+    var blocks = details.map(function (d) {
+        var N = d.num_sellers || 1;
+        var pct = d.sales_percent || 0, bag = d.bag_bonus || 0, cof = d.coffee_bonus || 0, cul = d.culinary_bonus || 0;
+        if (pct + bag + cof + cul <= 0) return '';
+        var dt = new Date(d.date);
+        var dstr = dt.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+        var L = [];
+        var line = function (t, formula, val) {
+            return '<div class="pr-line"><span class="pr-t">' + t + '</span><span class="pr-f">' + formula + '</span><span class="pr-v">' + f(val) + '</span></div>';
+        };
+        if (pct > 0) {
+            var adj = d.adjusted_cash > 0 ? d.adjusted_cash : (pct * N / RATE);
+            var dl = d.dl_sales_deducted > 0 ? d.dl_sales_deducted : Math.max(0, (d.revenue || 0) - adj);
+            L.push(line('Процент 3%', '(касса ' + f(d.revenue) + ' − ДЛ ' + f(dl) + ') = ' + f(adj) + ' × 3% = ' + f(adj * RATE) + ' ÷ ' + N + ' прод.', pct));
+        }
+        if (bag > 0) { var bq = Math.round(bag * N / PACK); L.push(line('Пакеты', bq + ' шт × 0.50 = ' + f(bq * PACK) + ' ÷ ' + N + ' прод.', bag)); }
+        if (cof > 0) { var cq = Math.round(cof * N / COF); L.push(line('Кофе', cq + ' стак × 2.00 = ' + f(cq * COF) + ' ÷ ' + N + ' прод.', cof)); }
+        if (cul > 0) { var pool = cul * N; L.push(line('Кулинария', '(себест.−списания) ' + f(pool / CUL) + ' × 10% = ' + f(pool) + ' ÷ ' + N + ' прод.', cul)); }
+        return '<div class="pr-day"><div class="pr-hd">' + dstr + ' · ' + (d.store_address || '') + ' · продавцов на смене: ' + N + '</div>' + L.join('') + '</div>';
+    }).filter(Boolean).join('');
+    var legend = '<div class="pr-legend"><b>Как считается бонус:</b> '
+        + '<b>Процент</b> — 3% от (касса магазина − продажи ДЛ Солюшн) за день, делится на число продавцов смены (только с 16.07). '
+        + '<b>Пакеты</b> — 0.50 грн за шт. <b>Кофе</b> — 2.00 грн за стакан. '
+        + '<b>Кулинария</b> — 10% от (себестоимость проданного − списания «в счёт зп»). '
+        + 'Товарные бонусы (пакеты/кофе/кулинария) — за весь месяц; каждый бонус делится на число продавцов, работавших в смене.</div>';
+    return legend + (blocks || '<p style="color:var(--text-2);font-size:12px">За период нет бонусных начислений.</p>');
+}
+
+function toggleBdPrinciple(btn) {
+    var p = document.getElementById('bdPrinciple');
+    if (!p) return;
+    var on = p.style.display === 'none';
+    p.style.display = on ? 'block' : 'none';
+    btn.innerHTML = on ? '<i class="ti ti-eye-off"></i> Скрыть принцип' : '<i class="ti ti-calculator"></i> Принцип расчёта';
+}
+
 function showDetailBreakdown() {
     if (!window._detailData) { showStatus('detailsStatus', 'Сначала загрузите детализацию сотрудника', 'error'); return; }
     var inner = buildDetailBreakdownHtml(window._detailData);
     var close = "document.getElementById('bdModal').remove();var o=document.getElementById('bdOverlay');if(o)o.remove();";
-    var css = '<style>#bdModal .bd-head{font-size:14px;margin-bottom:6px}#bdModal .bd-sum{font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.5}#bdModal .bd-table{width:100%;border-collapse:collapse;font-size:12px}#bdModal .bd-table th,#bdModal .bd-table td{border:1px solid rgba(128,128,128,.18);padding:4px 6px}#bdModal .bd-table th{background:var(--surface-2);color:var(--text-2);font-weight:500}#bdModal .r{text-align:right}#bdModal .b{font-weight:600}#bdModal .bd-store{font-size:11px}#bdModal .bd-new td:first-child{border-left:3px solid var(--brand)}#bdModal .bd-total td{font-weight:600;background:var(--surface-2)}</style>';
+    var css = '<style>#bdModal .bd-head{font-size:14px;margin-bottom:6px}#bdModal .bd-sum{font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.5}#bdModal .bd-table{width:100%;border-collapse:collapse;font-size:12px}#bdModal .bd-table th,#bdModal .bd-table td{border:1px solid rgba(128,128,128,.18);padding:4px 6px}#bdModal .bd-table th{background:var(--surface-2);color:var(--text-2);font-weight:500}#bdModal .r{text-align:right}#bdModal .b{font-weight:600}#bdModal .bd-store{font-size:11px}#bdModal .bd-new td:first-child{border-left:3px solid var(--brand)}#bdModal .bd-total td{font-weight:600;background:var(--surface-2)}#bdModal .pr-legend{font-size:11px;color:var(--text-2);line-height:1.55;background:var(--surface-2);padding:9px 11px;border-radius:8px;margin-bottom:10px}#bdModal .pr-day{border:1px solid rgba(128,128,128,.18);border-radius:8px;margin-bottom:8px;overflow:hidden}#bdModal .pr-hd{background:var(--surface-2);padding:5px 10px;font-size:12px;font-weight:600}#bdModal .pr-line{display:flex;align-items:baseline;gap:8px;padding:4px 10px;font-size:12px;border-top:1px solid rgba(128,128,128,.1)}#bdModal .pr-t{flex:0 0 84px;color:var(--text-2)}#bdModal .pr-f{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}#bdModal .pr-v{flex:0 0 66px;text-align:right;font-weight:600}</style>';
     var html = '<div id="bdModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(860px,94vw);max-height:88vh;overflow:auto;">'
         + css
         + '<div style="padding:14px 20px;border-bottom:.5px solid var(--border);display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500;"><i class="ti ti-file-invoice" style="color:var(--brand)"></i> Расшифровка начислений</div>'
-        + '<div style="padding:16px 20px;">' + inner + '</div>'
+        + '<div style="padding:16px 20px;">' + inner
+        + '<div id="bdPrinciple" style="display:none;margin-top:14px;border-top:.5px dashed var(--border);padding-top:14px;">' + buildPrincipleHtml(window._detailData) + '</div>'
+        + '</div>'
         + '<div style="padding:12px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:.5px solid var(--border);">'
+        + '<button class="secondary" onclick="toggleBdPrinciple(this)"><i class="ti ti-calculator"></i> Принцип расчёта</button>'
         + '<button class="secondary" onclick="printDetailBreakdown()"><i class="ti ti-printer"></i> Печать</button>'
         + '<button class="primary" onclick="' + close + '">Закрыть</button>'
         + '</div></div>'
