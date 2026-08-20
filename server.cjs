@@ -3473,9 +3473,26 @@ app.get('/api/get-employees-list', checkAuth, canViewDetails, async (req, res) =
             .eq('active', true)
             .eq('role', 'seller')  // ⚠️ КРИТИЧНО! Только продавцы
             .order('fullname', { ascending: true });
-        
+
         if (error) throw error;
-        
+
+        // Привязка магазинов из смен за последние ~120 дней (у продавца может быть несколько магазинов)
+        try {
+            const since = new Date(); since.setDate(since.getDate() - 120);
+            const sinceStr = since.toISOString().slice(0, 10);
+            const { data: shifts } = await supabase
+                .from('shifts').select('employee_id, store_id, stores(address)')
+                .gte('shift_date', sinceStr);
+            const byEmp = new Map();
+            (shifts || []).forEach(s => {
+                const addr = s.stores && s.stores.address ? s.stores.address : null;
+                if (!addr) return;
+                if (!byEmp.has(s.employee_id)) byEmp.set(s.employee_id, new Set());
+                byEmp.get(s.employee_id).add(addr);
+            });
+            employees.forEach(e => { e.store = byEmp.has(e.id) ? [...byEmp.get(e.id)].join(', ') : ''; });
+        } catch (e2) { /* магазины опциональны */ }
+
         res.json({ success: true, employees });
     } catch (error) {
         console.error('Ошибка получения списка сотрудников:', error);

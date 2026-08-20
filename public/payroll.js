@@ -5641,16 +5641,29 @@ async function openMultiReport() {
     for (var i = 1; i <= 12; i++) opts += '<option value="' + i + '"' + (i == m ? ' selected' : '') + '>' + monthNames[i - 1] + '</option>';
     var list = _mrEmployees.map(function (e) {
         var nm = (e.fullname || '').replace(/"/g, '&quot;');
-        return '<label class="mr-item"><input type="checkbox" class="mr-cb" value="' + e.id + '" data-name="' + nm + '"> ' + (e.fullname || '') + '</label>';
+        var st = (e.store || '').replace(/"/g, '&quot;');
+        return '<label class="mr-item" data-name="' + nm + '" data-store="' + st + '">'
+            + '<input type="checkbox" class="mr-cb" value="' + e.id + '" data-name="' + nm + '">'
+            + '<span class="mr-txt"><span class="mr-nm">' + (e.fullname || '') + '</span>'
+            + (st ? '<span class="mr-st">' + st + '</span>' : '') + '</span></label>';
     }).join('');
     var close = "var x=document.getElementById('mrModal');if(x)x.remove();var o=document.getElementById('mrOv');if(o)o.remove();";
-    var css = '<style>#mrModal .mr-list{max-height:44vh;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px}#mrModal .mr-item{display:block;padding:4px 6px;font-size:13px;border-radius:6px;cursor:pointer}#mrModal .mr-item:hover{background:var(--surface-2)}#mrModal .mr-bar{display:flex;gap:8px;align-items:center;margin:10px 0}#mrModal input[type=search]{flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}#mrModal select,#mrModal input[type=number]{padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}</style>';
+    var css = '<style>#mrModal .mr-list{max-height:42vh;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px}'
+        + '#mrModal .mr-item{display:flex;align-items:center;gap:9px;padding:5px 8px;font-size:13px;border-radius:6px;cursor:pointer}'
+        + '#mrModal .mr-item:hover{background:var(--surface-2)}'
+        + '#mrModal .mr-cb{flex:0 0 auto;width:16px;height:16px;margin:0}'
+        + '#mrModal .mr-txt{display:flex;flex-direction:column;line-height:1.25;min-width:0}'
+        + '#mrModal .mr-nm{font-weight:500}#mrModal .mr-st{font-size:11px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'
+        + '#mrModal .mr-bar{display:flex;gap:8px;align-items:center;margin:10px 0}'
+        + '#mrModal input[type=search]{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}'
+        + '#mrModal select,#mrModal input[type=number]{padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}</style>';
     var html = '<div id="mrModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(620px,94vw);max-height:90vh;overflow:auto;">'
         + css
         + '<div style="padding:14px 20px;border-bottom:.5px solid var(--border);font-size:15px;font-weight:500;"><i class="ti ti-users" style="color:var(--brand)"></i> Отчёт по продавцам</div>'
         + '<div style="padding:16px 20px;">'
         + '<div class="mr-bar"><label>Период:</label><select id="mrMonth">' + opts + '</select><input type="number" id="mrYear" value="' + y + '" min="2024" max="2030" style="width:90px"></div>'
-        + '<div class="mr-bar"><input type="search" id="mrSearch" placeholder="Поиск по фамилии..." oninput="filterMrList()"><button class="secondary" onclick="mrSelectAll(true)">Все</button><button class="secondary" onclick="mrSelectAll(false)">Снять</button></div>'
+        + '<div class="mr-bar"><input type="search" id="mrSearch" placeholder="Поиск по фамилии..." oninput="filterMrList()"><input type="search" id="mrStoreSearch" placeholder="Поиск по магазину..." oninput="filterMrList()"></div>'
+        + '<div class="mr-bar"><button class="secondary" onclick="mrSelectAll(true)">Выбрать всех (в списке)</button><button class="secondary" onclick="mrSelectAll(false)">Снять</button></div>'
         + '<div class="mr-list" id="mrList" onchange="updateMrCount()">' + list + '</div>'
         + '<div style="font-size:12px;color:var(--text-2);margin-top:8px" id="mrCount">Выбрано: 0</div>'
         + '</div>'
@@ -5664,9 +5677,13 @@ async function openMultiReport() {
 }
 
 function filterMrList() {
-    var q = (document.getElementById('mrSearch').value || '').toLowerCase();
+    var qn = (document.getElementById('mrSearch').value || '').toLowerCase();
+    var se = document.getElementById('mrStoreSearch');
+    var qs = (se ? se.value : '').toLowerCase();
     document.querySelectorAll('#mrList .mr-item').forEach(function (el) {
-        el.style.display = (el.textContent || '').toLowerCase().indexOf(q) >= 0 ? 'block' : 'none';
+        var nm = (el.getAttribute('data-name') || '').toLowerCase();
+        var st = (el.getAttribute('data-store') || '').toLowerCase();
+        el.style.display = (nm.indexOf(qn) >= 0 && st.indexOf(qs) >= 0) ? 'flex' : 'none';
     });
 }
 function mrSelectAll(v) {
@@ -5718,6 +5735,7 @@ async function buildMultiReportExcel(datasets, month, year) {
     var headers = ['Дата','Магазин','Прод.','Касса','ДЛ Солюшн','База % (касса−ДЛ)','Процент 3%','Пакеты, шт','Пакеты, грн','Кофе, стак','Кофе, грн','Кулинария база','Кулинария 10%','Ставка','Бонус до 16.07','ИТОГО'];
     var nCols = headers.length;
     var moneyCols = [4,5,6,7,9,11,12,13,14,15,16];
+    var intCols = [3,8,10]; // Прод., Пакеты шт, Кофе стак
     ws.mergeCells(1, 1, 1, nCols);
     var t = ws.getCell(1, 1); t.value = 'ОТЧЁТ ПО НАЧИСЛЕНИЯМ ПРОДАВЦАМ · ' + period;
     t.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } }; t.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -5748,14 +5766,14 @@ async function buildMultiReportExcel(datasets, month, year) {
                 _mrRound(d.revenue), _mrRound(dl), _mrRound(adj), _mrRound(pct), bagQ || '', _mrRound(bag),
                 cofQ || '', _mrRound(cof), culBase ? _mrRound(culBase) : '', _mrRound(cul), _mrRound(d.base_rate), _mrRound(d.bonus), _mrRound(d.total_pay)];
             var row = ws.getRow(rowIdx);
-            vals.forEach(function (v, i) { var c = row.getCell(i + 1); c.value = v; c.border = _mrBorder(); c.alignment = { horizontal: (i < 2 ? 'left' : 'right'), vertical: 'middle' }; if (moneyCols.indexOf(i + 1) >= 0) c.numFmt = '#,##0.00'; });
+            vals.forEach(function (v, i) { var c = row.getCell(i + 1); c.value = v; c.border = _mrBorder(); c.alignment = { horizontal: (i === 1 ? 'left' : 'center'), vertical: 'middle' }; if (moneyCols.indexOf(i + 1) >= 0) c.numFmt = '#,##0.00'; else if (intCols.indexOf(i + 1) >= 0) c.numFmt = '#,##0'; });
             row.height = 15;
             sub.pct += pct; sub.bagQ += bagQ; sub.bag += bag; sub.cofQ += cofQ; sub.cof += cof; sub.cul += cul; sub.base += (d.base_rate || 0); sub.bonus += (d.bonus || 0); sub.total += (d.total_pay || 0);
             rowIdx++;
         });
         var sr = ws.getRow(rowIdx);
         var sv = ['ИТОГО', '', '', '', '', '', _mrRound(sub.pct), sub.bagQ || '', _mrRound(sub.bag), sub.cofQ || '', _mrRound(sub.cof), '', _mrRound(sub.cul), _mrRound(sub.base), _mrRound(sub.bonus), _mrRound(sub.total)];
-        sv.forEach(function (v, i) { var c = sr.getCell(i + 1); c.value = v; c.font = { bold: true }; c.border = _mrBorder(); c.alignment = { horizontal: (i < 2 ? 'left' : 'right'), vertical: 'middle' }; if (moneyCols.indexOf(i + 1) >= 0) c.numFmt = '#,##0.00'; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5EEEC' } }; });
+        sv.forEach(function (v, i) { var c = sr.getCell(i + 1); c.value = v; c.font = { bold: true }; c.border = _mrBorder(); c.alignment = { horizontal: (i === 0 ? 'right' : 'center'), vertical: 'middle' }; if (moneyCols.indexOf(i + 1) >= 0) c.numFmt = '#,##0.00'; else if (intCols.indexOf(i + 1) >= 0) c.numFmt = '#,##0'; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5EEEC' } }; });
         ws.mergeCells(rowIdx, 1, rowIdx, 2);
         rowIdx += 2;
     });
