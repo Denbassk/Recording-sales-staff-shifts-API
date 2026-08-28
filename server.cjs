@@ -3500,6 +3500,48 @@ app.get('/api/get-employees-list', checkAuth, canViewDetails, async (req, res) =
     }
 });
 
+// ===== ТАБЕЛЬ ОБЛІКУ ВИКОРИСТАННЯ РОБОЧОГО ЧАСУ (форма П-5): данные по сменам за месяц =====
+// Возвращает по каждому продавцу дни, в которые есть смена, и число продавцов на смене в этот день
+// (для правила «часы ÷ число продавцов»). Часы/норму считает фронтенд (легко менять правило).
+app.get('/api/tabel-data', checkAuth, canViewDetails, async (req, res) => {
+    try {
+        const year = parseInt(req.query.year), month = parseInt(req.query.month);
+        if (!year || !month || month < 1 || month > 12) return res.status(400).json({ success: false, error: 'Некорректный год/месяц' });
+        const dim = new Date(year, month, 0).getDate();
+        const mm = String(month).padStart(2, '0');
+        const from = `${year}-${mm}-01`, to = `${year}-${mm}-${String(dim).padStart(2, '0')}`;
+        const { data: shifts, error } = await supabase.from('shifts')
+            .select('employee_id, store_id, shift_date').gte('shift_date', from).lte('shift_date', to);
+        if (error) throw error;
+
+        const perStoreDay = new Map(); // store|date -> Set(employee_id)
+        (shifts || []).forEach(s => { const k = s.store_id + '|' + s.shift_date; if (!perStoreDay.has(k)) perStoreDay.set(k, new Set()); perStoreDay.get(k).add(s.employee_id); });
+
+        const ids = [...new Set((shifts || []).map(s => s.employee_id))];
+        let nameMap = new Map(), storeMap = new Map();
+        if (ids.length) {
+            const { data: emps } = await supabase.from('employees').select('id, fullname').in('id', ids);
+            nameMap = new Map((emps || []).map(e => [e.id, e.fullname]));
+        }
+        const { data: stores } = await supabase.from('stores').select('id, address');
+        storeMap = new Map((stores || []).map(s => [s.id, s.address]));
+
+        const byEmp = new Map();
+        (shifts || []).forEach(s => {
+            const day = parseInt(String(s.shift_date).slice(8, 10));
+            const k = s.store_id + '|' + s.shift_date;
+            const sellers = perStoreDay.get(k) ? perStoreDay.get(k).size : 1;
+            if (!byEmp.has(s.employee_id)) byEmp.set(s.employee_id, { id: s.employee_id, fullname: nameMap.get(s.employee_id) || s.employee_id, store: storeMap.get(s.store_id) || '', days: {} });
+            byEmp.get(s.employee_id).days[day] = sellers;
+        });
+        const employees = [...byEmp.values()].sort((a, b) => (a.fullname || '').localeCompare(b.fullname || '', 'uk'));
+        res.json({ success: true, year, month, daysInMonth: dim, employees });
+    } catch (e) {
+        console.error('tabel-data:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // 2. Получение детализации расчетов
 app.post('/api/get-calculation-details', checkAuth, canViewDetails, async (req, res) => {
     const { employee_id, year, month } = req.body;

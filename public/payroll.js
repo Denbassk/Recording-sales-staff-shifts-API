@@ -118,6 +118,12 @@ document.addEventListener('DOMContentLoaded', async function () {
                 detailsTabButton.style.display = canViewDetails ? 'block' : 'none';
             }
 
+            // Табель обліку робочого часу — для админа и бухгалтера
+            const tabelTabButton = document.getElementById('tabel-tab-button');
+            if (tabelTabButton) {
+                tabelTabButton.style.display = (isAdmin || isAccountant) ? 'block' : 'none';
+            }
+
             // СПЕЦИАЛЬНО ДЛЯ КУРАТОРОВ: показываем ТОЛЬКО вкладку детализации
             if (data.user.role === 'curator') {
                 // Скрываем все вкладки кроме детализации
@@ -5786,6 +5792,162 @@ async function buildMultiReportExcel(datasets, month, year) {
     a.href = url; a.download = 'Отчёт_бонусы_' + monthNames[month - 1] + '_' + year + '.xlsx'; a.click(); URL.revokeObjectURL(url);
     var cl = document.getElementById('mrModal'); if (cl) cl.remove();
     var ov = document.getElementById('mrOv'); if (ov) ov.remove();
+}
+
+// ================= ТАБЕЛЬ ОБЛІКУ ВИКОРИСТАННЯ РОБОЧОГО ЧАСУ (форма П-5) =================
+// Нормы 2026 (из файла «Норма тривалості робочого часу»). Часы привязаны к сменам,
+// итог за месяц не должен превышать норму — превышенцы подсвечиваются и (при выбранной норме)
+// автоматически подгоняются под норму (как в примере: 4 → 3,5 → 3).
+var TABEL_NORM_2026 = {
+    work:    { 1:22, 2:20, 3:22, 4:22, 5:21, 6:22, 7:23, 8:21, 9:22, 10:22, 11:21, 12:23 },
+    weekend: { 1:9,  2:8,  3:9,  4:8,  5:10, 6:8,  7:8,  8:10, 9:8,  10:9,  11:9,  12:8 },
+    hours: {
+        '40': { 1:176,2:160,3:176,4:176,5:168,6:176,7:184,8:168,9:176,10:176,11:168,12:184 },
+        '20': { 1:88, 2:80, 3:88, 4:88, 5:84, 6:88, 7:92, 8:84, 9:88, 10:88, 11:84, 12:92 },
+        '36': { 1:158.4,2:144,3:158.4,4:158.4,5:151.2,6:158.4,7:165.6,8:151.2,9:158.4,10:158.4,11:151.2,12:165.6 },
+        '30': { 1:132,2:120,3:132,4:132,5:126,6:132,7:138,8:126,9:132,10:132,11:126,12:138 },
+        '24': { 1:105.6,2:96,3:105.6,4:105.6,5:100.8,6:105.6,7:110.4,8:100.8,9:105.6,10:105.6,11:100.8,12:110.4 }
+    }
+};
+var TABEL_MONTHS_UA = ['січень','лютий','березень','квітень','травень','червень','липень','серпень','вересень','жовтень','листопад','грудень'];
+var _tabelData = null;
+
+function _roundHalf(x) { return Math.round((Number(x) || 0) * 2) / 2; }
+
+function initTabelTab() {
+    var now = new Date();
+    var m = document.getElementById('tabelMonth'), y = document.getElementById('tabelYear');
+    if (m && !m.dataset.init) { m.value = (now.getMonth() + 1); m.dataset.init = '1'; }
+    if (y && !y.dataset.init) { y.value = now.getFullYear(); y.dataset.init = '1'; }
+}
+
+async function loadTabel() {
+    var year = parseInt(document.getElementById('tabelYear').value);
+    var month = parseInt(document.getElementById('tabelMonth').value);
+    var baseHours = parseFloat(document.getElementById('tabelHours').value) || 8;
+    var normKey = document.getElementById('tabelNorm').value;
+    var rate = parseFloat(document.getElementById('tabelRate').value) || 0;
+    var divide = document.getElementById('tabelDivide').checked;
+    showStatus('tabelStatus', 'Загружаю смены…', 'info');
+    try {
+        var r = await fetch(`${API_BASE}/api/tabel-data?year=${year}&month=${month}`, { credentials: 'include' });
+        var j = await r.json();
+        if (!j.success) { showStatus('tabelStatus', j.error || 'Ошибка', 'error'); return; }
+        var normHours = (normKey !== '0' && TABEL_NORM_2026.hours[normKey]) ? TABEL_NORM_2026.hours[normKey][month] : 0;
+        var weekend = TABEL_NORM_2026.weekend[month] || 0;
+        var rows = (j.employees || []).map(function (e) {
+            var dayHours = {}, rawSum = 0;
+            Object.keys(e.days).forEach(function (d) {
+                var h = divide ? baseHours / (e.days[d] || 1) : baseHours;
+                dayHours[d] = h; rawSum += h;
+            });
+            var adjusted = false, finalSum = rawSum;
+            if (normHours > 0 && rawSum > normHours + 0.01) {
+                var f = normHours / rawSum; finalSum = 0;
+                Object.keys(dayHours).forEach(function (d) { dayHours[d] = _roundHalf(dayHours[d] * f); finalSum += dayHours[d]; });
+                adjusted = true;
+            } else {
+                Object.keys(dayHours).forEach(function (d) { dayHours[d] = _roundHalf(dayHours[d]); });
+                finalSum = Object.keys(dayHours).reduce(function (s, d) { return s + dayHours[d]; }, 0);
+            }
+            return { name: e.fullname, store: e.store, days: Object.keys(e.days).length, dayHours: dayHours,
+                hours: Math.round(finalSum * 10) / 10, raw: Math.round(rawSum * 10) / 10, norm: normHours, adjusted: adjusted };
+        });
+        _tabelData = { year: year, month: month, daysInMonth: j.daysInMonth, rate: rate, weekend: weekend, normKey: normKey, rows: rows };
+        renderTabelPreview();
+        hideStatus('tabelStatus');
+    } catch (e) { showStatus('tabelStatus', 'Ошибка: ' + e.message, 'error'); }
+}
+
+function renderTabelPreview() {
+    var d = _tabelData; if (!d) return;
+    var over = d.rows.filter(function (r) { return r.adjusted; }).length;
+    var html = '<div class="details-summary-panel"><div class="details-summary-grid">'
+        + '<div class="details-summary-item">Період: <b>' + TABEL_MONTHS_UA[d.month - 1] + ' ' + d.year + '</b></div>'
+        + '<div class="details-summary-item">Продавців: <b>' + d.rows.length + '</b></div>'
+        + '<div class="details-summary-item">Норма: <b>' + (d.rows[0] && d.rows[0].norm ? d.rows[0].norm + ' год' : 'без нормы') + '</b></div>'
+        + '<div class="details-summary-item">Перевищення (підігнано під норму): <b style="color:#c0392b">' + over + '</b></div>'
+        + '</div></div>';
+    html += '<div class="table-container"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
+        + '<th style="text-align:left">ПІБ</th><th style="text-align:left">Магазин</th><th>Днів</th><th>Годин</th><th>Норма</th><th>Статус</th></tr></thead><tbody>';
+    d.rows.forEach(function (r) {
+        var hl = r.adjusted ? ' style="background:rgba(192,57,43,.10)"' : '';
+        html += '<tr' + hl + '><td style="text-align:left">' + r.name + '</td><td style="text-align:left;font-size:11px;color:var(--text-2)">' + (r.store || '') + '</td>'
+            + '<td style="text-align:center">' + r.days + '</td><td style="text-align:center"><b>' + r.hours + '</b></td>'
+            + '<td style="text-align:center">' + (r.norm || '—') + '</td>'
+            + '<td style="text-align:center">' + (r.adjusted ? '<span style="color:#c0392b">перевищення → підігнано (' + r.raw + '→' + r.hours + ')</span>' : '<span style="color:#2e7d32">OK</span>') + '</td></tr>';
+    });
+    html += '</tbody></table></div>';
+    var c = document.getElementById('tabelContent'); c.innerHTML = html; c.style.display = 'block';
+}
+
+async function downloadTabelXlsx() {
+    if (!_tabelData) { showStatus('tabelStatus', 'Сначала нажмите «Сформировать»', 'error'); return; }
+    var d = _tabelData, rate = d.rate;
+    var wb = new ExcelJS.Workbook();
+    var ws = wb.addWorksheet('Табель ' + TABEL_MONTHS_UA[d.month - 1]);
+    var NC = 23, DAY0 = 3; // день-колонки 3..18 (16 слотов)
+    var thin = { style: 'thin', color: { argb: 'FFBFBFBF' } };
+    var bd = { top: thin, bottom: thin, left: thin, right: thin };
+    var C = function (r, c) { return ws.getCell(r, c); };
+    ws.getCell(5, 1).value = 'ТОВ "М Фемелі Маркет"'; ws.getCell(5, 1).font = { bold: true };
+    ws.getCell(6, 1).value = 'Ідентифікаційний код ЄДРПОУ 44413718';
+    ws.mergeCells(7, 1, 7, NC); var t = ws.getCell(7, 1);
+    t.value = 'ТАБЕЛЬ ОБЛІКУ ВИКОРИСТАННЯ РОБОЧОГО ЧАСУ'; t.font = { bold: true, size: 13 }; t.alignment = { horizontal: 'center' };
+    ws.mergeCells(8, 1, 8, NC); var t2 = ws.getCell(8, 1);
+    t2.value = 'за ' + TABEL_MONTHS_UA[d.month - 1] + ' ' + d.year + ' року'; t2.alignment = { horizontal: 'center' };
+    // Групповые заголовки (строка 10) + номера дней (11 = 1..15, 12 = 16..31)
+    var H = 10;
+    ws.mergeCells(H, 1, H + 2, 1); C(H, 1).value = '№ п/п';
+    ws.mergeCells(H, 2, H + 2, 2); C(H, 2).value = 'ПІБ';
+    ws.mergeCells(H, DAY0, H, DAY0 + 15); C(H, DAY0).value = 'Відмітки про явки та неявки за числами місяця (годин)';
+    ws.mergeCells(H, 19, H + 2, 19); C(H, 19).value = 'Відпрацьовано за місяць';
+    ws.mergeCells(H, 20, H + 2, 20); C(H, 20).value = 'Вихідних днів';
+    ws.mergeCells(H, 21, H + 2, 21); C(H, 21).value = 'тарифна ставка ' + rate + ' грн. за годину';
+    ws.mergeCells(H, 22, H + 2, 22); C(H, 22).value = 'доплата';
+    ws.mergeCells(H, 23, H + 2, 23); C(H, 23).value = 'нараховано всього';
+    for (var i = 0; i < 15; i++) C(H + 1, DAY0 + i).value = i + 1;           // дни 1..15
+    for (var i2 = 0; i2 < 16; i2++) C(H + 2, DAY0 + i2).value = 16 + i2;      // дни 16..31
+    for (var rr = H; rr <= H + 2; rr++) for (var cc = 1; cc <= NC; cc++) { var c = C(rr, cc); c.border = bd; c.font = c.font || { size: 9, bold: rr === H }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECECEC' } }; }
+    // Строки сотрудников (по 2 на каждого)
+    var row = H + 3, total = 0;
+    d.rows.forEach(function (r, idx) {
+        var rTop = row, rBot = row + 1;
+        C(rTop, 1).value = idx + 1;
+        C(rTop, 2).value = r.name;
+        for (var dday = 1; dday <= 15; dday++) { var v = r.dayHours[dday]; if (v != null) C(rTop, DAY0 + (dday - 1)).value = v; }
+        for (var dd2 = 16; dd2 <= 31; dd2++) { var v2 = r.dayHours[dd2]; if (v2 != null) C(rBot, DAY0 + (dd2 - 16)).value = v2; }
+        C(rTop, 19).value = r.days; C(rBot, 19).value = r.hours;
+        C(rTop, 20).value = d.weekend;
+        var sum = Math.round(r.hours * rate);
+        C(rTop, 21).value = sum; C(rTop, 23).value = sum; total += sum;
+        // рамки/выравнивание + подсветка превышенцев
+        for (var rw = rTop; rw <= rBot; rw++) for (var cx = 1; cx <= NC; cx++) {
+            var cell = C(rw, cx); cell.border = bd;
+            cell.alignment = { horizontal: (cx === 2 ? 'left' : 'center'), vertical: 'middle' };
+            if (cx >= 21) cell.numFmt = '#,##0';
+            if (r.adjusted) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE7E7' } };
+        }
+        C(rTop, 2).font = { bold: false };
+        row += 2;
+    });
+    // Всього
+    C(row, 2).value = 'Всього:'; C(row, 2).font = { bold: true };
+    C(row, 23).value = total; C(row, 23).font = { bold: true }; C(row, 23).numFmt = '#,##0';
+    for (var cy = 1; cy <= NC; cy++) C(row, cy).border = bd;
+    row += 2;
+    C(row, 1).value = 'Відповідальна особа'; row += 2;
+    C(row, 1).value = 'Директор Тусін С.М.'; row += 1;
+    C(row, 1).value = '(посада)';
+    // ширины
+    C(1, 1); ws.getColumn(1).width = 5; ws.getColumn(2).width = 30;
+    for (var w = DAY0; w <= 18; w++) ws.getColumn(w).width = 4.3;
+    ws.getColumn(19).width = 10; ws.getColumn(20).width = 8; ws.getColumn(21).width = 12; ws.getColumn(22).width = 8; ws.getColumn(23).width = 13;
+    var buf = await wb.xlsx.writeBuffer();
+    var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var url = URL.createObjectURL(blob); var a = document.createElement('a');
+    a.href = url; a.download = 'Табель_' + TABEL_MONTHS_UA[d.month - 1] + '_' + d.year + '.xlsx'; a.click(); URL.revokeObjectURL(url);
+    showStatus('tabelStatus', 'Табель скачан', 'success'); setTimeout(function () { hideStatus('tabelStatus'); }, 3000);
 }
 
 // Печать детализации
