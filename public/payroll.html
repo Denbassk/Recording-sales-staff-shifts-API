@@ -643,12 +643,18 @@ tr.summary-row{display:table-row}
                         <div class="control-group">
                             <label>Норма (тиждень):</label>
                             <select id="tabelNorm">
-                                <option value="40">40 год (8/день)</option>
+                                <option value="40" selected>40 год (8/день)</option>
                                 <option value="20">20 год (4/день)</option>
+                                <option value="60">60 год</option>
+                                <option value="39">39 год</option>
+                                <option value="38.5">38,5 год</option>
                                 <option value="36">36 год</option>
+                                <option value="33">33 год</option>
                                 <option value="30">30 год</option>
+                                <option value="25">25 год</option>
                                 <option value="24">24 год</option>
-                                <option value="0">Без нормы</option>
+                                <option value="18">18 год</option>
+                                <option value="0">Без норми</option>
                             </select>
                         </div>
                         <div class="control-group">
@@ -658,6 +664,10 @@ tr.summary-row{display:table-row}
                         <div class="control-group">
                             <label>Опция:</label>
                             <label style="display:flex;align-items:center;gap:6px;font-weight:normal;font-size:13px;white-space:nowrap"><input type="checkbox" id="tabelDivide"> ÷ на продавцов смены</label>
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button onclick="openStoreNorms()" class="secondary"><i class="ti ti-building-store"></i> Норми по магазинах</button>
                         </div>
                         <div class="control-group">
                             <label>&nbsp;</label>

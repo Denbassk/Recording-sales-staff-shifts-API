@@ -5799,14 +5799,22 @@ async function buildMultiReportExcel(datasets, month, year) {
 // итог за месяц не должен превышать норму — превышенцы подсвечиваются и (при выбранной норме)
 // автоматически подгоняются под норму (как в примере: 4 → 3,5 → 3).
 var TABEL_NORM_2026 = {
-    work:    { 1:22, 2:20, 3:22, 4:22, 5:21, 6:22, 7:23, 8:21, 9:22, 10:22, 11:21, 12:23 },
-    weekend: { 1:9,  2:8,  3:9,  4:8,  5:10, 6:8,  7:8,  8:10, 9:8,  10:9,  11:9,  12:8 },
-    hours: {
-        '40': { 1:176,2:160,3:176,4:176,5:168,6:176,7:184,8:168,9:176,10:176,11:168,12:184 },
-        '20': { 1:88, 2:80, 3:88, 4:88, 5:84, 6:88, 7:92, 8:84, 9:88, 10:88, 11:84, 12:92 },
-        '36': { 1:158.4,2:144,3:158.4,4:158.4,5:151.2,6:158.4,7:165.6,8:151.2,9:158.4,10:158.4,11:151.2,12:165.6 },
-        '30': { 1:132,2:120,3:132,4:132,5:126,6:132,7:138,8:126,9:132,10:132,11:126,12:138 },
-        '24': { 1:105.6,2:96,3:105.6,4:105.6,5:100.8,6:105.6,7:110.4,8:100.8,9:105.6,10:105.6,11:100.8,12:110.4 }
+    // Все привязки из таблицы «Норма тривалості робочого часу … 2026» (12 місяців × усі показники).
+    calendar:{ 1:31, 2:28, 3:31, 4:30, 5:31, 6:30, 7:31, 8:31, 9:30, 10:31, 11:30, 12:31 }, // календарних днів
+    work:    { 1:22, 2:20, 3:22, 4:22, 5:21, 6:22, 7:23, 8:21, 9:22, 10:22, 11:21, 12:23 },  // робочих днів
+    weekend: { 1:9,  2:8,  3:9,  4:8,  5:10, 6:8,  7:8,  8:10, 9:8,  10:9,  11:9,  12:8 },    // вихідних днів
+    hours: { // норма годин по кожному робочому тижню (усі 11 варіантів)
+        '60':   { 1:264,2:240,3:264,4:264,5:252,6:264,7:276,8:252,9:264,10:264,11:252,12:276 },
+        '40':   { 1:176,2:160,3:176,4:176,5:168,6:176,7:184,8:168,9:176,10:176,11:168,12:184 },
+        '39':   { 1:171.6,2:156,3:171.6,4:171.6,5:163.8,6:171.6,7:179.4,8:163.8,9:171.6,10:171.6,11:163.8,12:179.4 },
+        '38.5': { 1:169.4,2:154,3:169.4,4:169.4,5:161.7,6:169.4,7:177.1,8:161.7,9:169.4,10:169.4,11:161.7,12:177.1 },
+        '36':   { 1:158.4,2:144,3:158.4,4:158.4,5:151.2,6:158.4,7:165.6,8:151.2,9:158.4,10:158.4,11:151.2,12:165.6 },
+        '33':   { 1:145.2,2:132,3:145.2,4:145.2,5:138.6,6:145.2,7:151.8,8:138.6,9:145.2,10:145.2,11:138.6,12:151.8 },
+        '30':   { 1:132,2:120,3:132,4:132,5:126,6:132,7:138,8:126,9:132,10:132,11:126,12:138 },
+        '25':   { 1:110,2:100,3:110,4:110,5:105,6:110,7:115,8:105,9:110,10:110,11:105,12:115 },
+        '24':   { 1:105.6,2:96,3:105.6,4:105.6,5:100.8,6:105.6,7:110.4,8:100.8,9:105.6,10:105.6,11:100.8,12:110.4 },
+        '20':   { 1:88, 2:80, 3:88, 4:88, 5:84, 6:88, 7:92, 8:84, 9:88, 10:88, 11:84, 12:92 },
+        '18':   { 1:79.2,2:72,3:79.2,4:79.2,5:75.6,6:79.2,7:82.8,8:75.6,9:79.2,10:79.2,11:75.6,12:82.8 }
     }
 };
 var TABEL_MONTHS_UA = ['січень','лютий','березень','квітень','травень','червень','липень','серпень','вересень','жовтень','листопад','грудень'];
@@ -5821,6 +5829,45 @@ function initTabelTab() {
     if (y && !y.dataset.init) { y.value = now.getFullYear(); y.dataset.init = '1'; }
 }
 
+var _tabelStoreNorms = {}, _tabelStores = [];
+
+function _tabelNormOptions(sel, withEmpty) {
+    var opts = [['40','40'],['20','20'],['60','60'],['39','39'],['38.5','38,5'],['36','36'],['33','33'],['30','30'],['25','25'],['24','24'],['18','18'],['0','без']];
+    var html = withEmpty ? ('<option value=""' + (!sel ? ' selected' : '') + '>— загальна —</option>') : '';
+    html += opts.map(function (o) { return '<option value="' + o[0] + '"' + (String(sel) === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('');
+    return html;
+}
+
+// Один пересчёт строки под заданные часы/смена и норму (учёт деления на продавцов и подгонки под норму)
+function computeTabelRow(e, hps, normKey, divide, month) {
+    var normHours = (normKey && normKey !== '0' && TABEL_NORM_2026.hours[normKey]) ? TABEL_NORM_2026.hours[normKey][month] : 0;
+    var dayHours = {}, rawSum = 0;
+    Object.keys(e.days).forEach(function (d) { var h = divide ? hps / (e.days[d] || 1) : hps; dayHours[d] = h; rawSum += h; });
+    var adjusted = false, finalSum = rawSum;
+    if (normHours > 0 && rawSum > normHours + 0.01) {
+        var f = normHours / rawSum; finalSum = 0;
+        Object.keys(dayHours).forEach(function (d) { dayHours[d] = _roundHalf(dayHours[d] * f); finalSum += dayHours[d]; });
+        adjusted = true;
+    } else {
+        Object.keys(dayHours).forEach(function (d) { dayHours[d] = _roundHalf(dayHours[d]); });
+        finalSum = Object.keys(dayHours).reduce(function (s, d) { return s + dayHours[d]; }, 0);
+    }
+    return { id: e.id, name: e.fullname, store: e.store, store_id: e.store_id, rawDays: e.days,
+        hoursPerShift: hps, normKey: normKey, days: Object.keys(e.days).length, dayHours: dayHours,
+        hours: Math.round(finalSum * 10) / 10, raw: Math.round(rawSum * 10) / 10, norm: normHours, adjusted: adjusted };
+}
+
+async function _fetchStoreNorms() {
+    try {
+        var r = await fetch(`${API_BASE}/api/tabel-store-norms`, { credentials: 'include' });
+        var j = await r.json();
+        _tabelStores = j.stores || [];
+        var map = {}; (j.norms || []).forEach(function (n) { map[n.store_id] = { weekly_norm: n.weekly_norm, hours_per_shift: n.hours_per_shift }; });
+        _tabelStoreNorms = map;
+    } catch (e) { _tabelStoreNorms = {}; }
+    return _tabelStoreNorms;
+}
+
 async function loadTabel() {
     var year = parseInt(document.getElementById('tabelYear').value);
     var month = parseInt(document.getElementById('tabelMonth').value);
@@ -5830,30 +5877,18 @@ async function loadTabel() {
     var divide = document.getElementById('tabelDivide').checked;
     showStatus('tabelStatus', 'Загружаю смены…', 'info');
     try {
+        await _fetchStoreNorms();
         var r = await fetch(`${API_BASE}/api/tabel-data?year=${year}&month=${month}`, { credentials: 'include' });
         var j = await r.json();
         if (!j.success) { showStatus('tabelStatus', j.error || 'Ошибка', 'error'); return; }
-        var normHours = (normKey !== '0' && TABEL_NORM_2026.hours[normKey]) ? TABEL_NORM_2026.hours[normKey][month] : 0;
         var weekend = TABEL_NORM_2026.weekend[month] || 0;
         var rows = (j.employees || []).map(function (e) {
-            var dayHours = {}, rawSum = 0;
-            Object.keys(e.days).forEach(function (d) {
-                var h = divide ? baseHours / (e.days[d] || 1) : baseHours;
-                dayHours[d] = h; rawSum += h;
-            });
-            var adjusted = false, finalSum = rawSum;
-            if (normHours > 0 && rawSum > normHours + 0.01) {
-                var f = normHours / rawSum; finalSum = 0;
-                Object.keys(dayHours).forEach(function (d) { dayHours[d] = _roundHalf(dayHours[d] * f); finalSum += dayHours[d]; });
-                adjusted = true;
-            } else {
-                Object.keys(dayHours).forEach(function (d) { dayHours[d] = _roundHalf(dayHours[d]); });
-                finalSum = Object.keys(dayHours).reduce(function (s, d) { return s + dayHours[d]; }, 0);
-            }
-            return { name: e.fullname, store: e.store, days: Object.keys(e.days).length, dayHours: dayHours,
-                hours: Math.round(finalSum * 10) / 10, raw: Math.round(rawSum * 10) / 10, norm: normHours, adjusted: adjusted };
+            var ov = _tabelStoreNorms[e.store_id] || {};
+            var hps = (ov.hours_per_shift != null && ov.hours_per_shift !== '') ? Number(ov.hours_per_shift) : baseHours;
+            var nk = (ov.weekly_norm != null && ov.weekly_norm !== '') ? String(ov.weekly_norm) : normKey;
+            return computeTabelRow(e, hps, nk, divide, month);
         });
-        _tabelData = { year: year, month: month, daysInMonth: j.daysInMonth, rate: rate, weekend: weekend, normKey: normKey, rows: rows };
+        _tabelData = { year: year, month: month, daysInMonth: j.daysInMonth, rate: rate, weekend: weekend, divide: divide, defaultNorm: normKey, rows: rows };
         renderTabelPreview();
         hideStatus('tabelStatus');
     } catch (e) { showStatus('tabelStatus', 'Ошибка: ' + e.message, 'error'); }
@@ -5865,20 +5900,82 @@ function renderTabelPreview() {
     var html = '<div class="details-summary-panel"><div class="details-summary-grid">'
         + '<div class="details-summary-item">Період: <b>' + TABEL_MONTHS_UA[d.month - 1] + ' ' + d.year + '</b></div>'
         + '<div class="details-summary-item">Продавців: <b>' + d.rows.length + '</b></div>'
-        + '<div class="details-summary-item">Норма: <b>' + (d.rows[0] && d.rows[0].norm ? d.rows[0].norm + ' год' : 'без нормы') + '</b></div>'
         + '<div class="details-summary-item">Перевищення (підігнано під норму): <b style="color:#c0392b">' + over + '</b></div>'
+        + '<div class="details-summary-item" style="font-size:11px">Часы/норму можно править прямо в строке; сохранённые «Норми по магазинах» подставляются автоматически.</div>'
         + '</div></div>';
     html += '<div class="table-container"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr>'
-        + '<th style="text-align:left">ПІБ</th><th style="text-align:left">Магазин</th><th>Днів</th><th>Годин</th><th>Норма</th><th>Статус</th></tr></thead><tbody>';
-    d.rows.forEach(function (r) {
+        + '<th style="text-align:left">ПІБ</th><th style="text-align:left">Магазин</th><th>Днів</th><th>Часы/зміна</th><th>Норма</th><th>Годин</th><th>Статус</th></tr></thead><tbody>';
+    d.rows.forEach(function (r, i) {
         var hl = r.adjusted ? ' style="background:rgba(192,57,43,.10)"' : '';
-        html += '<tr' + hl + '><td style="text-align:left">' + r.name + '</td><td style="text-align:left;font-size:11px;color:var(--text-2)">' + (r.store || '') + '</td>'
-            + '<td style="text-align:center">' + r.days + '</td><td style="text-align:center"><b>' + r.hours + '</b></td>'
-            + '<td style="text-align:center">' + (r.norm || '—') + '</td>'
-            + '<td style="text-align:center">' + (r.adjusted ? '<span style="color:#c0392b">перевищення → підігнано (' + r.raw + '→' + r.hours + ')</span>' : '<span style="color:#2e7d32">OK</span>') + '</td></tr>';
+        html += '<tr' + hl + '><td style="text-align:left">' + r.name + '</td>'
+            + '<td style="text-align:left;font-size:11px;color:var(--text-2)">' + (r.store || '') + '</td>'
+            + '<td style="text-align:center">' + r.days + '</td>'
+            + '<td style="text-align:center"><input type="number" min="1" max="12" step="0.5" value="' + r.hoursPerShift + '" style="width:56px;text-align:center" onchange="tabelEditRow(' + i + ',\'hours\',this.value)"></td>'
+            + '<td style="text-align:center"><select onchange="tabelEditRow(' + i + ',\'norm\',this.value)" style="width:66px">' + _tabelNormOptions(r.normKey, false) + '</select></td>'
+            + '<td style="text-align:center"><b>' + r.hours + '</b></td>'
+            + '<td style="text-align:center">' + (r.adjusted ? '<span style="color:#c0392b">підігнано (' + r.raw + '→' + r.hours + ')</span>' : '<span style="color:#2e7d32">OK</span>') + '</td></tr>';
     });
     html += '</tbody></table></div>';
     var c = document.getElementById('tabelContent'); c.innerHTML = html; c.style.display = 'block';
+}
+
+function tabelEditRow(idx, field, value) {
+    var row = _tabelData.rows[idx]; if (!row) return;
+    var hps = row.hoursPerShift, nk = row.normKey;
+    if (field === 'hours') hps = parseFloat(value) || 0;
+    if (field === 'norm') nk = value;
+    var e = { id: row.id, fullname: row.name, store: row.store, store_id: row.store_id, days: row.rawDays };
+    _tabelData.rows[idx] = computeTabelRow(e, hps, nk, _tabelData.divide, _tabelData.month);
+    renderTabelPreview();
+}
+
+async function openStoreNorms() {
+    showStatus('tabelStatus', 'Загружаю магазины…', 'info');
+    var stores = [], map = {};
+    try {
+        var r = await fetch(`${API_BASE}/api/tabel-store-norms`, { credentials: 'include' });
+        var j = await r.json();
+        stores = j.stores || []; (j.norms || []).forEach(function (n) { map[n.store_id] = n; });
+    } catch (e) { showStatus('tabelStatus', 'Ошибка: ' + e.message, 'error'); return; }
+    hideStatus('tabelStatus');
+    var rowsHtml = stores.map(function (s) {
+        var ov = map[s.id] || {};
+        return '<tr><td style="text-align:left;padding:4px 6px">' + (s.address || ('#' + s.id)) + '</td>'
+            + '<td style="padding:4px 6px"><select class="sn-norm" data-sid="' + s.id + '" style="width:110px">' + _tabelNormOptions(ov.weekly_norm || '', true) + '</select></td>'
+            + '<td style="padding:4px 6px"><input type="number" class="sn-hours" data-sid="' + s.id + '" min="1" max="12" step="0.5" value="' + (ov.hours_per_shift != null ? ov.hours_per_shift : '') + '" placeholder="загальні" style="width:80px;text-align:center"></td></tr>';
+    }).join('');
+    var close = "var x=document.getElementById('snModal');if(x)x.remove();var o=document.getElementById('snOv');if(o)o.remove();";
+    var css = '<style>#snModal table{width:100%;border-collapse:collapse;font-size:13px}#snModal th{position:sticky;top:0;background:var(--surface-2);padding:6px;font-weight:500;text-align:left}#snModal td,#snModal th{border-bottom:1px solid rgba(128,128,128,.15)}#snModal select,#snModal input{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px}</style>';
+    var html = '<div id="snModal" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:100000;background:var(--surface);color:var(--text);border:.5px solid var(--border);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);width:min(640px,94vw);max-height:88vh;display:flex;flex-direction:column;">'
+        + css
+        + '<div style="padding:14px 20px;border-bottom:.5px solid var(--border);font-size:15px;font-weight:500;"><i class="ti ti-building-store" style="color:var(--brand)"></i> Норми по магазинах</div>'
+        + '<div style="padding:8px 20px;font-size:12px;color:var(--text-2)">Пусто = береться загальна норма з шапки. Застосовується за основним магазином продавця (де більше змін).</div>'
+        + '<div style="overflow:auto;padding:0 20px;"><table><thead><tr><th>Магазин</th><th>Норма (тиждень)</th><th>Часи/зміна</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+        + '<div style="padding:12px 20px;display:flex;gap:10px;justify-content:flex-end;border-top:.5px solid var(--border);">'
+        + '<button class="secondary" onclick="' + close + '">Отмена</button>'
+        + '<button class="primary" onclick="saveStoreNorms()"><i class="ti ti-device-floppy"></i> Зберегти</button>'
+        + '</div></div>'
+        + '<div id="snOv" style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;" onclick="' + close + '"></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function saveStoreNorms() {
+    var hoursBy = {};
+    document.querySelectorAll('#snModal .sn-hours').forEach(function (inp) { hoursBy[inp.getAttribute('data-sid')] = inp.value; });
+    var norms = [];
+    document.querySelectorAll('#snModal .sn-norm').forEach(function (sel) {
+        var sid = sel.getAttribute('data-sid');
+        var h = hoursBy[sid];
+        norms.push({ store_id: parseInt(sid), weekly_norm: sel.value || null, hours_per_shift: (h === '' || h == null) ? null : parseFloat(h) });
+    });
+    try {
+        var r = await fetch(`${API_BASE}/api/tabel-store-norms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ norms: norms }) });
+        var j = await r.json();
+        if (j.success) {
+            document.getElementById('snModal').remove(); var o = document.getElementById('snOv'); if (o) o.remove();
+            showStatus('tabelStatus', 'Нормы по магазинам сохранены. Нажмите «Сформировать».', 'success'); setTimeout(function () { hideStatus('tabelStatus'); }, 4000);
+        } else showStatus('tabelStatus', j.error || 'Ошибка сохранения', 'error');
+    } catch (e) { showStatus('tabelStatus', 'Ошибка: ' + e.message, 'error'); }
 }
 
 async function downloadTabelXlsx() {

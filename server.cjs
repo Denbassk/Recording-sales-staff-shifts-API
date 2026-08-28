@@ -3531,13 +3531,55 @@ app.get('/api/tabel-data', checkAuth, canViewDetails, async (req, res) => {
             const day = parseInt(String(s.shift_date).slice(8, 10));
             const k = s.store_id + '|' + s.shift_date;
             const sellers = perStoreDay.get(k) ? perStoreDay.get(k).size : 1;
-            if (!byEmp.has(s.employee_id)) byEmp.set(s.employee_id, { id: s.employee_id, fullname: nameMap.get(s.employee_id) || s.employee_id, store: storeMap.get(s.store_id) || '', days: {} });
-            byEmp.get(s.employee_id).days[day] = sellers;
+            if (!byEmp.has(s.employee_id)) byEmp.set(s.employee_id, { id: s.employee_id, fullname: nameMap.get(s.employee_id) || s.employee_id, days: {}, _sc: {} });
+            const emp = byEmp.get(s.employee_id);
+            emp.days[day] = sellers;
+            emp._sc[s.store_id] = (emp._sc[s.store_id] || 0) + 1; // счётчик смен по магазинам
         });
-        const employees = [...byEmp.values()].sort((a, b) => (a.fullname || '').localeCompare(b.fullname || '', 'uk'));
+        // основной магазин продавца за месяц = где больше всего смен (для норм по магазину)
+        const employees = [...byEmp.values()].map(e => {
+            let bestStore = null, bestN = -1;
+            Object.keys(e._sc).forEach(sid => { if (e._sc[sid] > bestN) { bestN = e._sc[sid]; bestStore = parseInt(sid); } });
+            return { id: e.id, fullname: e.fullname, store_id: bestStore, store: storeMap.get(bestStore) || '', days: e.days };
+        }).sort((a, b) => (a.fullname || '').localeCompare(b.fullname || '', 'uk'));
         res.json({ success: true, year, month, daysInMonth: dim, employees });
     } catch (e) {
         console.error('tabel-data:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Нормы табеля по магазинам (переопределения): читать/сохранять. Применяется по основному магазину продавца.
+app.get('/api/tabel-store-norms', checkAuth, canViewDetails, async (req, res) => {
+    try {
+        const { data: stores } = await supabase.from('stores').select('id, address').order('address', { ascending: true });
+        let norms = [];
+        try {
+            const { data, error } = await supabase.from('tabel_store_norms').select('store_id, weekly_norm, hours_per_shift');
+            if (error) throw error;
+            norms = data || [];
+        } catch (e2) { norms = []; } // таблицы может ещё не быть — вернём пусто (работает общая норма)
+        res.json({ success: true, stores: stores || [], norms });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+app.post('/api/tabel-store-norms', checkAuth, canManagePayroll, async (req, res) => {
+    try {
+        const items = Array.isArray(req.body.norms) ? req.body.norms : [];
+        for (const it of items) {
+            const store_id = parseInt(it.store_id);
+            if (!store_id) continue;
+            const wn = (it.weekly_norm === '' || it.weekly_norm == null) ? null : String(it.weekly_norm);
+            const hps = (it.hours_per_shift === '' || it.hours_per_shift == null) ? null : Number(it.hours_per_shift);
+            if (wn == null && hps == null) {
+                await supabase.from('tabel_store_norms').delete().eq('store_id', store_id);
+            } else {
+                await supabase.from('tabel_store_norms').upsert({ store_id, weekly_norm: wn, hours_per_shift: hps, updated_at: new Date().toISOString() }, { onConflict: 'store_id' });
+            }
+        }
+        res.json({ success: true });
+    } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
 });
