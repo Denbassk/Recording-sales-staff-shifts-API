@@ -3505,11 +3505,18 @@ app.get('/api/get-employees-list', checkAuth, canViewDetails, async (req, res) =
 // (для правила «часы ÷ число продавцов»). Часы/норму считает фронтенд (легко менять правило).
 app.get('/api/tabel-data', checkAuth, canViewDetails, async (req, res) => {
     try {
-        const year = parseInt(req.query.year), month = parseInt(req.query.month);
-        if (!year || !month || month < 1 || month > 12) return res.status(400).json({ success: false, error: 'Некорректный год/месяц' });
-        const dim = new Date(year, month, 0).getDate();
-        const mm = String(month).padStart(2, '0');
-        const from = `${year}-${mm}-01`, to = `${year}-${mm}-${String(dim).padStart(2, '0')}`;
+        let from = req.query.from, to = req.query.to, year, month, dim;
+        if (from && to) {
+            // произвольный диапазон дат; месяц/год берём из даты «С» (для нормы и заголовка табеля)
+            year = parseInt(String(from).slice(0, 4)); month = parseInt(String(from).slice(5, 7));
+            dim = new Date(year, month, 0).getDate();
+        } else {
+            year = parseInt(req.query.year); month = parseInt(req.query.month);
+            if (!year || !month || month < 1 || month > 12) return res.status(400).json({ success: false, error: 'Некорректный период' });
+            dim = new Date(year, month, 0).getDate();
+            const mm = String(month).padStart(2, '0');
+            from = `${year}-${mm}-01`; to = `${year}-${mm}-${String(dim).padStart(2, '0')}`;
+        }
         const { data: shifts, error } = await supabase.from('shifts')
             .select('employee_id, store_id, shift_date').gte('shift_date', from).lte('shift_date', to);
         if (error) throw error;

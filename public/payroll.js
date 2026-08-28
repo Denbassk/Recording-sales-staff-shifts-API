@@ -5822,11 +5822,24 @@ var _tabelData = null;
 
 function _roundHalf(x) { return Math.round((Number(x) || 0) * 2) / 2; }
 
+function _isoDate(dt) { return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0'); }
+
 function initTabelTab() {
-    var now = new Date();
-    var m = document.getElementById('tabelMonth'), y = document.getElementById('tabelYear');
-    if (m && !m.dataset.init) { m.value = (now.getMonth() + 1); m.dataset.init = '1'; }
-    if (y && !y.dataset.init) { y.value = now.getFullYear(); y.dataset.init = '1'; }
+    var f = document.getElementById('tabelFrom'), t = document.getElementById('tabelTo');
+    if (f && !f.value) {
+        var now = new Date(), y = now.getFullYear(), m = now.getMonth();
+        f.value = _isoDate(new Date(y, m, 1));
+        if (t) t.value = _isoDate(new Date(y, m + 1, 0));
+    }
+}
+
+// Пресет: заполнить диапазон полным месяцем (по месяцу из даты «С», иначе текущий)
+function tabelFullMonth() {
+    var f = document.getElementById('tabelFrom'), t = document.getElementById('tabelTo');
+    var base = (f && f.value) ? new Date(f.value) : new Date();
+    var y = base.getFullYear(), m = base.getMonth();
+    if (f) f.value = _isoDate(new Date(y, m, 1));
+    if (t) t.value = _isoDate(new Date(y, m + 1, 0));
 }
 
 var _tabelStoreNorms = {}, _tabelStores = [];
@@ -5869,8 +5882,11 @@ async function _fetchStoreNorms() {
 }
 
 async function loadTabel() {
-    var year = parseInt(document.getElementById('tabelYear').value);
-    var month = parseInt(document.getElementById('tabelMonth').value);
+    var from = document.getElementById('tabelFrom').value;
+    var to = document.getElementById('tabelTo').value;
+    if (!from || !to) { showStatus('tabelStatus', 'Укажите даты периода (З / По)', 'error'); return; }
+    if (from > to) { showStatus('tabelStatus', 'Дата «З» позже «По»', 'error'); return; }
+    var year = parseInt(from.slice(0, 4)), month = parseInt(from.slice(5, 7));
     var baseHours = parseFloat(document.getElementById('tabelHours').value) || 8;
     var normKey = document.getElementById('tabelNorm').value;
     var rate = parseFloat(document.getElementById('tabelRate').value) || 0;
@@ -5878,7 +5894,7 @@ async function loadTabel() {
     showStatus('tabelStatus', 'Загружаю смены…', 'info');
     try {
         await _fetchStoreNorms();
-        var r = await fetch(`${API_BASE}/api/tabel-data?year=${year}&month=${month}`, { credentials: 'include' });
+        var r = await fetch(`${API_BASE}/api/tabel-data?from=${from}&to=${to}`, { credentials: 'include' });
         var j = await r.json();
         if (!j.success) { showStatus('tabelStatus', j.error || 'Ошибка', 'error'); return; }
         var weekend = TABEL_NORM_2026.weekend[month] || 0;

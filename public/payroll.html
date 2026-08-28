@@ -622,19 +622,16 @@ tr.summary-row{display:table-row}
                 <div class="control-panel">
                     <div class="control-row">
                         <div class="control-group">
-                            <label>Месяц:</label>
-                            <select id="tabelMonth">
-                                <option value="1">Січень</option><option value="2">Лютий</option>
-                                <option value="3">Березень</option><option value="4">Квітень</option>
-                                <option value="5">Травень</option><option value="6">Червень</option>
-                                <option value="7">Липень</option><option value="8">Серпень</option>
-                                <option value="9">Вересень</option><option value="10">Жовтень</option>
-                                <option value="11">Листопад</option><option value="12">Грудень</option>
-                            </select>
+                            <label>З (дата):</label>
+                            <input type="date" id="tabelFrom">
                         </div>
                         <div class="control-group">
-                            <label>Год:</label>
-                            <input type="number" id="tabelYear" value="2026" min="2024" max="2030">
+                            <label>По (дата):</label>
+                            <input type="date" id="tabelTo">
+                        </div>
+                        <div class="control-group">
+                            <label>&nbsp;</label>
+                            <button onclick="tabelFullMonth()" class="secondary"><i class="ti ti-calendar-month"></i> Повний місяць</button>
                         </div>
                         <div class="control-group">
                             <label>Часов за смену:</label>
