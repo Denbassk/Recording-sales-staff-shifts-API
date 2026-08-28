@@ -5886,63 +5886,73 @@ async function downloadTabelXlsx() {
     var d = _tabelData, rate = d.rate;
     var wb = new ExcelJS.Workbook();
     var ws = wb.addWorksheet('Табель ' + TABEL_MONTHS_UA[d.month - 1]);
-    var NC = 23, DAY0 = 3; // день-колонки 3..18 (16 слотов)
-    var thin = { style: 'thin', color: { argb: 'FFBFBFBF' } };
+    var NC = 23, DAY0 = 3; // день-колонки 3..18 (16 слотов: 1–15 + «Х» / 16–31)
+    var thin = { style: 'thin', color: { argb: 'FF000000' } };
     var bd = { top: thin, bottom: thin, left: thin, right: thin };
     var C = function (r, c) { return ws.getCell(r, c); };
-    ws.getCell(5, 1).value = 'ТОВ "М Фемелі Маркет"'; ws.getCell(5, 1).font = { bold: true };
-    ws.getCell(6, 1).value = 'Ідентифікаційний код ЄДРПОУ 44413718';
-    ws.mergeCells(7, 1, 7, NC); var t = ws.getCell(7, 1);
-    t.value = 'ТАБЕЛЬ ОБЛІКУ ВИКОРИСТАННЯ РОБОЧОГО ЧАСУ'; t.font = { bold: true, size: 13 }; t.alignment = { horizontal: 'center' };
-    ws.mergeCells(8, 1, 8, NC); var t2 = ws.getCell(8, 1);
-    t2.value = 'за ' + TABEL_MONTHS_UA[d.month - 1] + ' ' + d.year + ' року'; t2.alignment = { horizontal: 'center' };
-    // Групповые заголовки (строка 10) + номера дней (11 = 1..15, 12 = 16..31)
-    var H = 10;
-    ws.mergeCells(H, 1, H + 2, 1); C(H, 1).value = '№ п/п';
-    ws.mergeCells(H, 2, H + 2, 2); C(H, 2).value = 'ПІБ';
-    ws.mergeCells(H, DAY0, H, DAY0 + 15); C(H, DAY0).value = 'Відмітки про явки та неявки за числами місяця (годин)';
-    ws.mergeCells(H, 19, H + 2, 19); C(H, 19).value = 'Відпрацьовано за місяць';
-    ws.mergeCells(H, 20, H + 2, 20); C(H, 20).value = 'Вихідних днів';
-    ws.mergeCells(H, 21, H + 2, 21); C(H, 21).value = 'тарифна ставка ' + rate + ' грн. за годину';
-    ws.mergeCells(H, 22, H + 2, 22); C(H, 22).value = 'доплата';
-    ws.mergeCells(H, 23, H + 2, 23); C(H, 23).value = 'нараховано всього';
-    for (var i = 0; i < 15; i++) C(H + 1, DAY0 + i).value = i + 1;           // дни 1..15
-    for (var i2 = 0; i2 < 16; i2++) C(H + 2, DAY0 + i2).value = 16 + i2;      // дни 16..31
-    for (var rr = H; rr <= H + 2; rr++) for (var cc = 1; cc <= NC; cc++) { var c = C(rr, cc); c.border = bd; c.font = c.font || { size: 9, bold: rr === H }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECECEC' } }; }
-    // Строки сотрудников (по 2 на каждого)
+    var box = function (r1, c1, r2, c2) { for (var r = r1; r <= r2; r++) for (var c = c1; c <= c2; c++) C(r, c).border = bd; };
+    var merge = function (r1, c1, r2, c2, val, opts) {
+        ws.mergeCells(r1, c1, r2, c2); var cell = C(r1, c1);
+        if (val != null) cell.value = val;
+        cell.alignment = Object.assign({ horizontal: 'center', vertical: 'middle', wrapText: true }, opts || {});
+        box(r1, c1, r2, c2); return cell;
+    };
+    // ── Шапка предприятия ──
+    C(1, 1).value = 'ТОВ "М Фемелі Маркет"'; C(1, 1).font = { bold: true };
+    C(2, 1).value = 'Ідентифікаційний код ЄДРПОУ 44413718';
+    ws.mergeCells(3, 1, 3, NC); var t = C(3, 1); t.value = 'ТАБЕЛЬ ОБЛІКУ ВИКОРИСТАННЯ РОБОЧОГО ЧАСУ'; t.font = { bold: true, size: 14 }; t.alignment = { horizontal: 'center' };
+    ws.mergeCells(4, 1, 4, NC); var t2 = C(4, 1); t2.value = 'за ' + TABEL_MONTHS_UA[d.month - 1] + ' ' + d.year + ' року'; t2.font = { bold: true }; t2.alignment = { horizontal: 'center' };
+    // ── Заголовок таблицы: H = групповая строка, H+1 = дни 1..15+Х, H+2 = дни 16..31 ──
+    var H = 6, vert = { textRotation: 90 };
+    merge(H, 1, H + 2, 1, '№ п/п', vert).font = { bold: true, size: 9 };
+    merge(H, 2, H + 2, 2, 'ПІБ').font = { bold: true };
+    merge(H, DAY0, H, DAY0 + 15, 'Відмітки про явки та неявки за числами місяця (годин)').font = { bold: true, size: 9 };
+    // Відпрацьовано за місяць → днів (верх) / годин (низ)
+    C(H, 19).value = 'Відпрацьовано за місяць'; C(H, 19).font = { bold: true, size: 8 }; C(H, 19).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    C(H + 1, 19).value = 'днів'; C(H + 2, 19).value = 'годин';
+    C(H + 1, 19).alignment = { horizontal: 'center', vertical: 'middle' }; C(H + 2, 19).alignment = { horizontal: 'center', vertical: 'middle' };
+    merge(H, 20, H + 2, 20, 'Вихідних днів', vert).font = { bold: true, size: 8 };
+    merge(H, 21, H + 2, 21, 'тарифна ставка ' + rate + ' грн. за годину', vert).font = { bold: true, size: 8 };
+    merge(H, 22, H + 2, 22, 'доплата', vert).font = { bold: true, size: 8 };
+    merge(H, 23, H + 2, 23, 'нараховано всього', vert).font = { bold: true, size: 8 };
+    // номера дней
+    for (var i = 0; i < 15; i++) { var cd = C(H + 1, DAY0 + i); cd.value = i + 1; cd.alignment = { horizontal: 'center', vertical: 'middle' }; cd.font = { size: 9 }; }
+    C(H + 1, DAY0 + 15).value = 'Х'; C(H + 1, DAY0 + 15).alignment = { horizontal: 'center', vertical: 'middle' }; C(H + 1, DAY0 + 15).font = { size: 9, bold: true };
+    for (var i2 = 0; i2 < 16; i2++) { var cd2 = C(H + 2, DAY0 + i2); cd2.value = 16 + i2; cd2.alignment = { horizontal: 'center', vertical: 'middle' }; cd2.font = { size: 9 }; }
+    box(H, 1, H + 2, NC);
+    for (var hr = H; hr <= H + 2; hr++) for (var hc = 1; hc <= NC; hc++) { var hcell = C(hr, hc); if (!hcell.fill) hcell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } }; }
+    ws.getRow(H).height = 92; ws.getRow(H + 1).height = 15; ws.getRow(H + 2).height = 15;
+    // ── Сотрудники (по 2 строки на каждого, объединения по вертикали) ──
     var row = H + 3, total = 0;
     d.rows.forEach(function (r, idx) {
         var rTop = row, rBot = row + 1;
-        C(rTop, 1).value = idx + 1;
-        C(rTop, 2).value = r.name;
-        for (var dday = 1; dday <= 15; dday++) { var v = r.dayHours[dday]; if (v != null) C(rTop, DAY0 + (dday - 1)).value = v; }
-        for (var dd2 = 16; dd2 <= 31; dd2++) { var v2 = r.dayHours[dd2]; if (v2 != null) C(rBot, DAY0 + (dd2 - 16)).value = v2; }
+        merge(rTop, 1, rBot, 1, idx + 1).font = { size: 10 };
+        merge(rTop, 2, rBot, 2, r.name, { horizontal: 'left' });
+        for (var dday = 1; dday <= 15; dday++) { var v = r.dayHours[dday]; var c1 = C(rTop, DAY0 + (dday - 1)); if (v != null) c1.value = v; c1.alignment = { horizontal: 'center', vertical: 'middle' }; }
+        for (var dd2 = 16; dd2 <= 31; dd2++) { var v2 = r.dayHours[dd2]; var c2 = C(rBot, DAY0 + (dd2 - 16)); if (v2 != null) c2.value = v2; c2.alignment = { horizontal: 'center', vertical: 'middle' }; }
         C(rTop, 19).value = r.days; C(rBot, 19).value = r.hours;
-        C(rTop, 20).value = d.weekend;
+        C(rTop, 19).alignment = { horizontal: 'center', vertical: 'middle' }; C(rBot, 19).alignment = { horizontal: 'center', vertical: 'middle' };
+        merge(rTop, 20, rBot, 20, d.weekend);
         var sum = Math.round(r.hours * rate);
-        C(rTop, 21).value = sum; C(rTop, 23).value = sum; total += sum;
-        // рамки/выравнивание + подсветка превышенцев
-        for (var rw = rTop; rw <= rBot; rw++) for (var cx = 1; cx <= NC; cx++) {
-            var cell = C(rw, cx); cell.border = bd;
-            cell.alignment = { horizontal: (cx === 2 ? 'left' : 'center'), vertical: 'middle' };
-            if (cx >= 21) cell.numFmt = '#,##0';
-            if (r.adjusted) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE7E7' } };
-        }
-        C(rTop, 2).font = { bold: false };
+        merge(rTop, 21, rBot, 21, sum).numFmt = '#,##0';
+        merge(rTop, 22, rBot, 22, null);
+        merge(rTop, 23, rBot, 23, sum).numFmt = '#,##0';
+        total += sum;
+        box(rTop, 1, rBot, NC);
+        if (r.adjusted) for (var rw = rTop; rw <= rBot; rw++) for (var cx = 1; cx <= NC; cx++) C(rw, cx).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE7E7' } };
         row += 2;
     });
-    // Всього
-    C(row, 2).value = 'Всього:'; C(row, 2).font = { bold: true };
-    C(row, 23).value = total; C(row, 23).font = { bold: true }; C(row, 23).numFmt = '#,##0';
-    for (var cy = 1; cy <= NC; cy++) C(row, cy).border = bd;
-    row += 2;
+    // ── Всього ──
+    merge(row, 1, row, 22, 'Всього:', { horizontal: 'right' }).font = { bold: true };
+    C(row, 23).value = total; C(row, 23).font = { bold: true }; C(row, 23).numFmt = '#,##0'; C(row, 23).alignment = { horizontal: 'center', vertical: 'middle' }; C(row, 23).border = bd;
+    row += 3;
     C(row, 1).value = 'Відповідальна особа'; row += 2;
-    C(row, 1).value = 'Директор Тусін С.М.'; row += 1;
+    C(row, 1).value = 'Директор ______________ Тусін С.М.'; row += 1;
     C(row, 1).value = '(посада)';
-    // ширины
-    C(1, 1); ws.getColumn(1).width = 5; ws.getColumn(2).width = 30;
-    for (var w = DAY0; w <= 18; w++) ws.getColumn(w).width = 4.3;
-    ws.getColumn(19).width = 10; ws.getColumn(20).width = 8; ws.getColumn(21).width = 12; ws.getColumn(22).width = 8; ws.getColumn(23).width = 13;
+    // ── ширины колонок ──
+    ws.getColumn(1).width = 5; ws.getColumn(2).width = 28;
+    for (var w = DAY0; w <= 18; w++) ws.getColumn(w).width = 4;
+    ws.getColumn(19).width = 8; ws.getColumn(20).width = 6; ws.getColumn(21).width = 12; ws.getColumn(22).width = 8; ws.getColumn(23).width = 12;
     var buf = await wb.xlsx.writeBuffer();
     var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     var url = URL.createObjectURL(blob); var a = document.createElement('a');
