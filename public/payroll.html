@@ -87,8 +87,10 @@ tr.has-final-calc td{background:var(--surface-2)}
 .unlock-btn:hover{background:var(--surface-3);color:var(--text)}
 #monthlyReportTable.reasons-collapsed .col-reason{display:none}
 #monthlyReportTable thead tr:nth-child(2) th{background:#f6f7f9}
-.control-row .lock-box{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
-.control-row .lock-box input[type="checkbox"]{width:14px;height:14px;margin:0;accent-color:currentColor}
+.control-row .lock-box{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;margin-left:0;padding:8px 12px;font:inherit;font-size:14px;line-height:1.2;background:var(--surface);border:1px solid var(--border-strong);border-radius:8px;color:var(--warn);transition:background .15s,border-color .15s}
+.control-row .lock-box:hover{background:var(--warn-bg)}
+.control-row .lock-box input[type="checkbox"]{width:14px;height:14px;margin:0;accent-color:var(--warn)}
+.control-row .lock-box:has(input:checked){font-weight:600;background:var(--warn-bg);border-color:var(--warn)}
 .control-row .lock-box:has(input:checked){font-weight:600}
 .grp-prem-head,.grp-deprem-head{white-space:nowrap}
 .wizard{display:flex;align-items:flex-start;margin:0 0 18px}
@@ -719,4 +721,5 @@ function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")
 </script>
 </body>
 </html>
+
 
