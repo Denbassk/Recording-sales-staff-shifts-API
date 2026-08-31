@@ -86,6 +86,10 @@ tr.has-final-calc td{background:var(--surface-2)}
 .unlock-btn{border:.5px solid var(--border-strong);background:var(--surface);color:var(--text-2);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
 .unlock-btn:hover{background:var(--surface-3);color:var(--text)}
 #monthlyReportTable.reasons-collapsed .col-reason{display:none}
+#monthlyReportTable thead tr:nth-child(2) th{background:#f6f7f9}
+.control-row .lock-box{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+.control-row .lock-box input[type="checkbox"]{width:14px;height:14px;margin:0;accent-color:currentColor}
+.control-row .lock-box:has(input:checked){font-weight:600}
 .grp-prem-head,.grp-deprem-head{white-space:nowrap}
 .wizard{display:flex;align-items:flex-start;margin:0 0 18px}
 .wstep{display:flex;flex-direction:column;align-items:center;gap:5px;width:64px}
@@ -388,7 +392,7 @@ tr.summary-row{display:table-row}
                             <button onclick="fixManualAdvances()" class="secondary"><i class="ti ti-adjustments"></i> Зафиксировать корректировки</button>
                             <button onclick="cancelAdvancePayment()" class="warning"><i class="ti ti-lock-open"></i> Отменить фиксацию</button>
                             <button class="secondary" onclick="showAdjustmentsHistory()"><i class="ti ti-history"></i> История корректировок</button>
-                            <label class="lock-box" style="cursor:pointer"><input type="checkbox" id="unlockAllToggle" onchange="unlockAllFixations(this)"><span>Снять все фиксации</span></label>
+                            <label class="lock-box warning" for="unlockAllToggle"><input type="checkbox" id="unlockAllToggle" onchange="unlockAllFixations(this)"><i class="ti ti-lock-off"></i><span>Снять все фиксации</span></label>
                         </div>
                     </div>
 
@@ -705,7 +709,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js" defer></script>
+<script src="payroll.js?v=20260831b" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -715,3 +719,4 @@ function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")
 </script>
 </body>
 </html>
+

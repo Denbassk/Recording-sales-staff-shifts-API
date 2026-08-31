@@ -1087,7 +1087,7 @@ const { data: dailyDataRaw, error: dailyError } = await supabase
         // ✅ ШАГ 3: Получаем данные сотрудников отдельным запросом
         const { data: employeesData, error: empDataError } = await supabase
             .from('employees')
-            .select('id, fullname, role')
+            .select('id, fullname, role, active')
             .in('id', employeeIds);
 
         if (empDataError) throw empDataError;

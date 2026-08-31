@@ -1174,6 +1174,7 @@ function toggleReasons(btn) {
     const tbl = document.getElementById('monthlyReportTable');
     if (!tbl) return;
     const collapsed = tbl.classList.toggle('reasons-collapsed');
+    syncGroupHeaders();
     document.querySelectorAll('.grp-prem-head, .grp-deprem-head').forEach(th => { th.colSpan = collapsed ? 1 : 2; });
     if (btn) btn.innerHTML = collapsed ? '<i class="ti ti-eye"></i> Показать причины' : '<i class="ti ti-eye-off"></i> Скрыть причины';
 }
@@ -1608,8 +1609,8 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 <th rowspan="2" style="vertical-align: middle;">Магазин</th>
                 <th rowspan="2" style="vertical-align: middle;">Всего начислено<br/>(база)</th>
                 <th rowspan="2" style="vertical-align: middle;">Бонусы</th>
-                <th colspan="2" class="grp-prem-head">Премирование</th>
-                <th colspan="2" class="grp-deprem-head">Депремирование</th>
+                <th colspan="1" class="grp-prem-head">Премирование</th>
+                <th colspan="1" class="grp-deprem-head">Депремирование</th>
                 <th rowspan="2" style="vertical-align: middle;">Вычет за<br/>недостачу</th>
                 <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(на карту)</th>
                 <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(наличные)</th>
@@ -6366,3 +6367,28 @@ window.debugAllCalculations = debugAllCalculations;
 console.log('Диагностические функции загружены:');
 console.log('   debugEmployee("ID_сотрудника") - проверить конкретного сотрудника');
 console.log('   debugAllCalculations() - проверить всех');
+// Групповые заголовки должны занимать 1 колонку, когда «Причина» скрыта
+function syncGroupHeaders() {
+    const t = document.getElementById('monthlyReportTable');
+    if (!t) return;
+    const span = t.classList.contains('reasons-collapsed') ? 1 : 2;
+    t.querySelectorAll('.grp-prem-head, .grp-deprem-head').forEach(th => { th.colSpan = span; });
+    if (typeof syncStickyHead === 'function') syncStickyHead();
+}
+// Групповые заголовки занимают 1 колонку, когда «Причина» скрыта
+function syncGroupHeaders() {
+    const t = document.getElementById('monthlyReportTable');
+    if (!t) return;
+    const span = t.classList.contains('reasons-collapsed') ? 1 : 2;
+    t.querySelectorAll('.grp-prem-head, .grp-deprem-head').forEach(th => { th.colSpan = span; });
+    if (typeof syncStickyHead === 'function') syncStickyHead();
+}
+
+// Срабатывает и при первой отрисовке таблицы, и при любой смене класса
+document.addEventListener('DOMContentLoaded', () => {
+    const container = document.body;
+    new MutationObserver(() => syncGroupHeaders()).observe(container, {
+        childList: true, subtree: true, attributes: true, attributeFilter: ['class']
+    });
+    syncGroupHeaders();
+});
