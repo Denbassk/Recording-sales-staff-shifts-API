@@ -11,6 +11,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const XLSX = require('xlsx');
+const rateLimit = require('express-rate-limit');
 
 // --- Подключение к Supabase ---
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -18,6 +19,17 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const app = express();
+app.set('trust proxy', 1);
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Занадто багато спроб входу. Спробуйте через 15 хвилин.' }
+});
+app.set('trust proxy', 1);
+
 
 // --- HELPER ФУНКЦИИ ---
 function formatNumber(num) {
@@ -37,7 +49,20 @@ app.use('/script.js', (req, res, next) => {
 });
 
 // --- Настройка middleware ---
-app.use(cors({ origin: true, credentials: true }));
+app.set('trust proxy', 1); // Fly.io работает за прокси — иначе лимит считает всех как один IP
+
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    return cb(new Error('Origin не разрешён'));
+  },
+  credentials: true
+}));
+
 app.use(bodyParser.json());
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
@@ -335,12 +360,12 @@ async function getStoreFloatingRates(dateStr, storeIds) {
 
 // --- ОСНОВНЫЕ API ЭНДПОИНТЫ ---
 app.get("/employees", async (req, res) => {
-  const { data, error } = await supabase.from('employees').select('fullname').eq('active', true);
+  const { data, error } = await supabase.from('employees').select('fullname').eq('active', true).eq('role', 'seller');
   if (error) return res.status(500).json({ error: error.message });
   res.json(data.map(e => e.fullname));
 });
 
-app.post("/login", async (req, res) => {
+app.post("/login", loginLimiter, async (req, res) => {
   const { username, password, deviceKey } = req.body;
   const trimmedName = username.trim();
   
@@ -411,12 +436,13 @@ app.post("/login", async (req, res) => {
 
   const token = jwt.sign({ id: employee.id, role: employee.role }, process.env.JWT_SECRET, { expiresIn: '8h' });
   const isProduction = process.env.NODE_ENV === 'production';
-  res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'strict' : 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
+  res.cookie('token', token, { httpOnly: true, secure: isProduction, sameSite: isProduction ? 'strict' : 'lax', maxAge: 8 * 60 * 60 * 1000 });
   return res.json({ success: true, message: responseMessage, store: storeAddress, role: employee.role });
 });
 
 app.post('/logout', (req, res) => {
-  res.cookie('token', '', { expires: new Date(0), httpOnly: true, secure: true, sameSite: 'strict' });
+  const isProd = process.env.NODE_ENV === 'production';
+res.cookie('token', '', { expires: new Date(0), httpOnly: true, secure: isProd, sameSite: isProd ? 'strict' : 'lax' });
   res.status(200).json({ success: true, message: 'Выход выполнен успешно' });
 });
 
@@ -2603,114 +2629,6 @@ app.post('/save-universal-corrections', checkAuth, canManagePayroll, async (req,
     }
 });
 
-app.post('/save-universal-corrections', async (req, res) => {
-    const { employee_id, month, year, corrections, changes, validation } = req.body;
-    
-    // Валидация на сервере
-    const errors = [];
-    
-    // Проверка математики
-    const totalGross = (corrections.basePay || 0) + (corrections.bonus || 0);
-    const totalDeductions = (corrections.penalty || 0) + (corrections.shortage || 0);
-    const expectedTotal = totalGross - totalDeductions;
-    
-    // Проверяем если corrections.totalToPay существует
-    if (corrections.totalToPay !== undefined) {
-        if (Math.abs(corrections.totalToPay - expectedTotal) > 0.01) {
-            errors.push('Ошибка в расчетах');
-        }
-    }
-    
-    // Проверка лимитов
-    // Проверка лимита карты - лимиты индивидуальные, проверяется в другом месте
-    // const totalCard = (corrections.advanceCard || 0) + (corrections.salaryCard || 0);
-    // if (totalCard > 8700) {
-    //     errors.push('Превышен лимит карты');
-    // }
-    
-    if (errors.length > 0) {
-        return res.status(400).json({ 
-            success: false, 
-            errors: errors 
-        });
-    }
-    
-    // Транзакция для атомарности операции
-    const connection = await pool.getConnection();
-    await connection.beginTransaction();
-    
-    try {
-        // Сохраняем корректировки в payroll_adjustments
-        await connection.query(
-            `INSERT INTO payroll_adjustments 
-            (employee_id, year, month, manual_bonus, penalty, shortage, bonus_reason, penalty_reason, updated_at) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE
-            manual_bonus = VALUES(manual_bonus),
-            penalty = VALUES(penalty),
-            shortage = VALUES(shortage),
-            bonus_reason = VALUES(bonus_reason),
-            penalty_reason = VALUES(penalty_reason),
-            updated_at = NOW()`,
-            [
-                employee_id,
-                year,
-                month,
-                corrections.bonus || 0,
-                corrections.penalty || 0,
-                corrections.shortage || 0,
-                corrections.bonusReason || '',
-                corrections.penaltyReason || ''
-            ]
-        );
-        
-        // Если есть таблица для логов (создайте если нет)
-        const checkTableExists = await connection.query(
-            "SHOW TABLES LIKE 'correction_logs'"
-        );
-        
-        if (checkTableExists[0].length === 0) {
-            // Создаем таблицу логов если её нет
-            await connection.query(`
-                CREATE TABLE correction_logs (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    employee_id INT,
-                    month INT,
-                    year INT,
-                    changes TEXT,
-                    checksum VARCHAR(255),
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_employee_date (employee_id, year, month)
-                )
-            `);
-        }
-        
-        // Логируем изменения
-        if (validation && validation.checksum) {
-            await connection.query(
-                'INSERT INTO correction_logs (employee_id, month, year, changes, checksum, created_at) VALUES (?, ?, ?, ?, ?, NOW())',
-                [employee_id, month, year, JSON.stringify(changes), validation.checksum]
-            );
-        }
-        
-        await connection.commit();
-        
-        res.json({ 
-            success: true, 
-            message: 'Изменения сохранены и проверены' 
-        });
-        
-    } catch (error) {
-        await connection.rollback();
-        console.error('Ошибка сохранения корректировок:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Ошибка сохранения: ' + error.message 
-        });
-    } finally {
-        connection.release();
-    }
-});
 
 // Фиксация универсальных расчетов
 app.post('/fix-universal-calculations', checkAuth, canManagePayroll, async (req, res) => {
@@ -3080,7 +2998,7 @@ app.get('/api/card-limit-types', checkAuth, canManagePayroll, async (req, res) =
     }
 });
 
-app.get('/api/employees-with-limits', checkAuth, async (req, res) => {
+app.get('/api/employees-with-limits', checkAuth, canManagePayroll, async (req, res) => {
     try {
         const { data: employeesRaw, error } = await supabase
             .from('employees')
@@ -3290,7 +3208,7 @@ app.get('/api/card-limit-history/:employee_id', checkAuth, canManagePayroll, asy
 });
 
 // ========== ПОЛУЧИТЬ ЛИМИТ КОНКРЕТНОГО СОТРУДНИКА ==========
-app.get('/api/get-employee-card-limit/:employee_id', checkAuth, async (req, res) => {
+app.get('/api/get-employee-card-limit/:employee_id', checkAuth, canManagePayroll, async (req, res) => {
     const { employee_id } = req.params;
     
     try {
