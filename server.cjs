@@ -138,6 +138,16 @@ app.use(cors({
 }));
 
 app.use(bodyParser.json());
+
+// === ЗАМЕР ВРЕМЕНИ ЗАПРОСОВ (диагностика) ===
+app.use((req, res, next) => {
+    const _t0 = Date.now();
+    res.on('finish', () => {
+        const ms = Date.now() - _t0;
+        if (ms > 700) console.log('[SLOW ' + ms + 'ms] ' + req.method + ' ' + req.originalUrl);
+    });
+    next();
+});
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 const lookupRouter = require('./routes/lookup');
@@ -1084,7 +1094,8 @@ const { data: dailyDataRaw, error: dailyError } = await supabase
                     console.log(`[Месячные данные] Исключен ${role}: ${fullname}`);
                     return false;
                 }
-                
+                       console.time('T1_fetch_calculations');
+ 
                 // Исключаем сотрудников без имени
                 if (fullname === '') {
                     console.log(`[Месячные данные] Исключен сотрудник без имени: ${calc.employee_id}`);
@@ -1127,6 +1138,8 @@ const { data: dailyDataRaw, error: dailyError } = await supabase
             } else {
                 finalCalculations = finalCalcs || [];
                 console.log(`Получено финальных расчетов: ${finalCalculations.length}`);
+                                console.timeEnd('T1_fetch_calculations');
+
             }
         } else {
             console.log('Таблица final_payroll_calculations не найдена, пропускаем загрузку финальных расчетов');
