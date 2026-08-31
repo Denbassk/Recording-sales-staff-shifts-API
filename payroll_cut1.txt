@@ -1,0 +1,320 @@
+
+    // Считаем общие суммы для отображения в заголовке
+    const totalBasePay = Object.values(employeeData).reduce((sum, data) => sum + data.totalPay, 0);
+    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+        "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+    const _storeOptions = [...new Set(sortedEmployees.map(function(e){return e[1].primaryStore;}))].sort()
+        .map(function(s){return '<option value="' + s + '">' + s + '</option>';}).join('');
+
+    let tableHtml = `
+    <h3><i class="ti ti-users"></i> Детализация по сотрудникам за ${monthNames[month - 1]} ${year}:</h3>
+    <p style="margin: 10px 0; color: var(--text-2);">Общая сумма начислений (база): <strong>${formatNumber(Math.round(totalBasePay))} грн</strong></p>
+    <div class="report-filter">
+        <div class="rf-search"><i class="ti ti-search"></i><input type="text" id="reportSearchName" placeholder="Поиск по фамилии…" oninput="filterMonthlyReport()"></div>
+        <select id="reportSearchStore" onchange="filterMonthlyReport()"><option value="">Все магазины</option>${_storeOptions}</select>
+        <span id="reportFilterCount"></span>
+    </div>
+    <datalist id="dlBonusReason">
+        <option value="Перевыполнение плана"><option value="Инициативность"><option value="Замена / подмена"><option value="Дополнительная работа"><option value="Наставничество">
+    </datalist>
+    <datalist id="dlPenaltyReason">
+        <option value="Нарушение дисциплины"><option value="Опоздание"><option value="Брак / порча товара"><option value="Недостача"><option value="Невыполнение обязанностей">
+    </datalist>
+    <div class="table-container">
+    <table id="monthlyReportTable" class="reasons-collapsed" style="font-size: 11px; white-space: nowrap;">
+        <thead class="monthly-report-head">
+            <tr>
+                <th rowspan="2" style="vertical-align: middle;">Сотрудник</th>
+                <th rowspan="2" style="vertical-align: middle;">Магазин</th>
+                <th rowspan="2" style="vertical-align: middle;">Всего начислено<br/>(база)</th>
+                <th rowspan="2" style="vertical-align: middle;">Бонусы</th>
+                <th colspan="1" class="grp-prem-head">Премирование</th>
+                <th colspan="1" class="grp-deprem-head">Депремирование</th>
+                <th rowspan="2" style="vertical-align: middle;">Вычет за<br/>недостачу</th>
+                <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(на карту)</th>
+                <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(наличные)</th>
+                <th rowspan="2" style="vertical-align: middle;">Остаток<br/>(на карту)</th>
+                <th rowspan="2" style="vertical-align: middle;">Зарплата<br/>(наличными)</th>
+                <th rowspan="2" style="vertical-align: middle;">Итого<br/>к выплате</th>
+                <th rowspan="2" style="vertical-align: middle;">Действия</th>
+            </tr>
+            <tr><th>Сумма</th><th class="col-reason">Причина</th><th>Сумма</th><th class="col-reason">Причина</th></tr>
+        </thead>
+        <tbody>`;
+
+    let _sGross=0, _sBonus=0, _sAdvCard=0, _sAdvCash=0, _sCardRem=0, _sCash=0, _sTotal=0;
+    if (sortedEmployees.length === 0) {
+        tableHtml += '<tr><td colspan="15" style="text-align: center; padding: 20px;">Нет данных для отображения за выбранный период.</td></tr>';
+    } else {
+        for (const [id, data] of sortedEmployees) {
+            const adj = adjustmentsMap.get(id) || { manual_bonus: 0, penalty: 0, shortage: 0, bonus_reason: '', penalty_reason: '' };
+
+            // Получаем финальный расчет если он есть
+            const finalCalc = finalCalcMap.get(id);
+
+            // Расчет итоговой суммы
+            const totalGross = data.totalPay + (adj.manual_bonus || 0);
+            const totalDeductions = (adj.penalty || 0) + (adj.shortage || 0);
+            const totalAfterDeductions = totalGross - totalDeductions;
+
+            // Используем сохраненные данные из финального расчета, если они есть
+            let advancePayment = 0;
+            let advanceCard = 0;
+            let advanceCash = 0;
+            let cardRemainder = 0;
+            let cashPayout = 0;
+            let isManualAdvance = false;
+            let manualAdvanceReason = '';
+            let isTermination = false;
+
+            if (finalCalc) {
+                // Если есть финальный расчет, берем ВСЕ данные из него
+                advancePayment = finalCalc.advance_payment || 0;
+                advanceCard = finalCalc.advance_card || 0;
+                advanceCash = finalCalc.advance_cash || 0;
+                cardRemainder = finalCalc.card_remainder || 0;
+                cashPayout = finalCalc.cash_payout || 0;
+                isManualAdvance = finalCalc.is_manual_adjustment || false;
+                manualAdvanceReason = finalCalc.adjustment_reason || '';
+                isTermination = finalCalc.is_termination || false;
+
+                console.log(`Для ${data.name} загружены финальные данные: аванс=${advancePayment}, остаток=${cardRemainder}, наличные=${cashPayout}`);
+            }
+
+            // ВАЖНО: Расчет остатка к выплате зависит от наличия финального расчета
+            let remainingToPay;
+            let hasCompleteCalculation = false;
+            
+            if (finalCalc) {
+                // Если есть финальный расчет (зафиксирован ИЛИ нет)
+                hasCompleteCalculation = true;
+                
+                if (finalCalc.is_fixed) {
+                    // Зафиксированный аванс - берём сохранённые значения
+                    remainingToPay = cardRemainder + cashPayout;
+                } else {
+                    // Не зафиксирован - рассчитываем остаток
+                    remainingToPay = totalAfterDeductions - advancePayment;
+                    
+                    // Если остаток не был рассчитан, распределяем его
+                    if (remainingToPay > 0 && cardRemainder === 0 && cashPayout === 0) {
+                        const maxCardTotal = (cardLimits && cardLimits[id]) || finalCalc.card_limit || 8700;
+                        const remainingCardCapacity = Math.max(0, maxCardTotal - advanceCard);
+                        remainingToPay = Math.round(remainingToPay);
+                        cardRemainder = Math.round(Math.min(remainingCardCapacity, remainingToPay));
+                        cashPayout = Math.max(0, remainingToPay - cardRemainder);
+                    }
+                    // «Итого к выплате» = фактическая выплата (карта + наличные) — целое, без копеек
+                    remainingToPay = cardRemainder + cashPayout;
+                }
+            } else {
+                // Нет финального расчета - предварительный расчет
+                remainingToPay = totalAfterDeductions - advancePayment;
+                hasCompleteCalculation = false;
+            }
+
+            _sGross += totalGross; _sBonus += (data.bonuses || 0);
+            _sAdvCard += advanceCard; _sAdvCash += advanceCash;
+            _sCardRem += cardRemainder; _sCash += cashPayout; _sTotal += Math.max(0, remainingToPay);
+
+            // Определяем содержимое для авансов на карту и наличными
+            let advanceCardContent = '0';
+            let advanceCashContent = '0';
+
+            // Определяем состояние аванса
+            if (isTermination) {
+                // Увольнение
+                if (advanceCash > 0 && advanceCard > 0) {
+                    advanceCardContent = `
+                    <span style="color: var(--dgr); font-weight: bold;" 
+                          title="Увольнение: ${manualAdvanceReason}">
+                        <i class="ti ti-credit-card"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCard)}
+                    </span>`;
+                    advanceCashContent = `
+                    <span style="color: var(--ok); font-weight: bold;" 
+                          title="Увольнение: ${manualAdvanceReason}">
+                        <i class="ti ti-cash"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCash)}
+                    </span>`;
+                } else if (advanceCash > 0) {
+                    advanceCashContent = `
+                    <span style="color: var(--ok); font-weight: bold;" 
+                          title="Увольнение: ${manualAdvanceReason}">
+                        <i class="ti ti-cash"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCash)}
+                    </span>`;
+                    advanceCardContent = '0';
+                } else {
+                    advanceCardContent = `
+                    <span style="color: var(--dgr); font-weight: bold;" 
+                          title="Увольнение: ${manualAdvanceReason}">
+                        <i class="ti ti-credit-card"></i> <i class="ti ti-door-exit"></i> ${formatNumber(advanceCard)}
+                    </span>`;
+                    advanceCashContent = '0';
+                }
+            } else if (isManualAdvance) {
+                // Ручная корректировка
+                if (advanceCash > 0 && advanceCard > 0) {
+                    advanceCardContent = `
+                    <span style="color: var(--dgr); font-weight: bold;" 
+                          title="Ручная корректировка: ${manualAdvanceReason}">
+                        <i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCard)}
+                    </span>`;
+                    advanceCashContent = `
+                    <span style="color: var(--ok); font-weight: bold;" 
+                          title="Ручная корректировка: ${manualAdvanceReason}">
+                        <i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCash)}
+                    </span>`;
+                } else if (advanceCash > 0) {
+                    advanceCashContent = `
+                    <span style="color: var(--ok); font-weight: bold;" 
+                          title="Ручная корректировка: ${manualAdvanceReason}">
+                        <i class="ti ti-cash"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCash)}
+                    </span>`;
+                    advanceCardContent = '0';
+                } else {
+                    advanceCardContent = `
+                    <span style="color: var(--dgr); font-weight: bold;" 
+                          title="Ручная корректировка: ${manualAdvanceReason}">
+                        <i class="ti ti-credit-card"></i> <i class="ti ti-pencil"></i> ${formatNumber(advanceCard)}
+                    </span>`;
+                    advanceCashContent = '0';
+                }
+            } else if (finalCalc && finalCalc.is_fixed) {
+                // Зафиксированный аванс
+                if (advanceCash > 0) {
+                    advanceCashContent = `
+                    <strong style="color: var(--ok);" title="Аванс зафиксирован (наличные)">
+                        <i class="ti ti-lock"></i> <i class="ti ti-cash"></i> ${formatNumber(advanceCash)}
+                    </strong>`;
+                    advanceCardContent = '0';
+                } else {
+                    advanceCardContent = `
+                    <strong style="color: var(--dgr);" title="Аванс зафиксирован (карта)">
+                        <i class="ti ti-lock"></i> <i class="ti ti-credit-card"></i> ${formatNumber(advanceCard)}
+                    </strong>`;
+                    advanceCashContent = '0';
+                }
+            } else if (finalCalc) {
+                // Есть финальный расчет, но аванс не помечен как зафиксированный
+                if (advanceCash > 0) {
+                    advanceCashContent = `<strong style="color: var(--ok);"><i class="ti ti-cash"></i> ${formatNumber(advanceCash)}</strong>`;
+                    advanceCardContent = '0';
+                } else {
+                    advanceCardContent = `<strong><i class="ti ti-credit-card"></i> ${formatNumber(advanceCard)}</strong>`;
+                    advanceCashContent = '0';
+                }
+            } else {
+                // Расчетный аванс (еще не зафиксирован) - по умолчанию на карту
+                advanceCardContent = `
+                <span style="color: var(--text-2);" title="Расчетный аванс">
+                    ${formatNumber(advanceCard)}
+                </span>`;
+                advanceCashContent = '0';
+            }
+
+            // Добавляем класс для выделения если есть финальный расчет
+            const rowClass = finalCalc ? 'has-final-calc' : '';
+
+            // Добавляем строку в таблицу
+tableHtml += `<tr class="${rowClass}" 
+            data-employee-id="${id}" 
+            data-employee-name="${data.name}" 
+            data-store-address="${data.primaryStore}" 
+            data-month="${month}" 
+            data-year="${year}" 
+            data-base-pay="${data.totalPay}" data-b-percent="${data.bPercent}" data-b-bag="${data.bBag}" data-b-coffee="${data.bCoffee}" data-b-culinary="${data.bCulinary}" data-base-rate="${data.baseRate}" data-old-bonus="${data.oldBonus}" 
+            data-card-limit="${(cardLimits && cardLimits[id]) || finalCalc?.card_limit || 8700}" data-is-fixed="${finalCalc && finalCalc.is_fixed ? '1' : '0'}"
+data-shifts='${JSON.stringify(data.shifts)}'>
+            <td style="padding: 5px;">
+    ${data.name}
+    ${finalCalc?.card_limit_type_id === 2 ?
+                '<span style="margin-left:5px;font-size:10px;padding:2px 7px;border-radius:20px;background:var(--brand-ghost);color:var(--brand);border:.5px solid var(--brand);font-weight:500;">VIP</span>' 
+        : ''}
+</td>
+            <td style="padding: 5px; font-size: 10px;">${data.primaryStore}</td>
+            <td class="total-gross" style="padding: 5px;text-align:right;">${formatNumber(Math.round(totalGross))}</td>
+            <td class="bonus-cell" style="padding: 5px; text-align:right;" title="${data.bonuses > 0 ? 'Процент ' + formatNumber(data.bPercent) + ' · Пакеты ' + formatNumber(data.bBag) + ' · Кофе ' + formatNumber(data.bCoffee) + ' · Кулинария ' + formatNumber(data.bCulinary) : 'Бонусы начисляются с 16.07'}">${data.bonuses > 0 ? formatNumber(Math.round(data.bonuses)) : '—'}</td>
+            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
+            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" list="dlBonusReason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+            <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
+            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" list="dlPenaltyReason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
+            <td style="padding: 5px;">
+    <input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;">
+    <button onclick="manageShortages('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Управление недостачами"><i class="ti ti-clipboard-list"></i></button>
+</td>
+            <td class="advance-payment-card" style="padding: 5px;text-align:right;">
+                <span class="advance-card-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCardContent}</span>
+            </td>
+            <td class="advance-payment-cash" style="padding: 5px;text-align:right;">
+                <span class="advance-cash-content" data-employee-id="${id}" data-employee-name="${data.name}">${advanceCashContent}</span>
+            </td>
+            <td class="card-remainder" style="padding: 5px;text-align:right; ${!hasCompleteCalculation ? 'color: #ccc;' : (cardRemainder > 0 ? 'color: var(--ok); font-weight: bold;' : '')}">
+    ${hasCompleteCalculation ? formatNumber(cardRemainder) : '—'}
+    ${hasCompleteCalculation ? `<button onclick="adjustCardRemainder('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Корректировать остаток"><i class="ti ti-pencil"></i></button>` : ''}
+</td>
+            <td class="cash-payout" style="padding: 5px;text-align:right; ${!hasCompleteCalculation ? 'color: #ccc;' : ''}">
+                ${hasCompleteCalculation ? (cashPayout > 0 ? `<strong style="color: #007bff;">${formatNumber(cashPayout)}</strong>` : formatNumber(cashPayout)) : '—'}
+            </td>
+            <td class="total-payout" style="padding: 5px;text-align:right;">
+                <strong title="${hasCompleteCalculation ? 'Итоговый расчет выполнен' : 'Предварительный расчет'}">${formatNumber(remainingToPay)}</strong>
+            </td>
+            <td style="padding: 5px;">
+                <button onclick="ucModal.open('${id}', '${data.name}', ${month}, ${year})" class="secondary" style="padding:5px 10px;font-size:12px" title="Окно корректировок"><i class="ti ti-adjustments-alt"></i> Все корректировки</button>
+            </td>
+        </tr>`;
+        }
+    }
+
+    tableHtml += `<tr class="report-total-row summary-row" style="font-weight:600;background:var(--surface-2);border-top:2px solid var(--border-strong);">
+        <td>ИТОГО</td>
+        <td></td>
+        <td id="ft-gross" style="text-align:right;">${formatNumber(_sGross)}</td>
+        <td id="ft-bonus" style="text-align:right;">${formatNumber(_sBonus)}</td>
+        <td></td><td class="col-reason"></td><td></td><td class="col-reason"></td>
+        <td></td>
+        <td id="ft-advcard" style="text-align:right;">${formatNumber(_sAdvCard)}</td>
+        <td id="ft-advcash" style="text-align:right;">${formatNumber(_sAdvCash)}</td>
+        <td id="ft-cardrem" style="text-align:right;color:var(--ok);">${formatNumber(_sCardRem)}</td>
+        <td id="ft-cash" style="text-align:right;color:var(--brand);">${formatNumber(_sCash)}</td>
+        <td id="ft-total" style="text-align:right;">${formatNumber(_sTotal)}</td>
+        <td></td>
+    </tr>`;
+    tableHtml += `</tbody></table></div>`;
+
+    if (finalCalcMap.size > 0) {
+        let totalAdvanceCard = 0;
+        let totalAdvanceCash = 0;
+        let totalCardRemainder = 0;
+        let totalCash = 0;
+        
+        Array.from(finalCalcMap.values()).forEach(calc => {
+            totalAdvanceCard += (calc.advance_card || 0);
+            totalAdvanceCash += (calc.advance_cash || 0);
+            totalCardRemainder += (calc.card_remainder || 0);
+            totalCash += (calc.cash_payout || 0);
+        });
+        
+        const manualAdjustmentsCount = Array.from(finalCalcMap.values()).filter(calc => calc.is_manual_adjustment).length;
+        const cashAdvanceCount = Array.from(finalCalcMap.values()).filter(calc => calc.advance_cash > 0).length;
+        
+        let infoMessage = `
+            <strong>Загружены финальные расчеты</strong><br>
+            Аванс на карту: ${formatNumber(totalAdvanceCard)} грн | 
+            Аванс наличными: ${formatNumber(totalAdvanceCash)} грн<br>
+            Остаток на карту: ${formatNumber(totalCardRemainder)} грн | 
+            Зарплата наличными: ${formatNumber(totalCash)} грн
+        `;
+        
+        if (manualAdjustmentsCount > 0) {
+            infoMessage += `<br><span style="color: var(--dgr);"><i class="ti ti-pencil"></i> Ручных корректировок аванса: ${manualAdjustmentsCount}</span>`;
+        }
+        if (cashAdvanceCount > 0) {
+            infoMessage += `<br><span style="color: var(--ok);"><i class="ti ti-cash"></i> Авансов наличными: ${cashAdvanceCount}</span>`;
+        }
+        
+        const existingInfoPanel = document.querySelector('#monthlyReportContent .status.info');
+        if (existingInfoPanel) {
+            existingInfoPanel.innerHTML = infoMessage;
+        } else {
+            tableHtml = `
+                <div class="status info" style="margin-bottom: 15px;">
+                    ${infoMessage}

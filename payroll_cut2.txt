@@ -1,0 +1,200 @@
+                }
+            });
+        } else {
+            // Убираем замки
+            [advanceCardCell, advanceCashCell].forEach(cell => {
+                if (cell) {
+                    cell.innerHTML = cell.innerHTML.replaceAll('<i class="ti ti-lock"></i> ', '').replaceAll('<i class="ti ti-lock"></i>', '');
+                }
+            });
+        }
+    });
+}
+
+
+
+ // Функция отмены фиксации аванса
+async function cancelAdvancePayment() {
+    const year = document.getElementById('reportYear')?.value;
+    const month = document.getElementById('reportMonth')?.value;
+
+    if (!year || !month) {
+        showStatus('reportStatus', 'Сначала выберите период', 'error');
+        return;
+    }
+
+    // Проверяем, есть ли зафиксированный аванс
+    const tableRows = document.querySelectorAll('#monthlyReportTable tbody tr');
+    let hasFixedAdvance = false;
+    
+    if (tableRows.length === 0) {
+        showStatus('reportStatus', 'Сначала сформируйте отчет', 'info');
+        return;
+    }
+    
+    tableRows.forEach(row => {
+        const advanceCardCell = row.querySelector('.advance-payment-card');
+        const advanceCashCell = row.querySelector('.advance-payment-cash');
+        if ((advanceCardCell && advanceCardCell.innerHTML.includes('<i class="ti ti-lock"></i>')) || 
+            (advanceCashCell && advanceCashCell.innerHTML.includes('<i class="ti ti-lock"></i>'))) {
+            hasFixedAdvance = true;
+        }
+    });
+
+    if (!hasFixedAdvance) {
+        showStatus('reportStatus', 'Нет зафиксированного аванса для отмены', 'info');
+        return;
+    }
+
+    const cancellationReason = prompt(
+        'Укажите причину отмены фиксации аванса:\n' +
+        '(например: "Ошибка в расчете", "Изменение даты выплаты" и т.д.)'
+    );
+
+    if (!cancellationReason) {
+        showStatus('reportStatus', 'Отмена не выполнена - не указана причина', 'info');
+        return;
+    }
+
+    if (!confirm('Вы уверены, что хотите отменить фиксацию аванса?')) {
+        return;
+    }
+
+    showStatus('reportStatus', 'Отменяем фиксацию аванса...', 'info');
+
+    try {
+        const result = await fetchData(
+            `${API_BASE}/cancel-advance-payment`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    year: parseInt(year),
+                    month: parseInt(month),
+                    cancellationReason
+                })
+            },
+            'reportStatus'
+        );
+
+        if (result.success) {
+            showStatus('reportStatus', result.message, 'success');
+
+            // ВАЖНО: Убираем визуальную индикацию фиксации из таблицы
+            tableRows.forEach(row => {
+                // Обработка колонки "Аванс (на карту)"
+                const advanceCardCell = row.querySelector('.advance-payment-card');
+                if (advanceCardCell) {
+                    const cardSpan = advanceCardCell.querySelector('.advance-card-content');
+                    if (cardSpan) {
+                        let currentHTML = cardSpan.innerHTML;
+                        // Убираем символ замка и пробелы
+                        currentHTML = currentHTML.replaceAll('<i class="ti ti-lock"></i> ', '').replaceAll('<i class="ti ti-lock"></i>', '');
+                        // Убираем дополнительные пробелы между иконками
+                        currentHTML = currentHTML.replace(/\s+/g, ' ').trim();
+                        cardSpan.innerHTML = currentHTML;
+                    }
+                }
+                
+                // Обработка колонки "Аванс (наличные)"
+                const advanceCashCell = row.querySelector('.advance-payment-cash');
+                if (advanceCashCell) {
+                    const cashSpan = advanceCashCell.querySelector('.advance-cash-content');
+                    if (cashSpan) {
+                        let currentHTML = cashSpan.innerHTML;
+                        // Убираем символ замка и пробелы
+                        currentHTML = currentHTML.replaceAll('<i class="ti ti-lock"></i> ', '').replaceAll('<i class="ti ti-lock"></i>', '');
+                        // Убираем дополнительные пробелы между иконками
+                        currentHTML = currentHTML.replace(/\s+/g, ' ').trim();
+                        cashSpan.innerHTML = currentHTML;
+                    }
+                }
+                
+                // Если есть старые ячейки .advance-payment (для совместимости)
+                const oldAdvanceCell = row.querySelector('.advance-payment');
+                if (oldAdvanceCell) {
+                    let currentHTML = oldAdvanceCell.innerHTML;
+                    currentHTML = currentHTML.replaceAll('<i class="ti ti-lock"></i> ', '').replaceAll('<i class="ti ti-lock"></i>', '');
+                    currentHTML = currentHTML.replace(/<strong[^>]*>/g, '');
+                    currentHTML = currentHTML.replace(/<\/strong>/g, '');
+                    oldAdvanceCell.innerHTML = currentHTML;
+                    oldAdvanceCell.style = '';
+                }
+            });
+
+            // Убираем уведомление о фиксации
+            const notice = document.getElementById('advance-fixed-notice');
+            if (notice) {
+                notice.remove();
+            }
+
+            // Убираем все другие возможные индикаторы фиксации
+            const allFixedNotices = document.querySelectorAll('[id*="fixed"], .fixed-notice, .advance-fixed');
+            allFixedNotices.forEach(el => el.remove());
+
+            // ВАЖНО: Пересчитываем аванс заново
+            setTimeout(() => {
+                calculateAdvance15(true); // silent = true
+            }, 500);
+        }
+    } catch (error) {
+        console.error('Ошибка отмены фиксации:', error);
+        showStatus('reportStatus', `Ошибка: ${error.message}`, 'error');
+    }
+}
+
+// Функция для показа диалога новых сотрудников
+async function showNewEmployeesDialog(newEmployees, month, year) {
+    // Создаем HTML для диалогового окна
+    let dialogHTML = `
+        <div id="newEmployeesModal" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        ">
+            <div style="
+                background: var(--surface);
+                border-radius: 10px;
+                padding: 20px;
+                max-width: 800px;
+                max-height: 80vh;
+                overflow-y: auto;
+                box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            ">
+                <h2 style="color: var(--brand); margin-bottom: 20px;">
+                    Обнаружены сотрудники с малым количеством смен
+                </h2>
+                <p style="margin-bottom: 20px; color: var(--text-2);">
+                    Следующие сотрудники отработали от 1 до 5 смен. Примите решение по каждому:
+                </p>
+                <div id="newEmployeesList">`;
+    
+    newEmployees.forEach((emp, index) => {
+        // ИЗМЕНЕНО: Убран хардкод 7900 - теперь просто 90% без ограничения (лимит применяется на сервере)
+        const calculatedAdvance = Math.floor(emp.earned_amount * 0.9 / 100) * 100;
+        
+        dialogHTML += `
+            <div class="employee-decision-block" data-employee-id="${emp.employee_id}" style="
+                border: 1px solid var(--border);
+                border-radius: 8px;
+                padding: 15px;
+                margin-bottom: 15px;
+                background: var(--surface-2);
+            ">
+                <h3 style="margin: 0 0 10px 0; color: var(--text);">
+                    ${index + 1}. ${emp.employee_name} 
+                    <span style="
+                        background: var(--warn-bg);
+                        color: var(--warn);
+                        padding: 2px 8px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        margin-left: 10px;

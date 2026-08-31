@@ -18,6 +18,80 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// ===== КЭШ ЛИМИТОВ КАРТ (убирает N+1 при расчёте зарплаты) =====
+const CARD_LIMIT_TTL_MS = 5 * 60 * 1000;
+const CARD_LIMIT_SELECT = 'id, card_limit_type_id, card_limit_types!card_limit_type_id ( limit_name, card_limit, max_advance, advance_percentage )';
+const cardLimitCache = new Map();
+let cardLimitWarmedAt = 0;
+let cardLimitWarmPromise = null;
+
+function cardLimitFromRow(row) {
+    const t = row && row.card_limit_types;
+    if (!t) return null;
+    return {
+        cardLimit: t.card_limit,
+        maxAdvance: t.max_advance,
+        advancePercentage: t.advance_percentage || 0.9,
+        limitName: t.limit_name,
+        limitTypeId: row.card_limit_type_id
+    };
+}
+
+function cardLimitCacheGet(id) {
+    const key = String(id);
+    const hit = cardLimitCache.get(key);
+    if (!hit) return null;
+    if (hit.expires < Date.now()) { cardLimitCache.delete(key); return null; }
+    return hit.value;
+}
+
+function cardLimitCacheSet(id, value, ttl = CARD_LIMIT_TTL_MS) {
+    cardLimitCache.set(String(id), { value, expires: Date.now() + ttl });
+}
+
+function invalidateCardLimitCache(id = null) {
+    if (id === null || id === undefined) { cardLimitCache.clear(); cardLimitWarmedAt = 0; }
+    else cardLimitCache.delete(String(id));
+}
+
+// Один запрос на всех сотрудников вместо запроса на каждого
+async function warmAllCardLimits() {
+    if (Date.now() - cardLimitWarmedAt < CARD_LIMIT_TTL_MS) return;
+    if (cardLimitWarmPromise) return cardLimitWarmPromise;
+    cardLimitWarmPromise = (async () => {
+        try {
+            const { data, error } = await supabase
+                .from('employees')
+                .select(CARD_LIMIT_SELECT)
+                .range(0, 4999);
+            if (error) { console.warn('warmAllCardLimits:', error.message); return; }
+            (data || []).forEach(row => {
+                cardLimitCacheSet(row.id, cardLimitFromRow(row) || { ...DEFAULT_LIMITS.STANDARD });
+            });
+            cardLimitWarmedAt = Date.now();
+            console.log(`Лимиты карт закэшированы: ${cardLimitCache.size} сотрудников`);
+        } finally {
+            cardLimitWarmPromise = null;
+        }
+    })();
+    return cardLimitWarmPromise;
+}
+
+// Авто-сброс кэша при любой записи в employees / card_limit_types
+const _supabaseFrom = supabase.from.bind(supabase);
+supabase.from = function (table) {
+    const b = _supabaseFrom(table);
+    if (table === 'employees' || table === 'card_limit_types') {
+        ['insert', 'update', 'upsert', 'delete'].forEach(m => {
+            const orig = b[m];
+            if (typeof orig === 'function') {
+                b[m] = function (...args) { invalidateCardLimitCache(); return orig.apply(b, args); };
+            }
+        });
+    }
+    return b;
+};
+
 const app = express();
 app.set('trust proxy', 1);
 
@@ -114,6 +188,21 @@ async function withLock(key, operation) {
 
 // ========== ФУНКЦИЯ ПОЛУЧЕНИЯ ЛИМИТОВ КАРТЫ ==========
 async function getEmployeeCardLimit(employee_id) {
+    if (!employee_id) return { ...DEFAULT_LIMITS.STANDARD };
+
+    const cached = cardLimitCacheGet(employee_id);
+    if (cached) return { ...cached };
+
+    await warmAllCardLimits();
+    const warmed = cardLimitCacheGet(employee_id);
+    if (warmed) return { ...warmed };
+
+    const fresh = await getEmployeeCardLimitRaw(employee_id);
+    cardLimitCacheSet(employee_id, fresh, 30 * 1000);
+    return { ...fresh };
+}
+
+async function getEmployeeCardLimitRaw(employee_id) {
     try {
         const { data: employee, error } = await supabase
             .from('employees')
@@ -806,23 +895,21 @@ for (const employee of storeEmployees) {
                         bonus_details: payDetails.bonusDetails  // ВАЖНО: добавлено поле bonus_details
                     };
                     
-                    // ИСПРАВЛЕННОЕ СОХРАНЕНИЕ С ОБРАБОТКОЙ ОШИБОК
-                    try {
-                        const { data: savedCalc, error: saveError } = await supabase
-                            .from('payroll_calculations')
-                            .upsert(calculation, { onConflict: 'employee_id,work_date' });
-                        
-                        if (saveError) {
-                            console.error(`Ошибка сохранения для ${employee.employee_name} за ${date}:`, saveError);
-                        }
-                    } catch (err) {
-                        console.error(`Критическая ошибка при сохранении:`, err);
-                    }
-                    
                     calculations.push(calculation);
                 }
             }
             
+            // Одна пакетная запись вместо отдельного запроса на каждого сотрудника
+            if (calculations.length > 0) {
+                const { error: saveError } = await supabase
+                    .from('payroll_calculations')
+                    .upsert(calculations, { onConflict: 'employee_id,work_date' });
+                if (saveError) {
+                    console.error(`Ошибка пакетного сохранения за ${date}:`, saveError);
+                    return res.status(500).json({ success: false, error: 'Не удалось сохранить расчёт: ' + saveError.message });
+                }
+            }
+
             const totalPayroll = calculations.reduce((sum, c) => sum + c.total_pay, 0);
             await logFinancialOperation('calculate_payroll', { date, employeesCount: calculations.length, totalPayroll }, req.user.id);
             res.json({ success: true, calculations, summary: { date, total_employees: calculations.length, total_payroll: totalPayroll } });

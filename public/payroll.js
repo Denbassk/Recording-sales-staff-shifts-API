@@ -1608,8 +1608,8 @@ function displayMonthlyReport(dailyData, adjustments, month, year, finalCalculat
                 <th rowspan="2" style="vertical-align: middle;">Магазин</th>
                 <th rowspan="2" style="vertical-align: middle;">Всего начислено<br/>(база)</th>
                 <th rowspan="2" style="vertical-align: middle;">Бонусы</th>
-                <th colspan="1" class="grp-prem-head">Премирование</th>
-                <th colspan="1" class="grp-deprem-head">Депремирование</th>
+                <th colspan="2" class="grp-prem-head">Премирование</th>
+                <th colspan="2" class="grp-deprem-head">Депремирование</th>
                 <th rowspan="2" style="vertical-align: middle;">Вычет за<br/>недостачу</th>
                 <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(на карту)</th>
                 <th rowspan="2" style="vertical-align: middle;">Аванс<br/>(наличные)</th>
@@ -3112,6 +3112,18 @@ function updateAdvanceDisplay(tableRows, isFixed) {
 }
 
 
+
+// Чекбокс массового снятия фиксаций (обёртка над cancelAdvancePayment)
+async function unlockAllFixations(el) {
+    if (!el.checked) return;
+    el.disabled = true;
+    try {
+        await cancelAdvancePayment();
+    } finally {
+        el.checked = false;
+        el.disabled = false;
+    }
+}
 
  // Функция отмены фиксации аванса
 async function cancelAdvancePayment() {

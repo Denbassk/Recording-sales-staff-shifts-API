@@ -1,0 +1,340 @@
+    }
+});
+
+app.post('/calculate-payroll', checkAuth, canManagePayroll, async (req, res) => {
+    const { date } = req.body;
+    const dateValidation = validateDate(date);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
+    
+    const revenueDateString = date;
+
+    return withLock(`payroll_${date}`, async () => {
+        try {
+// ✅ ШАГ 1: Получаем смены БЕЗ JOIN с employees
+const { data: shiftsRaw, error: shiftsError } = await supabase
+    .from('shifts')
+    .select('store_id, employee_id, stores(address)')
+    .eq('shift_date', date);
+
+            if (shiftsError) throw shiftsError;
+            if (!shiftsRaw || shiftsRaw.length === 0) {
+                return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
+            }
+
+            // ✅ ШАГ 2: Получаем employee_ids из смен
+            const employeeIdsPayroll = [...new Set(shiftsRaw.map(s => s.employee_id))];
+
+            // ✅ ШАГ 3: Получаем данные сотрудников
+const { data: employeesPayroll, error: empPayError } = await supabase
+    .from('employees')
+    .select('id, fullname, role, fixed_rate')
+    .in('id', employeeIdsPayroll);
+
+
+            if (empPayError) throw empPayError;
+
+            // ✅ ШАГ 4: Создаем мапу
+            const employeesPayrollMap = new Map(
+                employeesPayroll.map(emp => [emp.id, emp])
+            );
+
+            // Уже начисленные бонусы за этот день — чтобы «Зарплата по дням» НЕ затирала их в total_pay.
+            // Иначе пересчёт дня после «Пересчитать бонусы» обнуляет бонусы в итоге (колонки остаются, а total_pay = ставка).
+            const { data: _existExtras } = await supabase.from('payroll_calculations')
+                .select('employee_id, sales_percent, bag_bonus, coffee_bonus, culinary_bonus')
+                .eq('work_date', date);
+            const extrasByEmp = new Map((_existExtras || []).map(e => [e.employee_id,
+                (Number(e.sales_percent) || 0) + (Number(e.bag_bonus) || 0) + (Number(e.coffee_bonus) || 0) + (Number(e.culinary_bonus) || 0)]));
+
+            // ✅ ШАГ 5: Обогащаем смены данными о сотрудниках и фильтруем
+            const shifts = shiftsRaw
+                .map(shift => {
+                    const employee = employeesPayrollMap.get(shift.employee_id);
+                    return {
+                        ...shift,
+                        employees: employee ? {
+    id: employee.id,
+    fullname: employee.fullname,
+    role: employee.role,
+    fixed_rate: employee.fixed_rate || null
+} : null
+
+                    };
+                })
+                .filter(shift => {
+                    if (!shift.employees) return false;
+                    
+                    const role = shift.employees.role;
+                    const fullname = (shift.employees.fullname || '').trim();
+                    
+                    // Пропускаем админов и бухгалтеров
+                    if (role === 'admin' || role === 'accountant') {
+                        console.log(`[Расчет ЗП] Исключен ${role}: ${fullname}`);
+                        return false;
+                    }
+                    
+                    // Пропускаем сотрудников без имени
+                    if (fullname === '') {
+                        console.log(`[Расчет ЗП] Исключен сотрудник без имени: ${shift.employees.id}`);
+                        return false;
+                    }
+                    
+                    return true;
+                });
+
+            console.log(`Дата: ${date}, Смен до фильтрации: ${shiftsRaw.length}, после фильтрации: ${shifts.length}`);
+
+            if (shifts.length === 0) {
+                return res.json({ success: true, calculations: [], summary: { date, total_employees: 0, total_payroll: 0 } });
+            }
+
+const storeShifts = {};
+shifts.forEach(shift => {
+    if (!shift.employees) return;
+    const address = shift.stores?.address || 'Старший продавец';
+    if (!storeShifts[address]) storeShifts[address] = [];
+    storeShifts[address].push({
+        employee_id: shift.employees.id,
+        employee_name: shift.employees.fullname,
+        store_id: shift.store_id,
+        fixed_rate: shift.employees.fixed_rate || null
+    });
+});
+            
+            const uniqueStoreIds = [...new Set(shifts.map(s => s.store_id).filter(id => id))];
+            
+            const revenueMap = new Map();
+            if (uniqueStoreIds.length > 0) {
+                const { data: revenueData } = await supabase.from('daily_revenue')
+                    .select('store_id, revenue')
+                    .in('store_id', uniqueStoreIds)
+                    .eq('revenue_date', revenueDateString);
+                
+                if (revenueData) {
+                    revenueData.forEach(item => {
+                        revenueMap.set(item.store_id, item.revenue || 0);
+                    });
+                }
+            }
+            
+            // =================== БЛОК ЗАЩИТЫ ОТ НАЧИСЛЕНИЯ БЕЗ КАССЫ ===================
+            const totalRevenueForDay = Array.from(revenueMap.values()).reduce((sum, current) => sum + current, 0);
+            if (totalRevenueForDay === 0) {
+                console.warn(`Расчет ЗП за ${date} остановлен: общая выручка за день равна 0. Начисления производиться не будут.`);
+                return res.json({ 
+                    success: true, 
+                    calculations: [], 
+                    summary: { date, total_employees: 0, total_payroll: 0 } 
+                });
+            }
+            // ================= КОНЕЦ БЛОКА ЗАЩИТЫ ================
+
+            // Плавающие ставки (новые правила с 16.07.2026): среднедневной выторг пред. месяца по магазину.
+            // Для дат до 16.07 floatingRates пустой -> работает прежний расчёт, ничего не меняется.
+            const isNewRulesDay = isNewRulesDate(date);
+            const floatingRates = isNewRulesDay ? await getStoreFloatingRates(date, uniqueStoreIds) : new Map();
+
+            const calculations = [];
+            for (const [storeAddress, storeEmployees] of Object.entries(storeShifts)) {
+                let revenue = 0;
+                let hasRevenue = true;
+                
+                if (storeAddress !== 'Старший продавец') {
+                    const storeId = storeEmployees[0]?.store_id;
+                    if (storeId) {
+                        revenue = revenueMap.get(storeId) || 0;
+                        hasRevenue = revenue > 0;
+                    } else {
+                        hasRevenue = false;
+                    }
+                }
+                
+const numSellers = storeEmployees.length;
+for (const employee of storeEmployees) {
+    const isSenior = employee.employee_id.startsWith('SProd');
+    const fixedRate = employee.fixed_rate || null;
+    const workDate = new Date(date);
+    const newRulesDate = new Date('2026-07-01');
+    const isNewRules = workDate >= newRulesDate;
+    
+    // Полевая-магазин (store_id = 38) — специальные правила с 1.07.2026
+    const POLEVAYA_STORE_ID = 38;
+    const isPolevayaStore = employee.store_id === POLEVAYA_STORE_ID;
+    const isPolevayaAttached = employee.employee_id.startsWith('Prod38_');
+    
+    let payDetails;
+    
+    if (fixedRate && fixedRate > 0) {
+        // Явно заданная фикс ставка — всегда приоритет
+        payDetails = calculateDailyPay(0, 0, false, fixedRate);
+        
+    } else if (isSenior) {
+        payDetails = calculateDailyPay(0, 0, true);
+        
+    } else if (isNewRules && isPolevayaStore) {
+        // Новые правила с 1.07.2026 для Полевая-магазин
+        if (isPolevayaAttached) {
+            // Привязан к Полевой → фикс 1200 грн
+            payDetails = calculateDailyPay(0, 0, false, 1200);
+            console.log(`[Полевая] ${employee.employee_name}: привязан → фикс 1200 грн`);
+        } else {
+            // Не привязан, просто работает здесь → 975 грн
+            payDetails = calculateDailyPay(0, 0, false, 975);
+            console.log(`[Полевая] ${employee.employee_name}: не привязан → 975 грн`);
+        }
+        
+    } else if (isNewRulesDay && hasRevenue) {
+        // Новые правила с 16.07.2026: плавающая ставка по среднедневному выторгу пред. месяца.
+        // Процент от кассы (минус ДЛ Солюшн) и доп.бонусы начисляются отдельным месячным расчётом.
+        const fr = floatingRates.get(employee.store_id) || { rate: rateFromAvgRevenue(0), avg: 0, days: 0, periodFrom: '', periodTo: '' };
+        payDetails = {
+            baseRate: fr.rate,
+            bonus: 0,
+            totalPay: fr.rate,
+            bonusDetails: `Плавающая ставка ${fr.rate} грн/смена (среднедневной выторг ${fr.periodFrom}...${fr.periodTo}: ${Math.round(fr.avg)} грн, дней: ${fr.days}). Процент и доп.бонусы — месячным расчётом.`
+        };
+    } else if (hasRevenue) {
+        payDetails = calculateDailyPay(revenue, numSellers, false);
+        
+    } else {
+        payDetails = { baseRate: 0, bonus: 0, totalPay: 0, bonusDetails: 'Нет выручки' };
+    }
+                    
+                    const calculation = {
+                        employee_id: employee.employee_id,
+                        employee_name: employee.employee_name,
+                        store_address: storeAddress,
+                        store_id: employee.store_id,
+                        work_date: date,
+                        revenue,
+                        num_sellers: numSellers,
+                        is_senior: isSenior,
+                        base_rate: payDetails.baseRate,
+                        bonus: payDetails.bonus,
+                        // total_pay = ставка + старый бонус + уже начисленные новые бонусы (сохраняем, не затираем)
+                        total_pay: payDetails.totalPay + (extrasByEmp.get(employee.employee_id) || 0),
+                        bonus_details: payDetails.bonusDetails  // ВАЖНО: добавлено поле bonus_details
+                    };
+                    
+                    // ИСПРАВЛЕННОЕ СОХРАНЕНИЕ С ОБРАБОТКОЙ ОШИБОК
+                    try {
+                        const { data: savedCalc, error: saveError } = await supabase
+                            .from('payroll_calculations')
+                            .upsert(calculation, { onConflict: 'employee_id,work_date' });
+                        
+                        if (saveError) {
+                            console.error(`Ошибка сохранения для ${employee.employee_name} за ${date}:`, saveError);
+                        }
+                    } catch (err) {
+                        console.error(`Критическая ошибка при сохранении:`, err);
+                    }
+                    
+                    calculations.push(calculation);
+                }
+            }
+            
+            const totalPayroll = calculations.reduce((sum, c) => sum + c.total_pay, 0);
+            await logFinancialOperation('calculate_payroll', { date, employeesCount: calculations.length, totalPayroll }, req.user.id);
+            res.json({ success: true, calculations, summary: { date, total_employees: calculations.length, total_payroll: totalPayroll } });
+        } catch(error) {
+            console.error(`Ошибка при расчете ЗП за ${date}:`, error);
+            res.status(500).json({ success: false, error: `Внутренняя ошибка сервера при расчете ЗП.` });
+        }
+    });
+});
+
+
+// --- ПЕРЕСЧЁТ EXTRAS (Блок 2 процент + Блок 3 доп.бонусы), новые правила с 16.07.2026 ---
+// Идемпотентно: агрегаты BigQuery (ДЛ/пакеты/кофе/кулинария) + касса/смены → доли продавцам,
+// пишет в payroll_calculations и пересобирает total_pay = base_rate + процент + бонусы.
+// Только даты >= NEW_RULES_START; требует, чтобы ставка (/calculate-payroll) уже была посчитана.
+app.post('/calculate-payroll-extras', checkAuth, canManagePayroll, async (req, res) => {
+    let { startDate, endDate, date } = req.body;
+    if (date && !startDate) { startDate = date; endDate = date; }
+    if (!endDate) endDate = startDate;
+    const v1 = validateDate(startDate), v2 = validateDate(endDate);
+    if (!v1.valid || !v2.valid) return res.status(400).json({ success: false, error: 'Некорректные даты' });
+    const from = startDate;   // флэт-бонусы (пакеты/кофе/кулинария) — за весь период; процент 3% клампится по дате ВНУТРИ buildExtrasRows
+    const to = endDate;
+    if (from > to) return res.json({ success: true, updated: 0, message: 'Пустой диапазон дат' });
+
+    return withLock(`extras_${from}_${to}`, async () => {
+        try {
+            const { rows, unmatched } = await extras.buildExtrasRows({ supabase, from, to });
+            let updated = 0, skippedNoBase = 0;
+            for (const r of rows) {
+                if (r.total_pay == null) { skippedNoBase++; continue; }
+                const { error } = await supabase.from('payroll_calculations').update({
+                    sales_percent: r.sales_percent, bag_bonus: r.bag_bonus, coffee_bonus: r.coffee_bonus,
+                    culinary_bonus: r.culinary_bonus, dl_sales_deducted: r.dl_sales_deducted,
+                    adjusted_cash: r.adjusted_cash, total_pay: r.total_pay,
+                    extras_source: 'calculate-payroll-extras', extras_updated_at: new Date().toISOString()
+                }).eq('employee_id', r.employee_id).eq('work_date', r.work_date);
+                if (error) console.error(`[extras] ${r.employee_id} ${r.work_date}:`, error.message);
+                else updated++;
+            }
+            await logFinancialOperation('calculate_payroll_extras', { from, to, updated, skippedNoBase }, req.user.id);
+            res.json({ success: true, period: { from, to }, updated, skippedNoBase, unmatched });
+        } catch (e) {
+            console.error('Ошибка пересчёта extras:', e);
+            res.status(500).json({ success: false, error: 'Ошибка пересчёта extras: ' + e.message });
+        }
+    });
+});
+
+
+app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;
+    
+    const bonusValidation = validateAmount(manual_bonus, MAX_MANUAL_BONUS, 'Премия');
+    if (!bonusValidation.valid) return res.status(400).json({ success: false, error: bonusValidation.error });
+    
+    const penaltyValidation = validateAmount(penalty, MAX_PENALTY, 'Штраф');
+    if (!penaltyValidation.valid) return res.status(400).json({ success: false, error: penaltyValidation.error });
+    
+    const shortageValidation = validateAmount(shortage, MAX_SHORTAGE, 'Недостача');
+    if (!shortageValidation.valid) return res.status(400).json({ success: false, error: shortageValidation.error });
+  
+    try {
+        // Создаём бэкап существующей записи перед изменением
+        const { data: existingAdj } = await supabase
+            .from('monthly_adjustments')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year)
+            .single();
+        
+        if (existingAdj) {
+            await supabase
+                .from('monthly_adjustments_backup')
+                .insert({
+                    original_id: existingAdj.id,
+                    employee_id: existingAdj.employee_id,
+                    month: existingAdj.month,
+                    year: existingAdj.year,
+                    manual_bonus: existingAdj.manual_bonus,
+                    penalty: existingAdj.penalty,
+                    shortage: existingAdj.shortage,
+                    bonus_reason: existingAdj.bonus_reason,
+                    penalty_reason: existingAdj.penalty_reason,
+                    backup_date: new Date().toISOString(),
+                    backup_reason: 'before_update',
+                    backup_by: req.user.id
+                });
+        }
+        
+        // Сохраняем новые данные
+        const payload = { 
+            employee_id, 
+            month, 
+            year, 
+            manual_bonus: bonusValidation.value, 
+            penalty: penaltyValidation.value, 
+            shortage: shortageValidation.value, 
+            bonus_reason, 
+            penalty_reason,
+            updated_at: new Date().toISOString(),
+            updated_by: req.user.id
+        };
+        
