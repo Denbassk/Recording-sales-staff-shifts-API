@@ -1,0 +1,302 @@
+app.post('/calculate-payroll-extras', checkAuth, canManagePayroll, async (req, res) => {
+    let { startDate, endDate, date } = req.body;
+    if (date && !startDate) { startDate = date; endDate = date; }
+    if (!endDate) endDate = startDate;
+    const v1 = validateDate(startDate), v2 = validateDate(endDate);
+    if (!v1.valid || !v2.valid) return res.status(400).json({ success: false, error: 'Некорректные даты' });
+    const from = startDate;   // флэт-бонусы (пакеты/кофе/кулинария) — за весь период; процент 3% клампится по дате ВНУТРИ buildExtrasRows
+    const to = endDate;
+    if (from > to) return res.json({ success: true, updated: 0, message: 'Пустой диапазон дат' });
+
+    return withLock(`extras_${from}_${to}`, async () => {
+        try {
+            const { rows, unmatched } = await extras.buildExtrasRows({ supabase, from, to });
+            let updated = 0, skippedNoBase = 0;
+            for (const r of rows) {
+                if (r.total_pay == null) { skippedNoBase++; continue; }
+                const { error } = await supabase.from('payroll_calculations').update({
+                    sales_percent: r.sales_percent, bag_bonus: r.bag_bonus, coffee_bonus: r.coffee_bonus,
+                    culinary_bonus: r.culinary_bonus, dl_sales_deducted: r.dl_sales_deducted,
+                    adjusted_cash: r.adjusted_cash, total_pay: r.total_pay,
+                    extras_source: 'calculate-payroll-extras', extras_updated_at: new Date().toISOString()
+                }).eq('employee_id', r.employee_id).eq('work_date', r.work_date);
+                if (error) console.error(`[extras] ${r.employee_id} ${r.work_date}:`, error.message);
+                else updated++;
+            }
+            await logFinancialOperation('calculate_payroll_extras', { from, to, updated, skippedNoBase }, req.user.id);
+            res.json({ success: true, period: { from, to }, updated, skippedNoBase, unmatched });
+        } catch (e) {
+            console.error('Ошибка пересчёта extras:', e);
+            res.status(500).json({ success: false, error: 'Ошибка пересчёта extras: ' + e.message });
+        }
+    });
+});
+
+
+app.post('/payroll/adjustments', checkAuth, canManagePayroll, async (req, res) => {
+    const { employee_id, month, year, manual_bonus, penalty, shortage, bonus_reason, penalty_reason } = req.body;
+    
+    const bonusValidation = validateAmount(manual_bonus, MAX_MANUAL_BONUS, 'Премия');
+    if (!bonusValidation.valid) return res.status(400).json({ success: false, error: bonusValidation.error });
+    
+    const penaltyValidation = validateAmount(penalty, MAX_PENALTY, 'Штраф');
+    if (!penaltyValidation.valid) return res.status(400).json({ success: false, error: penaltyValidation.error });
+    
+    const shortageValidation = validateAmount(shortage, MAX_SHORTAGE, 'Недостача');
+    if (!shortageValidation.valid) return res.status(400).json({ success: false, error: shortageValidation.error });
+  
+    try {
+        // Создаём бэкап существующей записи перед изменением
+        const { data: existingAdj } = await supabase
+            .from('monthly_adjustments')
+            .select('*')
+            .eq('employee_id', employee_id)
+            .eq('month', month)
+            .eq('year', year)
+            .single();
+        
+        if (existingAdj) {
+            await supabase
+                .from('monthly_adjustments_backup')
+                .insert({
+                    original_id: existingAdj.id,
+                    employee_id: existingAdj.employee_id,
+                    month: existingAdj.month,
+                    year: existingAdj.year,
+                    manual_bonus: existingAdj.manual_bonus,
+                    penalty: existingAdj.penalty,
+                    shortage: existingAdj.shortage,
+                    bonus_reason: existingAdj.bonus_reason,
+                    penalty_reason: existingAdj.penalty_reason,
+                    backup_date: new Date().toISOString(),
+                    backup_reason: 'before_update',
+                    backup_by: req.user.id
+                });
+        }
+        
+        // Сохраняем новые данные
+        const payload = { 
+            employee_id, 
+            month, 
+            year, 
+            manual_bonus: bonusValidation.value, 
+            penalty: penaltyValidation.value, 
+            shortage: shortageValidation.value, 
+            bonus_reason, 
+            penalty_reason,
+            updated_at: new Date().toISOString(),
+            updated_by: req.user.id
+        };
+        
+        await supabase.from('monthly_adjustments').upsert(payload, { onConflict: 'employee_id,month,year' });
+        await logFinancialOperation('payroll_adjustment', payload, req.user.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/get-monthly-data', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, reportEndDate } = req.body;
+    
+    if (!year || !month || !reportEndDate) return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    if (month < 1 || month > 12) return res.status(400).json({ success: false, error: 'Некорректный месяц' });
+    const dateValidation = validateDate(reportEndDate);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
+    
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+
+    try {
+        const { data: employees, error: empError } = await supabase.from('employees').select('id, fullname');
+        if (empError) throw empError;
+        const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
+
+        // ✅ ШАГ 1: Получаем все расчеты БЕЗ JOIN
+const { data: dailyDataRaw, error: dailyError } = await supabase
+    .from('payroll_calculations')
+    .select('*')
+    .gte('work_date', startDate)
+    .lte('work_date', reportEndDate)
+    .order('work_date', { ascending: true });
+
+        if (dailyError) throw dailyError;
+
+        // ✅ ШАГ 2: Получаем employee_ids из расчетов
+        const employeeIds = [...new Set(dailyDataRaw.map(calc => calc.employee_id))];
+
+        // ✅ ШАГ 3: Получаем данные сотрудников отдельным запросом
+        const { data: employeesData, error: empDataError } = await supabase
+            .from('employees')
+            .select('id, fullname, role')
+            .in('id', employeeIds);
+
+        if (empDataError) throw empDataError;
+
+        // ✅ ШАГ 4: Создаем мапу сотрудников для быстрого доступа
+        const employeesDbMap = new Map(
+            employeesData.map(emp => [emp.id, emp])
+        );
+
+        // ✅ ШАГ 5: Обогащаем расчеты данными о сотрудниках и фильтруем
+        const enrichedDailyData = dailyDataRaw
+            .map(calc => {
+                const employee = employeesDbMap.get(calc.employee_id);
+                return {
+                    ...calc,
+                    employee_name: employee?.fullname || employeeMap.get(calc.employee_id) || 'Неизвестный',
+                    role: employee?.role,
+                    fullname: employee?.fullname
+                };
+            })
+            .filter(calc => {
+                const role = calc.role;
+                const fullname = (calc.fullname || '').trim();
+                
+                // Исключаем админов и бухгалтеров
+                if (role === 'admin' || role === 'accountant') {
+                    console.log(`[Месячные данные] Исключен ${role}: ${fullname}`);
+                    return false;
+                }
+ 
+                // Исключаем сотрудников без имени
+                if (fullname === '') {
+                    console.log(`[Месячные данные] Исключен сотрудник без имени: ${calc.employee_id}`);
+                    return false;
+                }
+                
+                return true;
+            });
+
+        console.log(`Период: ${startDate} - ${reportEndDate}, Расчетов до фильтрации: ${dailyDataRaw.length}, после: ${enrichedDailyData.length}`);
+        
+        // Логируем для отладки
+        console.log(`Получено расчетов за период ${startDate} - ${reportEndDate}: ${enrichedDailyData.length}`);
+        
+        // Получаем корректировки
+        const { data: adjustments, error: adjError } = await supabase.from('monthly_adjustments')
+            .select('*').eq('year', year).eq('month', month);
+        if (adjError) throw adjError;
+
+        // НОВОЕ: Получаем финальные расчеты из таблицы final_payroll_calculations
+        let finalCalculations = [];
+        
+        // Проверяем, существует ли таблица final_payroll_calculations
+        const { data: tableExists } = await supabase
+            .from('final_payroll_calculations')
+            .select('id')
+            .limit(1);
+        
+        if (tableExists !== null) {
+            // Таблица существует, получаем данные
+            const { data: finalCalcs, error: finalError } = await supabase
+                .from('final_payroll_calculations')
+                .select('*')
+                .eq('year', year)
+                .eq('month', month);
+            
+            if (finalError) {
+                console.error('Ошибка получения финальных расчетов:', finalError);
+                // Не прерываем выполнение, просто логируем ошибку
+            } else {
+                finalCalculations = finalCalcs || [];
+                console.log(`Получено финальных расчетов: ${finalCalculations.length}`);
+
+            }
+        } else {
+            console.log('Таблица final_payroll_calculations не найдена, пропускаем загрузку финальных расчетов');
+        }
+
+        // Реальные (плавающие) лимиты карт из вкладки лимитов — без потолков/полов.
+        let cardLimits = {};
+        try {
+            const { data: limRows } = await supabase
+                .from('employees')
+                .select('id, card_limit_types!card_limit_type_id ( card_limit )')
+                .in('id', employeeIds);
+            (limRows || []).forEach(e => {
+                const cl = e.card_limit_types?.card_limit;
+                if (cl != null) cardLimits[e.id] = Number(cl);
+            });
+        } catch (e) { console.warn('Лимиты карт для отчёта не загружены:', e.message); }
+
+        // Возвращаем все данные включая финальные расчеты
+        res.json({ 
+            success: true, 
+            dailyData: enrichedDailyData, 
+            adjustments,
+            finalCalculations, // Добавляем финальные расчеты в ответ
+            cardLimits         // реальные лимиты карт по сотрудникам
+        });
+        
+    } catch (error) {
+        console.error('Ошибка получения данных за месяц:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+
+app.post('/calculate-advance', checkAuth, canManagePayroll, async (req, res) => {
+    const { year, month, advanceEndDate } = req.body;
+    
+    if (!year || !month || !advanceEndDate) {
+        return res.status(400).json({ success: false, error: 'Не все параметры указаны' });
+    }
+    
+    const dateValidation = validateDate(advanceEndDate);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
+    
+    try {
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const advanceCutoffDay = 15;
+        const advanceCutoffDate = `${year}-${String(month).padStart(2, '0')}-${String(advanceCutoffDay).padStart(2, '0')}`;
+
+        // ШАГ 1: Получаем расчеты
+        const { data: calculationsRaw, error } = await supabase
+            .from('payroll_calculations')
+            .select('employee_id, total_pay, store_id, work_date')
+            .gte('work_date', startDate)
+            .lte('work_date', advanceEndDate);
+
+        if (error) throw error;
+
+        // ШАГ 2: Получаем уникальные employee_ids
+        const employeeIdsAdvance = [...new Set(calculationsRaw.map(c => c.employee_id))];
+
+        // ШАГ 3: Получаем данные сотрудников
+        const { data: employeesAdvance, error: empAdvError } = await supabase
+            .from('employees')
+            .select('id, fullname, role')
+            .in('id', employeeIdsAdvance);
+
+        if (empAdvError) throw empAdvError;
+
+        // ШАГ 4: Создаем мапу
+        const employeesAdvanceMap = new Map(
+            employeesAdvance.map(emp => [emp.id, emp])
+        );
+
+        // ШАГ 5: Обогащаем и фильтруем
+        const calculationsInPeriod = calculationsRaw
+            .map(calc => {
+                const employee = employeesAdvanceMap.get(calc.employee_id);
+                return {
+                    ...calc,
+                    fullname: employee?.fullname,
+                    role: employee?.role
+                };
+            })
+            .filter(calc => {
+                const role = calc.role;
+                const fullname = (calc.fullname || '').trim();
+                if (role === 'admin' || role === 'accountant') return false;
+                if (fullname === '') return false;
+                return true;
+            });
+
+        // ШАГ 6: Суммируем начисления и находим первую смену
+        const employeeData = {};
+        for (const calc of calculationsInPeriod) {
+            if (!employeeData[calc.employee_id]) {
+                employeeData[calc.employee_id] = {
+                    totalEarned: 0,
+                    firstShiftDate: calc.work_date

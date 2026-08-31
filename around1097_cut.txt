@@ -1,0 +1,121 @@
+    const dateValidation = validateDate(reportEndDate);
+    if (!dateValidation.valid) return res.status(400).json({ success: false, error: dateValidation.error });
+    
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+
+    try {
+        const { data: employees, error: empError } = await supabase.from('employees').select('id, fullname');
+        if (empError) throw empError;
+        const employeeMap = new Map(employees.map(e => [e.id, e.fullname]));
+
+        // ✅ ШАГ 1: Получаем все расчеты БЕЗ JOIN
+const { data: dailyDataRaw, error: dailyError } = await supabase
+    .from('payroll_calculations')
+    .select('*')
+    .gte('work_date', startDate)
+    .lte('work_date', reportEndDate)
+    .order('work_date', { ascending: true });
+
+        if (dailyError) throw dailyError;
+
+        // ✅ ШАГ 2: Получаем employee_ids из расчетов
+        const employeeIds = [...new Set(dailyDataRaw.map(calc => calc.employee_id))];
+
+        // ✅ ШАГ 3: Получаем данные сотрудников отдельным запросом
+        const { data: employeesData, error: empDataError } = await supabase
+            .from('employees')
+            .select('id, fullname, role')
+            .in('id', employeeIds);
+
+        if (empDataError) throw empDataError;
+
+        // ✅ ШАГ 4: Создаем мапу сотрудников для быстрого доступа
+        const employeesDbMap = new Map(
+            employeesData.map(emp => [emp.id, emp])
+        );
+
+        // ✅ ШАГ 5: Обогащаем расчеты данными о сотрудниках и фильтруем
+        const enrichedDailyData = dailyDataRaw
+            .map(calc => {
+                const employee = employeesDbMap.get(calc.employee_id);
+                return {
+                    ...calc,
+                    employee_name: employee?.fullname || employeeMap.get(calc.employee_id) || 'Неизвестный',
+                    role: employee?.role,
+                    fullname: employee?.fullname
+                };
+            })
+            .filter(calc => {
+                const role = calc.role;
+                const fullname = (calc.fullname || '').trim();
+                
+                // Исключаем админов и бухгалтеров
+                if (role === 'admin' || role === 'accountant') {
+                    console.log(`[Месячные данные] Исключен ${role}: ${fullname}`);
+                    return false;
+                }
+                       console.time('T1_fetch_calculations');
+ 
+                // Исключаем сотрудников без имени
+                if (fullname === '') {
+                    console.log(`[Месячные данные] Исключен сотрудник без имени: ${calc.employee_id}`);
+                    return false;
+                }
+                
+                return true;
+            });
+
+        console.log(`Период: ${startDate} - ${reportEndDate}, Расчетов до фильтрации: ${dailyDataRaw.length}, после: ${enrichedDailyData.length}`);
+        
+        // Логируем для отладки
+        console.log(`Получено расчетов за период ${startDate} - ${reportEndDate}: ${enrichedDailyData.length}`);
+        
+        // Получаем корректировки
+        const { data: adjustments, error: adjError } = await supabase.from('monthly_adjustments')
+            .select('*').eq('year', year).eq('month', month);
+        if (adjError) throw adjError;
+
+        // НОВОЕ: Получаем финальные расчеты из таблицы final_payroll_calculations
+        let finalCalculations = [];
+        
+        // Проверяем, существует ли таблица final_payroll_calculations
+        const { data: tableExists } = await supabase
+            .from('final_payroll_calculations')
+            .select('id')
+            .limit(1);
+        
+        if (tableExists !== null) {
+            // Таблица существует, получаем данные
+            const { data: finalCalcs, error: finalError } = await supabase
+                .from('final_payroll_calculations')
+                .select('*')
+                .eq('year', year)
+                .eq('month', month);
+            
+            if (finalError) {
+                console.error('Ошибка получения финальных расчетов:', finalError);
+                // Не прерываем выполнение, просто логируем ошибку
+            } else {
+                finalCalculations = finalCalcs || [];
+                console.log(`Получено финальных расчетов: ${finalCalculations.length}`);
+                                console.timeEnd('T1_fetch_calculations');
+
+            }
+        } else {
+            console.log('Таблица final_payroll_calculations не найдена, пропускаем загрузку финальных расчетов');
+        }
+
+        // Реальные (плавающие) лимиты карт из вкладки лимитов — без потолков/полов.
+        let cardLimits = {};
+        try {
+            const { data: limRows } = await supabase
+                .from('employees')
+                .select('id, card_limit_types!card_limit_type_id ( card_limit )')
+                .in('id', employeeIds);
+            (limRows || []).forEach(e => {
+                const cl = e.card_limit_types?.card_limit;
+                if (cl != null) cardLimits[e.id] = Number(cl);
+            });
+        } catch (e) { console.warn('Лимиты карт для отчёта не загружены:', e.message); }
+
+        // Возвращаем все данные включая финальные расчеты

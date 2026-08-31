@@ -1094,7 +1094,6 @@ const { data: dailyDataRaw, error: dailyError } = await supabase
                     console.log(`[Месячные данные] Исключен ${role}: ${fullname}`);
                     return false;
                 }
-                       console.time('T1_fetch_calculations');
  
                 // Исключаем сотрудников без имени
                 if (fullname === '') {
@@ -1138,7 +1137,6 @@ const { data: dailyDataRaw, error: dailyError } = await supabase
             } else {
                 finalCalculations = finalCalcs || [];
                 console.log(`Получено финальных расчетов: ${finalCalculations.length}`);
-                                console.timeEnd('T1_fetch_calculations');
 
             }
         } else {
