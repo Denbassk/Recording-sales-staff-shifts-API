@@ -948,20 +948,43 @@ app.post('/calculate-payroll-extras', checkAuth, canManagePayroll, async (req, r
     return withLock(`extras_${from}_${to}`, async () => {
         try {
             const { rows, unmatched } = await extras.buildExtrasRows({ supabase, from, to });
-            let updated = 0, skippedNoBase = 0;
+            let updated = 0, skippedNoBase = 0, failed = 0;
+            const toUpdate = [];
             for (const r of rows) {
                 if (r.total_pay == null) { skippedNoBase++; continue; }
+                toUpdate.push(r);
+            }
+
+            const CONCURRENCY = 24;
+            const stamp = new Date().toISOString();
+            const t0 = Date.now();
+
+            const runOne = async (r) => {
                 const { error } = await supabase.from('payroll_calculations').update({
                     sales_percent: r.sales_percent, bag_bonus: r.bag_bonus, coffee_bonus: r.coffee_bonus,
                     culinary_bonus: r.culinary_bonus, dl_sales_deducted: r.dl_sales_deducted,
                     adjusted_cash: r.adjusted_cash, total_pay: r.total_pay,
-                    extras_source: 'calculate-payroll-extras', extras_updated_at: new Date().toISOString()
+                    extras_source: 'calculate-payroll-extras', extras_updated_at: stamp
                 }).eq('employee_id', r.employee_id).eq('work_date', r.work_date);
-                if (error) console.error(`[extras] ${r.employee_id} ${r.work_date}:`, error.message);
-                else updated++;
-            }
+                if (error) {
+                    failed++;
+                    if (failed <= 10) console.error('[extras] ' + r.employee_id + ' ' + r.work_date + ': ' + error.message);
+                } else {
+                    updated++;
+                }
+            };
+
+            let cursor = 0;
+            await Promise.all(
+                Array.from({ length: Math.min(CONCURRENCY, toUpdate.length) }, async () => {
+                    while (cursor < toUpdate.length) { await runOne(toUpdate[cursor++]); }
+                })
+            );
+
+            console.log('[extras] ' + from + '..' + to + ': updated ' + updated + ', noBase ' + skippedNoBase + ', failed ' + failed + ', ' + (Date.now() - t0) + 'ms');
+
             await logFinancialOperation('calculate_payroll_extras', { from, to, updated, skippedNoBase }, req.user.id);
-            res.json({ success: true, period: { from, to }, updated, skippedNoBase, unmatched });
+            res.json({ success: true, period: { from, to }, updated, skippedNoBase, failed, unmatched });
         } catch (e) {
             console.error('Ошибка пересчёта extras:', e);
             res.status(500).json({ success: false, error: 'Ошибка пересчёта extras: ' + e.message });
