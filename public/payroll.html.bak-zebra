@@ -258,22 +258,6 @@ tr.summary-row{display:table-row}
 #monthlyReportTable tr.row-chk-err td{background:var(--dgr-bg) !important}
 #monthlyReportTable tr.row-chk-warn td{background:var(--warn-bg) !important}
 /* UIFIX2-END */
-
-/* ZEBRA-START */
-:root{--zebra-1:#ffffff;--zebra-2:#e4e9ef;--zebra-hover:#d3dbe4}
-[data-theme="dark"]{--zebra-1:#1e2024;--zebra-2:#262a30;--zebra-hover:#31363e}
-
-/* старая подсветка has-final-calc гасила зебру — снимаем */
-#monthlyReportTable tbody tr.has-final-calc td{background:transparent}
-
-#monthlyReportTable tbody tr:not(.report-total-row):not(.row-chk-err):not(.row-chk-warn) td{background:var(--zebra-1) !important}
-#monthlyReportTable tbody tr:not(.report-total-row):not(.row-chk-err):not(.row-chk-warn):nth-child(even) td{background:var(--zebra-2) !important}
-#monthlyReportTable tbody tr:not(.report-total-row):not(.row-chk-err):not(.row-chk-warn):hover td{background:var(--zebra-hover) !important}
-
-/* инпуты не разрывают полосу */
-#monthlyReportTable tbody td input{background:transparent}
-#monthlyReportTable tbody td input:focus{background:var(--surface)}
-/* ZEBRA-END */
 </style>
 
     <style media="print">
@@ -788,7 +772,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901h" defer></script>
+<script src="payroll.js?v=20260901i" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -819,6 +803,5 @@ function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")
 <!-- ZERODIM-END -->
 </body>
 </html>
-
 
 
