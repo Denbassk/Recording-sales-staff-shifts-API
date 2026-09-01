@@ -198,18 +198,6 @@ tr.summary-row{display:table-row}
 @keyframes spin{to{transform:rotate(360deg)}}
 #back-to-top-btn{position:fixed;right:22px;bottom:22px;width:40px;height:40px;border-radius:50%;background:var(--anthra);color:#fff;border:none;font-size:18px;cursor:pointer;display:none;z-index:50;align-items:center;justify-content:center}
 
-
-/* HEADSTYLE-START */
-:root{--thead-bg:#e9ecf0;--thead-bg-2:#f2f4f7}
-[data-theme="dark"]{--thead-bg:#16181b;--thead-bg-2:#1a1d21}
-#monthlyReportTable thead th{text-align:center !important;vertical-align:middle !important;color:var(--text) !important}
-#monthlyReportTable thead tr:first-child th{background:var(--thead-bg) !important;font-weight:700 !important;font-size:12px;letter-spacing:.3px}
-#monthlyReportTable thead tr:nth-child(2) th{background:var(--thead-bg-2) !important;font-weight:700 !important;font-size:11px}
-#monthlyReportTable .grp-head{height:36px;box-sizing:border-box;white-space:nowrap}
-#monthlyReportTable .sub-muted{color:var(--text-2) !important;font-weight:600 !important}
-#monthlyReportTable thead tr:nth-child(2) th,
-#monthlyReportTable thead tr:first-child th[rowspan="2"]{border-bottom:2px solid var(--border-strong)}
-/* HEADSTYLE-END */
 </style>
 
     <style media="print">
@@ -234,6 +222,24 @@ tr.summary-row{display:table-row}
         .payslip-compact table { width: 100%; border-collapse: collapse; margin: 5px 0; }
         .payslip-compact td { padding: 2px 0; }
     
+/* Группы шапки: жёсткие 36px, иначе второй ряд (top:36px) наложится */
+#monthlyReportTable .grp-head{height:36px;box-sizing:border-box;text-align:center;white-space:nowrap;font-weight:600}
+#monthlyReportTable thead tr:nth-child(2) th{font-weight:500;font-size:10px}
+#monthlyReportTable .sub-muted{color:var(--text-2);font-size:10px;font-weight:400}
+
+
+
+/* HEADSTYLE-START */
+:root{--thead-bg:#e9ecf0;--thead-bg-2:#f2f4f7}
+[data-theme="dark"]{--thead-bg:#16181b;--thead-bg-2:#1a1d21}
+#monthlyReportTable thead th{text-align:center !important;vertical-align:middle !important;color:var(--text) !important}
+#monthlyReportTable thead tr:first-child th{background:var(--thead-bg) !important;font-weight:700 !important;font-size:12px;letter-spacing:.3px}
+#monthlyReportTable thead tr:nth-child(2) th{background:var(--thead-bg-2) !important;font-weight:700 !important;font-size:11px}
+#monthlyReportTable .grp-head{height:36px;box-sizing:border-box;white-space:nowrap}
+#monthlyReportTable .sub-muted{color:var(--text-2) !important;font-weight:600 !important}
+#monthlyReportTable thead tr:nth-child(2) th,
+#monthlyReportTable thead tr:first-child th[rowspan="2"]{border-bottom:2px solid var(--border-strong)}
+/* HEADSTYLE-END */
 </style>
     <link rel="stylesheet" href="universal-corrections.css?v=1234567">
 </head>
@@ -724,7 +730,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901f" defer></script>
+<script src="payroll.js?v=20260901e" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
