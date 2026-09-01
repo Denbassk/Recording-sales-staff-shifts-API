@@ -1,0 +1,107 @@
+/* Экспорт отчёта в Excel через ExcelJS. Заголовки берутся из DOM. */
+(function(){
+  function num(s){
+    if(s==null) return null;
+    var t=String(s).replace(/\u00a0/g," ").replace(/\s/g,"").replace(",",".");
+    if(t===""||!/^-?\d+(\.\d+)?$/.test(t)) return null;
+    return parseFloat(t);
+  }
+  function shown(el){ return el && getComputedStyle(el).display!=="none"; }
+  function cellText(td){
+    var i=td.querySelector("input");
+    if(i) return i.value||"";
+    return (td.textContent||"").replace(/\s+/g," ").trim();
+  }
+  function headers(t){
+    var rows=t.querySelectorAll("thead tr"), r1=rows[0], r2=rows[1];
+    if(!r1) return [];
+    var sub=r2?[].slice.call(r2.children).filter(shown):[], si=0, out=[];
+    [].slice.call(r1.children).filter(shown).forEach(function(th){
+      var cs=th.colSpan||1, rs=th.rowSpan||1, tx=(th.textContent||"").trim();
+      if(rs>1||!r2){ out.push(tx); }
+      else for(var i=0;i<cs;i++){ var s=sub[si++]; out.push(tx+": "+((s&&s.textContent||"").trim())); }
+    });
+    return out;
+  }
+
+  window.exportMonthlyReportToExcel = async function(){
+    var t=document.getElementById("monthlyReportTable");
+    var rows=t?[].slice.call(t.querySelectorAll("tbody tr")).filter(function(r){
+      return shown(r) && !r.classList.contains("summary-row"); }):[];
+    if(!t||!rows.length){ showStatus("reportStatus","Нет данных для экспорта","error"); return; }
+    if(typeof ExcelJS==="undefined"){ showStatus("reportStatus","ExcelJS не загружен","error"); return; }
+
+    window.pmBusy && pmBusy.show("Формируем файл Excel...");
+    try{
+      var hdr=headers(t);
+      var m=document.getElementById("reportMonth"), y=document.getElementById("reportYear");
+      var mn=["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"];
+      var title=(m&&y)?(mn[m.value-1]+" "+y.value):"Отчёт";
+
+      var wb=new ExcelJS.Workbook();
+      wb.created=new Date();
+      var ws=wb.addWorksheet("Отчёт "+title,{views:[{state:"frozen",xSplit:2,ySplit:1}]});
+
+      ws.addRow(hdr);
+      var widths=hdr.map(function(h){ return String(h).length+2; });
+
+      rows.forEach(function(tr){
+        var tds=[].slice.call(tr.children).filter(shown);
+        var vals=tds.map(function(td){ var s=cellText(td); var n=num(s); return n===null?s:n; });
+        ws.addRow(vals);
+        vals.forEach(function(v,i){
+          var L=String(v==null?"":v).length+2;
+          if(L>widths[i]) widths[i]=L;
+        });
+      });
+
+      ws.columns.forEach(function(c,i){ c.width=Math.min(Math.max(widths[i]||10,9),34); });
+
+      var head=ws.getRow(1);
+      head.height=30;
+      head.eachCell(function(c){
+        c.font={bold:true,size:11,color:{argb:"FF1F2430"}};
+        c.alignment={horizontal:"center",vertical:"middle",wrapText:true};
+        c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFDFE4EA"}};
+        c.border={top:{style:"thin",color:{argb:"FFB8BEC6"}},left:{style:"thin",color:{argb:"FFB8BEC6"}},
+                  bottom:{style:"medium",color:{argb:"FF8A9099"}},right:{style:"thin",color:{argb:"FFB8BEC6"}}};
+      });
+
+      ws.eachRow(function(row,idx){
+        if(idx===1) return;
+        row.height=18;
+        row.eachCell(function(c,col){
+          var isNum=typeof c.value==="number";
+          c.alignment={horizontal:isNum?"center":(col<=2?"left":"left"),vertical:"middle",wrapText:false};
+          if(isNum) c.numFmt="# ##0.##";
+          c.border={top:{style:"hair",color:{argb:"FFDDE1E6"}},left:{style:"hair",color:{argb:"FFDDE1E6"}},
+                    bottom:{style:"hair",color:{argb:"FFDDE1E6"}},right:{style:"hair",color:{argb:"FFDDE1E6"}}};
+          if(idx%2===0) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF4F6F9"}};
+        });
+      });
+
+      ws.autoFilter={from:{row:1,column:1},to:{row:1,column:hdr.length}};
+
+      var buf=await wb.xlsx.writeBuffer();
+      var blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+      var name="Отчёт_"+title.replace(/\s/g,"_")+".xlsx";
+      if(window.saveAs) saveAs(blob,name);
+      else{ var a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click(); URL.revokeObjectURL(a.href); }
+      showStatus("reportStatus","Файл выгружен: "+name,"success");
+    }catch(e){
+      console.error(e);
+      showStatus("reportStatus","Ошибка экспорта: "+e.message,"error");
+    }finally{
+      window.pmBusy && pmBusy.hide();
+    }
+  };
+})();
+
+/* Возвращаем нашу реализацию, если её перекрыл payroll.js */
+(function(){
+  var impl = window.exportMonthlyReportToExcel;
+  function ensure(){ if(typeof impl==="function" && window.exportMonthlyReportToExcel!==impl)
+    window.exportMonthlyReportToExcel = impl; }
+  document.addEventListener("DOMContentLoaded", ensure);
+  window.addEventListener("load", function(){ ensure(); setTimeout(ensure,600); });
+})();
