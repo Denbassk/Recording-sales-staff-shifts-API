@@ -211,31 +211,25 @@ tr.summary-row{display:table-row}
 #monthlyReportTable thead tr:first-child th[rowspan="2"]{border-bottom:2px solid var(--border-strong)}
 /* HEADSTYLE-END */
 
-
 /* UIFIX-START */
+/* Светлая тема: заметная сетка шапки */
 :root{--thead-bg:#dfe4ea;--thead-bg-2:#eceff3}
-[data-theme="dark"]{--thead-bg:#16181b;--thead-bg-2:#1a1d21}
 #monthlyReportTable thead th{border-right:1px solid var(--border-strong)}
 #monthlyReportTable thead tr:first-child th:last-child{border-right:none}
-#monthlyReportTable thead tr:first-child th{border-top:1px solid var(--border-strong)}
+/* Вертикальные границы групп в теле таблицы */
 #monthlyReportTable td:nth-child(2),#monthlyReportTable td:nth-child(6),
 #monthlyReportTable td:nth-child(9),#monthlyReportTable td:nth-child(11),
 #monthlyReportTable td:nth-child(14){border-right:1px solid var(--border-strong)}
-/* Бонусы — как все подзаголовки */
-#monthlyReportTable .sub-muted{color:var(--text) !important;font-weight:700 !important;font-size:11px !important}
+#monthlyReportTable thead tr:first-child th{border-top:1px solid var(--border-strong)}
 
-/* Кнопка «Наверх» */
-#back-to-top-btn{width:auto !important;height:44px !important;border-radius:22px !important;
-  right:24px !important;bottom:24px !important;padding:0 18px 0 15px !important;gap:8px;
-  background:var(--surface) !important;color:var(--text) !important;
-  border:1px solid var(--border-strong) !important;
-  box-shadow:0 6px 20px rgba(0,0,0,.18) !important;
-  font-size:13px !important;font-weight:600;opacity:.94;
-  transition:background .18s ease,color .18s ease,transform .18s ease,box-shadow .18s ease}
-#back-to-top-btn::after{content:"Наверх";letter-spacing:.2px}
-#back-to-top-btn:hover{background:var(--brand) !important;color:#fff !important;
-  border-color:var(--brand) !important;opacity:1;transform:translateY(-3px);
-  box-shadow:0 10px 26px rgba(0,0,0,.28) !important}
+/* Кнопка «Наверх»: компактная, полупрозрачная, не мешает данным */
+#back-to-top-btn{width:auto !important;height:34px !important;border-radius:17px !important;
+  right:14px !important;bottom:14px !important;padding:0 14px !important;font-size:13px !important;
+  background:color-mix(in srgb, var(--anthra) 82%, transparent) !important;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  border:1px solid var(--border-strong) !important;box-shadow:var(--shadow) !important;
+  opacity:.45;transition:opacity .18s ease, transform .18s ease}
+#back-to-top-btn:hover{opacity:1;transform:translateY(-2px)}
 /* UIFIX-END */
 </style>
 
@@ -751,7 +745,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901h" defer></script>
+<script src="payroll.js?v=20260901g" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
