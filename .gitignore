@@ -11,3 +11,5 @@ Thumbs.db
 .vscode/
 .idea/
 _validate_extras.cjs
+
+server.cjs.bak*
