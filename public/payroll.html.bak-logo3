@@ -321,21 +321,6 @@ tr.summary-row{display:table-row}
 #monthlyReportTable thead tr:first-child th:nth-child(2){z-index:8 !important}
 #monthlyReportTable thead th{background-clip:padding-box}
 /* REASONW-END */
-/* LOGO-START */
-:root{--hdr-bg:#ffffff;--hdr-fg:#20242b;--hdr-bd:#e3e6ea;--logo-h:52px;--logo-plate:transparent;--logo-pad:0;--logo-shadow:none}
-[data-theme="dark"]{--hdr-bg:#1b1d21;--hdr-fg:#e8eaed;--hdr-bd:#31353b;--logo-plate:#ffffff;--logo-pad:6px 12px;--logo-shadow:0 0 0 1px rgba(255,255,255,.10)}
-.header{background:var(--hdr-bg);color:var(--hdr-fg);min-height:76px;padding:10px 20px;gap:16px;
-  align-items:center;border-bottom:1px solid var(--hdr-bd);box-shadow:inset 0 -3px 0 var(--brand)}
-.header h1{color:var(--hdr-fg);font-size:17px;font-weight:600;letter-spacing:.2px;white-space:nowrap}
-.header .brand-logo{flex:0 0 auto;display:flex;align-items:center;line-height:0;text-decoration:none;
-  background:var(--logo-plate);padding:var(--logo-pad);border-radius:10px;box-shadow:var(--logo-shadow)}
-.header .brand-logo img{height:var(--logo-h);width:auto;display:block;object-fit:contain}
-.header .brand-sep{flex:0 0 auto;width:1px;align-self:stretch;margin:10px 0;background:var(--hdr-bd)}
-.header .theme-toggle{background:transparent;color:var(--hdr-fg);border:1px solid var(--hdr-bd)}
-.header .theme-toggle:hover{background:rgba(128,128,128,.14)}
-@media (max-width:900px){:root{--logo-h:40px}.header{min-height:64px}.header h1{font-size:15px}}
-@media (max-width:640px){:root{--logo-h:34px}.header .brand-sep,.header h1{display:none}}
-/* LOGO-END */
 </style>
 
     <style media="print">
@@ -366,8 +351,8 @@ tr.summary-row{display:table-row}
 <body>
     <div class="container">
         <div class="header">
-            <a class="brand-logo" href="/payroll.html" title="Family Market"><img src="img/logo.png?v=4" alt="Фемелі Маркет"></a><span class="brand-sep"></span>
-            <h1>Расчёт зарплаты</h1>
+            <span class="brand-mark"><i class="ti ti-building-store"></i></span>
+            <h1>Family Market — расчёт зарплаты</h1>
             <span class="sp"></span>
             <button class="theme-toggle" id="themeToggle" title="Светлая / тёмная тема" onclick="toggleTheme()"><i class="ti ti-moon"></i></button>
 
