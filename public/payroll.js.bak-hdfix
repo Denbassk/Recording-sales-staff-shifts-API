@@ -1816,9 +1816,9 @@ data-shifts='${JSON.stringify(data.shifts)}'>
             <td class="total-gross" style="padding: 5px;text-align:right;">${formatNumber(Math.round(totalGross))}</td>
             <td class="bonus-cell" style="padding: 5px; text-align:right;" title="${data.bonuses > 0 ? 'Процент ' + formatNumber(data.bPercent) + ' · Пакеты ' + formatNumber(data.bBag) + ' · Кофе ' + formatNumber(data.bCoffee) + ' · Кулинария ' + formatNumber(data.bCulinary) : 'Бонусы начисляются с 16.07'}">${data.bonuses > 0 ? formatNumber(Math.round(data.bonuses)) : '—'}</td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="manual_bonus" value="${adj.manual_bonus || 0}" style="width: 70px;"></td>
-            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" list="dlBonusReason" value="${adj.bonus_reason || ''}" placeholder="Причина"></td>
+            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="bonus_reason" list="dlBonusReason" value="${adj.bonus_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;"><input type="number" class="adjustment-input" name="penalty" value="${adj.penalty || 0}" style="width: 70px;"></td>
-            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" list="dlPenaltyReason" value="${adj.penalty_reason || ''}" placeholder="Причина"></td>
+            <td class="col-reason" style="padding: 5px;"><input type="text" class="adjustment-input" name="penalty_reason" list="dlPenaltyReason" value="${adj.penalty_reason || ''}" placeholder="Причина" style="width: 100px;"></td>
             <td style="padding: 5px;">
     <input type="number" class="adjustment-input" name="shortage" value="${adj.shortage || 0}" style="width: 70px;">
     <button onclick="manageShortages('${id}', '${data.name}')" style="margin-left: 5px; padding: 2px 6px; font-size: 10px;" title="Управление недостачами"><i class="ti ti-clipboard-list"></i></button>
@@ -6395,4 +6395,3 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     syncGroupHeaders();
 });
-
