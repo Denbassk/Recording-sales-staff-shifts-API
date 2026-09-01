@@ -260,26 +260,28 @@ tr.summary-row{display:table-row}
 /* UIFIX2-END */
 
 
-
 /* ZEBRA-START */
-:root{--zebra-1:#ffffff;--zebra-2:#f0f3f7;--zebra-hover:#fff3c4;--zebra-mark:#c0392b}
-[data-theme="dark"]{--zebra-1:#1e2024;--zebra-2:#23262b;--zebra-hover:#3f3a24;--zebra-mark:#2ee6a8}
+:root{--zebra-1:#ffffff;--zebra-2:#f0f3f7;--zebra-hover:#fff3c4;--zebra-hover-bd:#e6c34a}
+[data-theme="dark"]{--zebra-1:#1e2024;--zebra-2:#23262b;--zebra-hover:#3a3320;--zebra-hover-bd:#8a7430}
 
 #monthlyReportTable tbody tr.has-final-calc td{background:transparent}
+
 #monthlyReportTable tbody tr:not(.report-total-row):not(.row-chk-err):not(.row-chk-warn) td{background:var(--zebra-1) !important}
 #monthlyReportTable tbody tr:not(.report-total-row):not(.row-chk-err):not(.row-chk-warn):nth-child(even) td{background:var(--zebra-2) !important}
-#monthlyReportTable tbody tr:not(.report-total-row):hover td{background:var(--zebra-hover) !important}
-#monthlyReportTable tbody tr:not(.report-total-row):hover td:first-child{box-shadow:inset 4px 0 0 var(--zebra-mark)}
 
+/* Ховер — тёплая подсветка, читается на обеих полосах и в обеих темах */
+#monthlyReportTable tbody tr:not(.report-total-row):hover td{background:var(--zebra-hover) !important}
+#monthlyReportTable tbody tr:not(.report-total-row):hover td:first-child{box-shadow:inset 3px 0 0 var(--zebra-hover-bd)}
+
+/* Инпуты не рвут полосу и наследуют подсветку */
 #monthlyReportTable tbody td input{background:transparent}
 #monthlyReportTable tbody td input:focus{background:var(--surface)}
 
-/* Центрируем только «чистые» числовые ячейки; с кнопками/иконками — вправо, как было */
-#monthlyReportTable tbody td:nth-child(n+3):not(:last-child):not(:has(button)):not(:has(i)){text-align:center !important}
-#monthlyReportTable tbody td:not(:has(button)) input{text-align:center !important}
-#monthlyReportTable tr.report-total-row td:nth-child(n+3):not(:last-child):not(:has(button)){text-align:center !important}
-#monthlyReportTable tbody td:has(button){text-align:right !important}
-#monthlyReportTable tbody td:first-child,#monthlyReportTable tbody td:nth-child(2){text-align:left !important}
+/* Центрирование числовых колонок (3-я и далее, кроме «Действия») */
+#monthlyReportTable tbody td:nth-child(n+3):not(:last-child),
+#monthlyReportTable tr.report-total-row td:nth-child(n+3):not(:last-child){text-align:center}
+#monthlyReportTable tbody td input{text-align:center}
+#monthlyReportTable tbody td:first-child,#monthlyReportTable tbody td:nth-child(2){text-align:left}
 /* ZEBRA-END */
 </style>
 
@@ -795,7 +797,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901j" defer></script>
+<script src="payroll.js?v=20260901i" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -826,7 +828,6 @@ function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")
 <!-- ZERODIM-END -->
 </body>
 </html>
-
 
 
 
