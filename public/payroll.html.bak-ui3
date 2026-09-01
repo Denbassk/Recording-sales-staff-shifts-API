@@ -237,27 +237,6 @@ tr.summary-row{display:table-row}
   border-color:var(--brand) !important;opacity:1;transform:translateY(-3px);
   box-shadow:0 10px 26px rgba(0,0,0,.28) !important}
 /* UIFIX-END */
-
-/* UIFIX2-START */
-/* 2. Моноширинные цифры */
-#monthlyReportTable td,#monthlyReportTable input{font-variant-numeric:tabular-nums}
-/* Ширина колонки «Магазин» 140 -> 170 */
-#monthlyReportTable td:nth-child(2),#monthlyReportTable thead tr:first-child th:nth-child(2){width:170px;min-width:170px;max-width:170px;white-space:normal}
-/* 1. Зебра + подсветка строки под курсором */
-#monthlyReportTable tbody tr:nth-child(even) td{background:var(--surface-2)}
-#monthlyReportTable tbody tr:hover td{background:var(--surface-3) !important}
-/* 4. Нулевые поля приглушены, заполненные — обычные */
-#monthlyReportTable input.is-zero{color:var(--muted);opacity:.65}
-#monthlyReportTable input:not(.is-zero){color:var(--text);font-weight:600}
-/* 5. Липкая строка итогов */
-#monthlyReportTable tr.report-total-row td{position:sticky;bottom:0;z-index:6;
-  background:var(--thead-bg) !important;font-weight:700;border-top:2px solid var(--border-strong)}
-#monthlyReportTable tr.report-total-row td:first-child{left:0;z-index:7}
-#monthlyReportTable tr.report-total-row td:nth-child(2){left:180px;z-index:7}
-/* Ошибки и предупреждения важнее зебры */
-#monthlyReportTable tr.row-chk-err td{background:var(--dgr-bg) !important}
-#monthlyReportTable tr.row-chk-warn td{background:var(--warn-bg) !important}
-/* UIFIX2-END */
 </style>
 
     <style media="print">
@@ -772,7 +751,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901i" defer></script>
+<script src="payroll.js?v=20260901h" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -780,27 +759,6 @@ tr.summary-row{display:table-row}
 (function(){var s=localStorage.getItem("pv-theme");var d=s?s==="dark":(window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.setAttribute("data-theme",d?"dark":"light");document.addEventListener("DOMContentLoaded",function(){var b=document.getElementById("themeToggle");if(b)b.innerHTML=d?"<i class=\"ti ti-sun\"></i>":"<i class=\"ti ti-moon\"></i>";});})();
 function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")==="dark";var n=d?"light":"dark";document.documentElement.setAttribute("data-theme",n);localStorage.setItem("pv-theme",n);var b=document.getElementById("themeToggle");if(b)b.innerHTML=n==="dark"?"<i class=\"ti ti-sun\"></i>":"<i class=\"ti ti-moon\"></i>";}
 </script>
-
-<!-- ZERODIM-START -->
-<script>
-(function(){
-  function isZero(v){ var s=String(v||"").replace(/\s/g,"").replace(",","."); return s===""||parseFloat(s)===0; }
-  function mark(root){
-    var t=document.getElementById("monthlyReportTable"); if(!t) return;
-    (root||t).querySelectorAll("tbody input").forEach(function(el){
-      el.classList.toggle("is-zero", isZero(el.value));
-    });
-  }
-  document.addEventListener("input", function(e){
-    if(e.target.closest && e.target.closest("#monthlyReportTable")) e.target.classList.toggle("is-zero", isZero(e.target.value));
-  });
-  var timer=null;
-  new MutationObserver(function(){ clearTimeout(timer); timer=setTimeout(function(){ mark(); },150); })
-    .observe(document.body,{childList:true,subtree:true});
-  document.addEventListener("DOMContentLoaded", function(){ mark(); });
-})();
-</script>
-<!-- ZERODIM-END -->
 </body>
 </html>
 
