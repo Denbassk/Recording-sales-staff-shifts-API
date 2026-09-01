@@ -490,7 +490,7 @@ tr.summary-row{display:table-row}
                             <button class="success" onclick="calculateAdvance15()"><i class="ti ti-cash"></i> Рассчитать аванс</button>
                             <button class="success" onclick="calculateFinalPayroll()"><i class="ti ti-calculator"></i> Итоговый расчёт</button>
                             <button class="success" onclick="calculatePayrollExtras()"><i class="ti ti-refresh"></i> Пересчитать бонусы</button>
-                            <button class="secondary" onclick="toggleReasons(this)"><i class="ti ti-eye"></i> Показать причины</button><button class="secondary" id="toggleActionsBtn" onclick="toggleActionsCol(this)"><i class="ti ti-columns-off"></i> Скрыть корректировки</button>
+                            <button class="secondary" onclick="toggleReasons(this)"><i class="ti ti-eye"></i> Показать причины</button>
                         </div>
                     </div>
 
@@ -818,7 +818,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901q" defer></script>
+<script src="payroll.js?v=20260901n" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -847,25 +847,35 @@ function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")
 })();
 </script>
 <!-- ZERODIM-END -->
-<!-- ACTFN-START -->
+<!-- ACTJS-START -->
 <script>
-function toggleActionsCol(btn){
-  var t=document.getElementById('monthlyReportTable'); if(!t) return;
-  var off=t.classList.toggle('actions-collapsed');
-  btn.innerHTML='<i class="ti ti-columns-'+(off?'3':'off')+'"></i> '+(off?'Показать корректировки':'Скрыть корректировки');
-  try{localStorage.setItem('payrollActionsHidden',off?'1':'0')}catch(e){}
-}
-document.addEventListener('DOMContentLoaded',function(){
-  if(localStorage.getItem('payrollActionsHidden')==='1'){
-    var b=document.getElementById('toggleActionsBtn'); if(b) toggleActionsCol(b);
+(function(){
+  function build(){
+    var t=document.getElementById('monthlyReportTable');
+    var src=[].slice.call(document.querySelectorAll('button')).filter(function(b){
+      return /Скрыть причины|Показать причины/.test(b.textContent);});
+    if(!src.length||document.getElementById('toggleActionsBtn')) return;
+    var ref=src[0];
+    var b=document.createElement('button');
+    b.id='toggleActionsBtn'; b.className=ref.className;
+    b.innerHTML='<i class="ti ti-columns-off"></i> Скрыть действия';
+    b.onclick=function(){
+      var tb=document.getElementById('monthlyReportTable'); if(!tb) return;
+      var off=tb.classList.toggle('actions-collapsed');
+      b.innerHTML='<i class="ti ti-columns-'+(off?'3':'off')+'"></i> '+(off?'Показать действия':'Скрыть действия');
+      try{localStorage.setItem('payrollActionsHidden',off?'1':'0')}catch(e){}
+    };
+    ref.parentNode.insertBefore(b, ref.nextSibling);
+    if(t&&localStorage.getItem('payrollActionsHidden')==='1') b.click();
   }
-});
+  document.addEventListener('DOMContentLoaded',build);
+  window.addEventListener('load',build);
+  setTimeout(build,1200);
+})();
 </script>
-<!-- ACTFN-END -->
+<!-- ACTJS-END -->
 </body>
 </html>
-
-
 
 
 

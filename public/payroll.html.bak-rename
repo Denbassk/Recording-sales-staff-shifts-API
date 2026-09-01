@@ -490,7 +490,7 @@ tr.summary-row{display:table-row}
                             <button class="success" onclick="calculateAdvance15()"><i class="ti ti-cash"></i> Рассчитать аванс</button>
                             <button class="success" onclick="calculateFinalPayroll()"><i class="ti ti-calculator"></i> Итоговый расчёт</button>
                             <button class="success" onclick="calculatePayrollExtras()"><i class="ti ti-refresh"></i> Пересчитать бонусы</button>
-                            <button class="secondary" onclick="toggleReasons(this)"><i class="ti ti-eye"></i> Показать причины</button><button class="secondary" id="toggleActionsBtn" onclick="toggleActionsCol(this)"><i class="ti ti-columns-off"></i> Скрыть корректировки</button>
+                            <button class="secondary" onclick="toggleReasons(this)"><i class="ti ti-eye"></i> Показать причины</button><button class="secondary" id="toggleActionsBtn" onclick="toggleActionsCol(this)"><i class="ti ti-columns-off"></i> Скрыть действия</button>
                         </div>
                     </div>
 
@@ -818,7 +818,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901q" defer></script>
+<script src="payroll.js?v=20260901p" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -852,7 +852,7 @@ function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")
 function toggleActionsCol(btn){
   var t=document.getElementById('monthlyReportTable'); if(!t) return;
   var off=t.classList.toggle('actions-collapsed');
-  btn.innerHTML='<i class="ti ti-columns-'+(off?'3':'off')+'"></i> '+(off?'Показать корректировки':'Скрыть корректировки');
+  btn.innerHTML='<i class="ti ti-columns-'+(off?'3':'off')+'"></i> '+(off?'Показать действия':'Скрыть действия');
   try{localStorage.setItem('payrollActionsHidden',off?'1':'0')}catch(e){}
 }
 document.addEventListener('DOMContentLoaded',function(){
@@ -864,7 +864,6 @@ document.addEventListener('DOMContentLoaded',function(){
 <!-- ACTFN-END -->
 </body>
 </html>
-
 
 
 
