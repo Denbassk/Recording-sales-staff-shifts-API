@@ -282,25 +282,28 @@ tr.summary-row{display:table-row}
 #monthlyReportTable tbody td:first-child,#monthlyReportTable tbody td:nth-child(2){text-align:left !important}
 /* ZEBRA-END */
 
-
 /* FITW-START */
+/* Колонки 1-2 по содержимому: текст помещается целиком, лишнего места нет */
 #monthlyReportTable td:first-child,#monthlyReportTable thead tr:first-child th:first-child,
 #monthlyReportTable td:nth-child(2),#monthlyReportTable thead tr:first-child th:nth-child(2){
   width:1% !important;min-width:0 !important;max-width:none !important;white-space:nowrap !important}
+/* Sticky-offset второй колонки считается скриптом */
 #monthlyReportTable td:nth-child(2),
 #monthlyReportTable thead tr:first-child th:nth-child(2),
 #monthlyReportTable tr.report-total-row td:nth-child(2){left:var(--c1w,180px) !important}
 
-/* Числа не должны обрезаться */
-#monthlyReportTable td:nth-child(3),#monthlyReportTable td:nth-child(4){min-width:80px}
-
+/* Уплотнение, чтобы таблица влезала без горизонтальной прокрутки */
 #monthlyReportTable{font-size:12px}
 #monthlyReportTable td{padding:6px 6px}
 #monthlyReportTable thead th{padding:7px 6px}
 #monthlyReportTable td input{height:26px;padding:3px 4px;width:58px;max-width:58px}
+#monthlyReportTable td button{padding:3px 6px}
+
+/* «Все корректировки» -> компактная иконка с подсказкой */
 #monthlyReportTable tbody td:last-child button{font-size:0 !important;padding:4px 8px !important;gap:0}
 #monthlyReportTable tbody td:last-child button i{font-size:16px !important}
-#monthlyReportTable td:last-child,#monthlyReportTable thead tr:first-child th:last-child{width:1% !important;white-space:nowrap}
+#monthlyReportTable td:last-child,#monthlyReportTable thead tr:first-child th:last-child{
+  width:1% !important;white-space:nowrap}
 /* FITW-END */
 </style>
 
@@ -816,7 +819,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901m" defer></script>
+<script src="payroll.js?v=20260901k" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -848,29 +851,26 @@ function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")
 <!-- FITJS-START -->
 <script>
 (function(){
-  var raf;
   function fitSticky(){
     var t=document.getElementById('monthlyReportTable'); if(!t) return;
-    var r=t.querySelector('thead tr:first-child'); if(!r) return;
-    var a=r.children[0], b=r.children[1]; if(!a||!b) return;
-    var w=b.offsetLeft-a.offsetLeft;              // статическая ширина 1-й колонки
-    if(w>40&&w<600) t.style.setProperty('--c1w', w+'px');
+    var c=t.querySelector('tbody tr td:first-child')||t.querySelector('thead tr:first-child th:first-child');
+    if(!c) return;
+    t.style.setProperty('--c1w', Math.round(c.getBoundingClientRect().width)+'px');
   }
-  function schedule(){ cancelAnimationFrame(raf); raf=requestAnimationFrame(fitSticky); }
-  window.addEventListener('resize', schedule);
-  window.addEventListener('load', schedule);
+  window.addEventListener('resize', fitSticky);
+  window.addEventListener('load', fitSticky);
   document.addEventListener('DOMContentLoaded', function(){
     var t=document.getElementById('monthlyReportTable');
-    if(t) new MutationObserver(schedule).observe(t,{childList:true,subtree:true});
-    schedule();
+    if(t) new MutationObserver(function(){ setTimeout(fitSticky,0); })
+             .observe(t,{childList:true,subtree:true});
+    fitSticky();
   });
-  window.fitSticky=fitSticky;
+  window.fitSticky = fitSticky;
 })();
 </script>
 <!-- FITJS-END -->
 </body>
 </html>
-
 
 
 
