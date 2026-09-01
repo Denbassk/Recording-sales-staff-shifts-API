@@ -2735,10 +2735,7 @@ app.post('/save-universal-corrections', checkAuth, canManagePayroll, async (req,
                 year: year,
                 advance_card: corrections.advanceCard || 0,
                 advance_cash: corrections.advanceCash || 0,
-                // PATCH_ADV_TOTAL: клиент не шлёт advanceTotal — считаем из карты и налички
-                advance_payment: (corrections.advanceTotal === undefined || corrections.advanceTotal === null || corrections.advanceTotal === '')
-                    ? (Math.round(Number(corrections.advanceCard) || 0) + Math.round(Number(corrections.advanceCash) || 0))
-                    : Math.round(Number(corrections.advanceTotal) || 0),
+                advance_payment: corrections.advanceTotal || 0,
                 card_remainder: corrections.salaryCard || 0,
                 cash_payout: corrections.salaryCash || 0,
                 total_gross: _gross,
@@ -2798,10 +2795,7 @@ app.post('/fix-universal-calculations', checkAuth, canManagePayroll, async (req,
             // Обновляем только нужные поля из calculations
             advance_card: calculations.advanceCard || 0,
             advance_cash: calculations.advanceCash || 0,
-            // PATCH_ADV_TOTAL: то же самое для фиксации
-            advance_payment: (calculations.advanceTotal === undefined || calculations.advanceTotal === null || calculations.advanceTotal === '')
-                ? (Math.round(Number(calculations.advanceCard) || 0) + Math.round(Number(calculations.advanceCash) || 0))
-                : Math.round(Number(calculations.advanceTotal) || 0),
+            advance_payment: calculations.advanceTotal || 0,
             card_remainder: calculations.salaryCard || 0,
             cash_payout: calculations.salaryCash || 0,
             total_gross: _grossFix,
