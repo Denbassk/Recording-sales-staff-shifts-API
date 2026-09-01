@@ -283,27 +283,25 @@ tr.summary-row{display:table-row}
 /* ZEBRA-END */
 
 
-
-/* ACT-START */
-/* Фиксированные ширины: предсказуемо, без скриптов */
-#monthlyReportTable td:first-child,#monthlyReportTable thead tr:first-child th:first-child{
-  width:180px !important;min-width:180px !important;max-width:180px !important}
+/* FITW-START */
+#monthlyReportTable td:first-child,#monthlyReportTable thead tr:first-child th:first-child,
 #monthlyReportTable td:nth-child(2),#monthlyReportTable thead tr:first-child th:nth-child(2){
-  width:190px !important;min-width:190px !important;max-width:190px !important;
-  left:180px !important;white-space:normal}
-#monthlyReportTable tr.report-total-row td:nth-child(2){left:180px !important}
+  width:1% !important;min-width:0 !important;max-width:none !important;white-space:nowrap !important}
+#monthlyReportTable td:nth-child(2),
+#monthlyReportTable thead tr:first-child th:nth-child(2),
+#monthlyReportTable tr.report-total-row td:nth-child(2){left:var(--c1w,180px) !important}
 
-/* Уплотнение — помогает влезть без прокрутки */
+/* Числа не должны обрезаться */
+#monthlyReportTable td:nth-child(3),#monthlyReportTable td:nth-child(4){min-width:80px}
+
 #monthlyReportTable{font-size:12px}
 #monthlyReportTable td{padding:6px 6px}
 #monthlyReportTable thead th{padding:7px 6px}
-#monthlyReportTable td input{height:26px;padding:3px 4px;width:60px;max-width:60px}
-
-/* Скрытие колонки «Действия» */
-#monthlyReportTable.actions-collapsed thead tr:first-child th:last-child,
-#monthlyReportTable.actions-collapsed tbody td:last-child,
-#monthlyReportTable.actions-collapsed tfoot td:last-child{display:none}
-/* ACT-END */
+#monthlyReportTable td input{height:26px;padding:3px 4px;width:58px;max-width:58px}
+#monthlyReportTable tbody td:last-child button{font-size:0 !important;padding:4px 8px !important;gap:0}
+#monthlyReportTable tbody td:last-child button i{font-size:16px !important}
+#monthlyReportTable td:last-child,#monthlyReportTable thead tr:first-child th:last-child{width:1% !important;white-space:nowrap}
+/* FITW-END */
 </style>
 
     <style media="print">
@@ -818,7 +816,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901n" defer></script>
+<script src="payroll.js?v=20260901m" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -847,36 +845,31 @@ function toggleTheme(){var d=document.documentElement.getAttribute("data-theme")
 })();
 </script>
 <!-- ZERODIM-END -->
-<!-- ACTJS-START -->
+<!-- FITJS-START -->
 <script>
 (function(){
-  function build(){
-    var t=document.getElementById('monthlyReportTable');
-    var src=[].slice.call(document.querySelectorAll('button')).filter(function(b){
-      return /Скрыть причины|Показать причины/.test(b.textContent);});
-    if(!src.length||document.getElementById('toggleActionsBtn')) return;
-    var ref=src[0];
-    var b=document.createElement('button');
-    b.id='toggleActionsBtn'; b.className=ref.className;
-    b.innerHTML='<i class="ti ti-columns-off"></i> Скрыть действия';
-    b.onclick=function(){
-      var tb=document.getElementById('monthlyReportTable'); if(!tb) return;
-      var off=tb.classList.toggle('actions-collapsed');
-      b.innerHTML='<i class="ti ti-columns-'+(off?'3':'off')+'"></i> '+(off?'Показать действия':'Скрыть действия');
-      try{localStorage.setItem('payrollActionsHidden',off?'1':'0')}catch(e){}
-    };
-    ref.parentNode.insertBefore(b, ref.nextSibling);
-    if(t&&localStorage.getItem('payrollActionsHidden')==='1') b.click();
+  var raf;
+  function fitSticky(){
+    var t=document.getElementById('monthlyReportTable'); if(!t) return;
+    var r=t.querySelector('thead tr:first-child'); if(!r) return;
+    var a=r.children[0], b=r.children[1]; if(!a||!b) return;
+    var w=b.offsetLeft-a.offsetLeft;              // статическая ширина 1-й колонки
+    if(w>40&&w<600) t.style.setProperty('--c1w', w+'px');
   }
-  document.addEventListener('DOMContentLoaded',build);
-  window.addEventListener('load',build);
-  setTimeout(build,1200);
+  function schedule(){ cancelAnimationFrame(raf); raf=requestAnimationFrame(fitSticky); }
+  window.addEventListener('resize', schedule);
+  window.addEventListener('load', schedule);
+  document.addEventListener('DOMContentLoaded', function(){
+    var t=document.getElementById('monthlyReportTable');
+    if(t) new MutationObserver(schedule).observe(t,{childList:true,subtree:true});
+    schedule();
+  });
+  window.fitSticky=fitSticky;
 })();
 </script>
-<!-- ACTJS-END -->
+<!-- FITJS-END -->
 </body>
 </html>
-
 
 
 
