@@ -106,23 +106,3 @@
   window.addEventListener("load", function(){ ensure(); setTimeout(ensure,600); });
 })();
 
-
-/* Пока висит pmBusy — гасим промежуточные info-уведомления showModalNotification */
-(function(){
-  function patch(){
-    var f = window.showModalNotification;
-    if(typeof f!=="function" || f.__pmPatched) return;
-    var w = function(message, type, duration){
-      var busy = document.getElementById("pmBusy");
-      var on = busy && busy.classList.contains("on");
-      if(on && (!type || type==="info")) return;       // дубль поверх оверлея — не нужен
-      var n = document.getElementById("modal-notification");
-      if(n) n.remove();
-      return f.apply(this, arguments);
-    };
-    w.__pmPatched = true;
-    window.showModalNotification = w;
-  }
-  document.addEventListener("DOMContentLoaded", patch);
-  window.addEventListener("load", function(){ patch(); setTimeout(patch,800); });
-})();

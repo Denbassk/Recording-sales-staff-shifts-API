@@ -73,7 +73,7 @@
         row.eachCell(function(c,col){
           var isNum=typeof c.value==="number";
           c.alignment={horizontal:isNum?"center":(col<=2?"left":"left"),vertical:"middle",wrapText:false};
-          if(isNum) c.numFmt = (Math.abs(c.value % 1) < 1e-9) ? "#,##0" : "#,##0.00";
+          if(isNum) c.numFmt="# ##0.##";
           c.border={top:{style:"hair",color:{argb:"FFDDE1E6"}},left:{style:"hair",color:{argb:"FFDDE1E6"}},
                     bottom:{style:"hair",color:{argb:"FFDDE1E6"}},right:{style:"hair",color:{argb:"FFDDE1E6"}}};
           if(idx%2===0) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF4F6F9"}};
@@ -104,25 +104,4 @@
     window.exportMonthlyReportToExcel = impl; }
   document.addEventListener("DOMContentLoaded", ensure);
   window.addEventListener("load", function(){ ensure(); setTimeout(ensure,600); });
-})();
-
-
-/* Пока висит pmBusy — гасим промежуточные info-уведомления showModalNotification */
-(function(){
-  function patch(){
-    var f = window.showModalNotification;
-    if(typeof f!=="function" || f.__pmPatched) return;
-    var w = function(message, type, duration){
-      var busy = document.getElementById("pmBusy");
-      var on = busy && busy.classList.contains("on");
-      if(on && (!type || type==="info")) return;       // дубль поверх оверлея — не нужен
-      var n = document.getElementById("modal-notification");
-      if(n) n.remove();
-      return f.apply(this, arguments);
-    };
-    w.__pmPatched = true;
-    window.showModalNotification = w;
-  }
-  document.addEventListener("DOMContentLoaded", patch);
-  window.addEventListener("load", function(){ patch(); setTimeout(patch,800); });
 })();

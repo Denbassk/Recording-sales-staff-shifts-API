@@ -899,7 +899,7 @@ document.addEventListener('DOMContentLoaded',function(){
 })();
 </script>
 <!-- HDJS-END -->
-<script src="payroll_export_xlsx.js?v=2" defer></script>
+<script src="payroll_export_xlsx.js?v=4" defer></script>
 <!-- BUSY-START -->
 <style>
 #pmBusy{position:fixed;inset:0;background:rgba(10,12,16,.45);backdrop-filter:blur(2px);
@@ -919,8 +919,12 @@ window.pmBusy={
   show:function(tx,sub){var b=document.getElementById('pmBusy');if(!b)return;
     document.getElementById('pmBusyTx').textContent=tx||'Выполняется...';
     document.getElementById('pmBusySub').textContent=sub||'Пожалуйста, подождите';
-    b.classList.add('on');},
-  hide:function(){var b=document.getElementById('pmBusy');if(b)b.classList.remove('on');}
+    b.classList.add('on');
+    document.querySelectorAll('.loader,#loadingOverlay,.loading-overlay,.spinner-overlay,#pmOverlay')
+      .forEach(function(e){ if(e.id!=='pmBusy'){ e.dataset.pmHid='1'; e.style.display='none'; } });
+    var mn=document.getElementById('modal-notification'); if(mn) mn.remove();},
+  hide:function(){var b=document.getElementById('pmBusy');if(b)b.classList.remove('on');
+    document.querySelectorAll('[data-pm-hid="1"]').forEach(function(e){ e.style.display=''; delete e.dataset.pmHid; });}
 };
 (function(){
   var jobs={generateMonthlyReport:'Формируем отчёт...',calculateAdvance15:'Рассчитываем аванс...',
@@ -948,6 +952,8 @@ window.pmBusy={
 <!-- BUSY-END -->
 </body>
 </html>
+
+
 
 
 
