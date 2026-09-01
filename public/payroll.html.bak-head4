@@ -227,15 +227,21 @@ tr.summary-row{display:table-row}
 #monthlyReportTable thead tr:nth-child(2) th{font-weight:500;font-size:10px}
 #monthlyReportTable .sub-muted{color:var(--text-2);font-size:10px;font-weight:400}
 
-
 /* HEADSTYLE-START */
-#monthlyReportTable thead th{text-align:center !important;vertical-align:middle !important}
-#monthlyReportTable thead tr:first-child th{background:var(--anthra) !important;color:#eceef1 !important;font-weight:700 !important;font-size:12px;letter-spacing:.3px}
-#monthlyReportTable .grp-head{height:36px;box-sizing:border-box;white-space:nowrap}
-#monthlyReportTable thead tr:nth-child(2) th{background:var(--surface-3) !important;color:var(--text) !important;font-weight:700 !important;font-size:11px}
-#monthlyReportTable .sub-muted{color:var(--text-2) !important;font-weight:600 !important}
-#monthlyReportTable thead tr:nth-child(2) th{border-bottom:2px solid var(--border-strong)}
-#monthlyReportTable thead tr:first-child th[rowspan="2"]{border-bottom:2px solid var(--border-strong)}
+/* Шапка отчёта: центрирование, вес, цвета строго из темы */
+#monthlyReportTable thead th{text-align:center;vertical-align:middle}
+#monthlyReportTable .grp-head{height:36px;box-sizing:border-box;white-space:nowrap;
+  font-weight:700;font-size:12px;letter-spacing:.2px;
+  color:var(--text-1, var(--text-primary, inherit));
+  background:var(--surface-2, inherit)}
+#monthlyReportTable thead tr:nth-child(2) th{font-weight:600;font-size:11px;
+  color:var(--text-1, var(--text-primary, inherit))}
+#monthlyReportTable .sub-muted{color:var(--text-2, var(--text-secondary, inherit));font-weight:600}
+/* Закреплённые колонки шапки — тот же серый, что и вся шапка */
+#monthlyReportTable thead tr:first-child th:first-child,
+#monthlyReportTable thead tr:first-child th:nth-child(2){
+  background:var(--surface-2, inherit);font-weight:700;
+  color:var(--text-1, var(--text-primary, inherit))}
 /* HEADSTYLE-END */
 </style>
     <link rel="stylesheet" href="universal-corrections.css?v=1234567">
@@ -727,7 +733,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901d" defer></script>
+<script src="payroll.js?v=20260901c" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
