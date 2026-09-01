@@ -221,12 +221,7 @@ tr.summary-row{display:table-row}
         .payslip-compact h3 { text-align: center; font-size: 12pt; margin-bottom: 10px; }
         .payslip-compact table { width: 100%; border-collapse: collapse; margin: 5px 0; }
         .payslip-compact td { padding: 2px 0; }
-    
-/* Группы шапки: жёсткие 36px, иначе второй ряд (top:36px) наложится */
-#monthlyReportTable .grp-head{height:36px;box-sizing:border-box;text-align:center;white-space:nowrap;font-weight:600}
-#monthlyReportTable thead tr:nth-child(2) th{font-weight:500;font-size:10px}
-#monthlyReportTable .sub-muted{color:var(--text-2);font-size:10px;font-weight:400}
-</style>
+    </style>
     <link rel="stylesheet" href="universal-corrections.css?v=1234567">
 </head>
 <body>
@@ -716,7 +711,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260901a" defer></script>
+<script src="payroll.js?v=20260831b" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>

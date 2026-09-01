@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><title>Тест шапки</title>
+<style>
+body { font-family: system-ui, sans-serif; padding: 20px; background: #f7f8fa; }
+table { border-collapse: collapse; font-size: 11px; white-space: nowrap; background: #fff; }
+th, td { border: 1px solid #d8dde3; padding: 5px 8px; }
+thead th { background: #eef1f5; }
+td.num { text-align: right; }
+
+/* --- проверяемый блок --- */
+#monthlyReportTable thead .grp-nach-head,
+#monthlyReportTable thead .grp-uder-head,
+#monthlyReportTable thead .grp-adv-head,
+#monthlyReportTable thead .grp-rest-head {
+    text-align: center; vertical-align: middle;
+    border-left: 1px solid #d8dde3; border-right: 1px solid #d8dde3;
+    font-weight: 600;
+}
+#monthlyReportTable thead .col-bonus-head { font-weight: 400; }
+#monthlyReportTable tbody td:nth-child(4),
+#monthlyReportTable thead .col-bonus-head { color: #6b7280; font-size: 10px; }
+/* свёрнутый режим */
+#monthlyReportTable.reasons-collapsed .col-reason { display: none; }
+</style></head><body>
+
+<button onclick="toggle()">Скрыть / показать причины</button>
+<p id="st"></p>
+
+<table id="monthlyReportTable">
+<thead>
+<tr>
+  <th rowspan="2" style="vertical-align:middle;">Сотрудник</th>
+  <th rowspan="2" style="vertical-align:middle;">Магазин</th>
+  <th colspan="4" class="grp-nach-head">Начислено</th>
+  <th colspan="3" class="grp-uder-head">Удержано</th>
+  <th colspan="2" class="grp-adv-head">Выплачено авансом</th>
+  <th colspan="3" class="grp-rest-head">Остаток к выдаче</th>
+  <th rowspan="2" style="vertical-align:middle;">Действия</th>
+</tr>
+<tr>
+  <th>За смены</th><th class="col-bonus-head">в т.ч. бонусы</th>
+  <th>Премия</th><th class="col-reason">Причина</th>
+  <th>Депремия</th><th class="col-reason">Причина</th><th>Недостача</th>
+  <th>На карту</th><th>Наличными</th>
+  <th>На карту</th><th>Наличными</th><th>Всего</th>
+</tr>
+</thead>
+<tbody>
+<tr><td>Чижиченко Елена</td><td>Пр-т Тракторобудівників 95</td>
+ <td class="num">2 535</td><td class="num">935</td><td class="num">0</td><td class="col-reason"></td>
+ <td class="num">35</td><td class="col-reason">Опоздание</td><td class="num">0</td>
+ <td class="num">0</td><td class="num">2 500</td>
+ <td class="num">0</td><td class="num">0</td><td class="num"><b>0</b></td><td>Все корректировки</td></tr>
+<tr><td>Надточий Яна</td><td>Байрона 163</td>
+ <td class="num">25 523</td><td class="num">8 723</td><td class="num">0</td><td class="col-reason"></td>
+ <td class="num">0</td><td class="col-reason"></td><td class="num">0</td>
+ <td class="num">8 500</td><td class="num">0</td>
+ <td class="num">4 500</td><td class="num">12 523</td><td class="num"><b>17 023</b></td><td>Все корректировки</td></tr>
+<tr><td>Чип Наталья</td><td>Небесної Сотні 14/1</td>
+ <td class="num">26 299</td><td class="num">9 499</td><td class="num">0</td><td class="col-reason"></td>
+ <td class="num">30</td><td class="col-reason"></td><td class="num">0</td>
+ <td class="num">8 500</td><td class="num">0</td>
+ <td class="num">4 500</td><td class="num">13 269</td><td class="num"><b>17 769</b></td><td>Все корректировки</td></tr>
+</tbody></table>
+
+<script>
+function sync() {
+  const t = document.getElementById('monthlyReportTable');
+  const c = t.classList.contains('reasons-collapsed');
+  t.querySelectorAll('.grp-nach-head').forEach(th => th.colSpan = c ? 3 : 4);
+  t.querySelectorAll('.grp-uder-head').forEach(th => th.colSpan = c ? 2 : 3);
+  t.querySelectorAll('.grp-adv-head').forEach(th  => th.colSpan = 2);
+  t.querySelectorAll('.grp-rest-head').forEach(th => th.colSpan = 3);
+  document.getElementById('st').textContent = c ? 'Режим: причины скрыты' : 'Режим: причины видны';
+}
+function toggle() {
+  document.getElementById('monthlyReportTable').classList.toggle('reasons-collapsed');
+  sync();
+}
+sync();
+</script></body></html>
