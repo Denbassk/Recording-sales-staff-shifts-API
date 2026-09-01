@@ -2711,20 +2711,6 @@ app.post('/save-universal-corrections', checkAuth, canManagePayroll, async (req,
                 bonus_reason: corrections.bonusReason || '',
                 penalty_reason: corrections.penaltyReason || ''
             }, { onConflict: 'employee_id,month,year' });
-
-        // PATCH_KEEP_GROSS: не затираем начисления нулями, если клиент их не прислал
-        const { data: existingFinal } = await supabase
-            .from('final_payroll_calculations')
-            .select('*')
-            .eq('employee_id', employee_id)
-            .eq('year', year)
-            .eq('month', month)
-            .maybeSingle();
-        const keepNum = (v, prev) => (v === undefined || v === null || v === '')
-            ? Math.round(Number(prev) || 0)
-            : Math.round(Number(v) || 0);
-        const _gross = keepNum(corrections.totalGross, existingFinal?.total_gross);
-        const _deductions = keepNum(corrections.totalDeductions, existingFinal?.total_deductions);
         
         // 2. Обновляем final_payroll_calculations
         await supabase
@@ -2738,9 +2724,9 @@ app.post('/save-universal-corrections', checkAuth, canManagePayroll, async (req,
                 advance_payment: corrections.advanceTotal || 0,
                 card_remainder: corrections.salaryCard || 0,
                 cash_payout: corrections.salaryCash || 0,
-                total_gross: _gross,
-                total_deductions: _deductions,
-                total_after_deductions: _gross - _deductions,
+                total_gross: corrections.totalGross || 0,
+                total_deductions: corrections.totalDeductions || 0,
+                total_after_deductions: corrections.totalToPay || 0,
                 is_termination: corrections.isTermination || false,
                 is_manual_adjustment: true,
                 adjustment_reason: corrections.adjustmentReason || 'Универсальная корректировка',
@@ -2774,20 +2760,6 @@ app.post('/fix-universal-calculations', checkAuth, canManagePayroll, async (req,
     
     try {
         // Подготавливаем данные для обновления БЕЗ перезаписи всех полей
-        // PATCH_KEEP_GROSS: подтягиваем текущую запись, чтобы не обнулять начисления
-        const { data: existingFix } = await supabase
-            .from('final_payroll_calculations')
-            .select('*')
-            .eq('employee_id', employee_id)
-            .eq('year', parseInt(year))
-            .eq('month', parseInt(month))
-            .maybeSingle();
-        const keepNumFix = (v, prev) => (v === undefined || v === null || v === '')
-            ? Math.round(Number(prev) || 0)
-            : Math.round(Number(v) || 0);
-        const _grossFix = keepNumFix(calculations.totalGross, existingFix?.total_gross);
-        const _deductionsFix = keepNumFix(calculations.totalDeductions, existingFix?.total_deductions);
-
         const updateData = {
             employee_id: employee_id,
             month: parseInt(month),
@@ -2798,9 +2770,9 @@ app.post('/fix-universal-calculations', checkAuth, canManagePayroll, async (req,
             advance_payment: calculations.advanceTotal || 0,
             card_remainder: calculations.salaryCard || 0,
             cash_payout: calculations.salaryCash || 0,
-            total_gross: _grossFix,
-            total_deductions: _deductionsFix,
-            total_after_deductions: _grossFix - _deductionsFix,
+            total_gross: calculations.totalGross || 0,
+            total_deductions: calculations.totalDeductions || 0,
+            total_after_deductions: calculations.totalToPay || 0,
             // Флаги фиксации
             is_fixed: true,
             fixed_at: new Date().toISOString(),
