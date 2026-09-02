@@ -126,3 +126,48 @@
   document.addEventListener("DOMContentLoaded", patch);
   window.addEventListener("load", function(){ patch(); setTimeout(patch,800); });
 })();
+
+/* UNILOADER-START */
+(function(){
+  var RX_BUSY=/(загрузка|формирование|расч[её]т|пересч[её]т|обработка|сохранение|экспорт|подготовка)/i;
+  function busyOn(t){ try{ window.pmBusyShow ? pmBusyShow(t) : (function(){
+      var b=document.getElementById('pmBusy'); if(!b)return;
+      var l=b.querySelector('.pm-busy-text'); if(l)l.textContent=t||'Обработка…';
+      b.style.display='flex';
+    })(); }catch(e){} }
+  function busyOff(){ try{ window.pmBusyHide ? pmBusyHide() : (function(){
+      var b=document.getElementById('pmBusy'); if(b)b.style.display='none';
+    })(); }catch(e){} }
+  window.pmBusyOn=busyOn; window.pmBusyOff=busyOff;
+
+  // 1) старый showStatus -> единый оверлей
+  var orig=window.showStatus;
+  window.showStatus=function(msg,type,el){
+    var s=String(msg==null?'':msg);
+    if((/…|\.\.\.$/.test(s)||RX_BUSY.test(s)) && (!type||type==='info'||type==='loading')){ busyOn(s); return; }
+    busyOff();
+    if(typeof orig==='function'){ try{ return orig.apply(this,arguments); }catch(e){} }
+  };
+
+  // 2) старые .status/.loader плашки и модалка предупреждения
+  var BLOCK=/(малым количеством смен|мало смен|от 1 до 5 смен)/i;
+  function sweep(root){
+    (root.querySelectorAll?root.querySelectorAll('.status,.loader,#loader'):[]).forEach(function(n){
+      var t=(n.textContent||'').trim();
+      if(n.classList.contains('loader')||n.id==='loader'){ n.style.display='none'; return; }
+      if(/…|\.\.\.$/.test(t)||RX_BUSY.test(t)){ n.style.display='none'; busyOn(t); }
+    });
+    if(root.querySelectorAll) root.querySelectorAll('div,section').forEach(function(n){
+      if(n.dataset.pmChk)return; n.dataset.pmChk='1';
+      if(BLOCK.test(n.textContent||'') && (n.textContent||'').length<3000 &&
+         getComputedStyle(n).position==='fixed'){ n.remove(); }
+    });
+  }
+  new MutationObserver(function(m){ m.forEach(function(r){
+    r.addedNodes && Array.prototype.forEach.call(r.addedNodes,function(n){ if(n.nodeType===1) sweep(n); });
+    if(r.type==='attributes'&&r.target.nodeType===1) sweep(r.target.parentNode||document);
+  }); }).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class']});
+  document.addEventListener('DOMContentLoaded',function(){ sweep(document); });
+  sweep(document);
+})();
+/* UNILOADER-END */
