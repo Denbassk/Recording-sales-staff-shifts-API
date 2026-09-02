@@ -851,7 +851,7 @@ tr.summary-row{display:table-row}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
-<script src="payroll.js?v=20260902i" defer></script>
+<script src="payroll.js?v=20260902h" defer></script>
 <script src="card-limits.js" defer></script>
 <script src="universal-corrections.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
@@ -915,7 +915,7 @@ document.addEventListener('DOMContentLoaded',function(){
 })();
 </script>
 <!-- HDJS-END -->
-<script src="payroll_export_xlsx.js?v=20260902i" defer></script>
+<script src="payroll_export_xlsx.js?v=20260902h" defer></script>
 <!-- BUSY-START -->
 <style>
 #pmBusy{position:fixed;inset:0;background:rgba(10,12,16,.45);backdrop-filter:blur(2px);
@@ -942,24 +942,13 @@ document.addEventListener('DOMContentLoaded',function(){
     b.style.removeProperty('display');   // страховка от инлайн-стилей
     b.classList.add('on');
     var mn=document.getElementById('modal-notification'); if(mn) mn.remove();
-    document.querySelectorAll('.status,.loader,#loader,#loadingOverlay,.loading-overlay')
-      .forEach(function(e){
-        if(e.id==='pmBusy'||e.dataset.pmHid==='1') return;
-        var tx=(e.textContent||'').trim();
-        if(e.classList.contains('loader')||e.id==='loader'||/(…|\.\.\.)$/.test(tx)){
-          e.dataset.pmHid='1'; e.style.display='none';
-        }
-      });
   }
   window.pmBusy={
     show:function(tx,sub){ depth++; paint(tx,sub);
       clearTimeout(wd); wd=setTimeout(function(){ console.warn('[pmBusy] watchdog'); window.pmBusy.reset(); },60000); },
     hide:function(){ depth=Math.max(0,depth-1); if(depth===0) window.pmBusy.reset(); },
     reset:function(){ depth=0; clearTimeout(wd);
-      var b=node(); if(b){ b.classList.remove('on'); b.style.removeProperty('display'); }
-      document.querySelectorAll('[data-pm-hid="1"]').forEach(function(e){
-        e.style.display=''; delete e.dataset.pmHid;
-      }); },
+      var b=node(); if(b){ b.classList.remove('on'); b.style.removeProperty('display'); } },
     busy:function(){ return depth>0; }
   };
 
@@ -972,8 +961,8 @@ document.addEventListener('DOMContentLoaded',function(){
     exportCardLimitsToExcel:'Готовим файл Excel...',
     initTabelTab:'Загрузка табеля...',          loadTabel:'Формируем табель...',
     downloadTabelXlsx:'Готовим файл Excel...',
-    loadCalculationDetails:'Загрузка детализации...', openMultiReport:'Формируем отчёт...',
-    openStoreNorms:'Загрузка норм...',        loadLimitTypesEditor:'Загрузка данных...',
+    loadDetails:'Загрузка детализации...',      showDetails:'Загрузка детализации...',
+    loadFot:'Формирование отчета ФОТ...',       loadFotReport:'Формирование отчета ФОТ...',
     generateFotReport:'Формирование отчета ФОТ...',
     exportMonthlyReportToExcel:'Готовим файл Excel...',
     exportDailyPayrollToExcel:'Готовим файл Excel...',
