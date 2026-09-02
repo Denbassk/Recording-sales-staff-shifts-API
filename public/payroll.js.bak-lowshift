@@ -2243,7 +2243,7 @@ async function calculateAdvance15(silent = false) {
         
         const checkData = await checkResponse.json();
         
-        if (false) { /* PM-SKIP-LOWSHIFT */
+        if (checkData.newEmployees && checkData.newEmployees.length > 0) {
             newEmployeesData = checkData.newEmployees;
             // Показываем диалог и ждем решения
             await showNewEmployeesDialog(checkData.newEmployees, month, year);
