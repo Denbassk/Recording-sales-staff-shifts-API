@@ -915,7 +915,7 @@ document.addEventListener('DOMContentLoaded',function(){
 })();
 </script>
 <!-- HDJS-END -->
-<script src="payroll_export_xlsx.js?v=20260902d" defer></script>
+<script src="payroll_export_xlsx.js?v=4" defer></script>
 <!-- BUSY-START -->
 <style>
 #pmBusy{position:fixed;inset:0;background:rgba(10,12,16,.45);backdrop-filter:blur(2px);
@@ -927,11 +927,6 @@ document.addEventListener('DOMContentLoaded',function(){
   border-top-color:var(--brand);border-radius:50%;animation:spin .8s linear infinite}
 #pmBusyTx{font-size:14px;font-weight:600}
 #pmBusySub{font-size:12px;color:var(--text-2);margin-top:6px}
-
-/* UNILOADER-CSS-START */
-.loader,#loader{display:none !important}
-#pmBusy{z-index:99999}
-/* UNILOADER-CSS-END */
 </style>
 <div id="pmBusy"><div id="pmBusyBox"><div class="sp"></div>
   <div id="pmBusyTx">Выполняется...</div><div id="pmBusySub">Пожалуйста, подождите</div></div></div>

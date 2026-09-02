@@ -183,21 +183,17 @@
       var list=newEmployees||[];
       try{
         var decisions=list.map(function(e){ return {
-          employee_id:String(e.employee_id),
-          make_regular:false,
-          decision:'none',
-          advance_card:0,
-          advance_cash:0,
+          employee_id:e.employee_id, month:month, year:year,
+          decision:'none', advance_card:0, advance_cash:0,
           reason:'Аванс не начислен (мало смен)'
         };});
         if(decisions.length){
           var base=(typeof API_BASE!=='undefined'?API_BASE:'/api');
-          var r=await fetch(base+'/process-new-employees-advances',{
+          await fetch(base+'/process-new-employees-advances',{
             method:'POST',headers:{'Content-Type':'application/json'},
             credentials:'include',
             body:JSON.stringify({month:month,year:year,decisions:decisions})
           });
-          console.info('[pm] low-shift auto-decisions:',decisions.length,'HTTP',r.status);
         }
       }catch(e){ console.error('[pm] auto-decisions failed',e); }
       try{ if(typeof calculateAdvance15==='function') await calculateAdvance15(); }
