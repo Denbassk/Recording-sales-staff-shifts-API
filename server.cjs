@@ -1,3 +1,4 @@
+const __t0=Date.now(); /* PM-BOOT-T */
 // --- Подключение модулей и настройка ---
 const express = require("express");
 const path = require("path");
@@ -10,7 +11,7 @@ const crypto = require('crypto');
 const upload = multer({ storage: multer.memoryStorage() });
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
-const XLSX = require('xlsx');
+let XLSX; const getXLSX=()=>XLSX||(XLSX=require('xlsx'));
 const rateLimit = require('express-rate-limit');
 
 // --- Подключение к Supabase ---
@@ -585,10 +586,10 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
             console.log(`Дата в имени файла не найдена. Считаем кассу за ${revenueDate}`);
         }
         
-        const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+        const workbook = getXLSX().read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        const rows = getXLSX().utils.sheet_to_json(worksheet, { header: 1 });
         
         let headerRowIndex = -1;
         for (let i = 0; i < rows.length; i++) {
@@ -599,7 +600,7 @@ app.post('/upload-revenue-file', checkAuth, canManagePayroll, upload.single('fil
         }
         if (headerRowIndex === -1) return res.status(400).json({ success: false, error: 'В файле не найдены столбцы "Торговая точка" и "Выторг".' });
         
-        const rawData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex });
+        const rawData = getXLSX().utils.sheet_to_json(worksheet, { range: headerRowIndex });
         const revenues = rawData.map(row => {
             const revenueStr = String(row['Выторг'] || '0');
             const cleanedStr = revenueStr.replace(/\s/g, '').replace(',', '.');
@@ -3029,10 +3030,10 @@ app.post('/export-fot-report', checkAuth, canManageFot, async (req, res) => {
     sheetRows.push(['Общий ФОТ (выплаты + 22%)', totalPayoutWithTax]);
     sheetRows.push(['ФОТ % от выручки', fotPercentage.toFixed(2)]);
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(sheetRows);
-    XLSX.utils.book_append_sheet(wb, ws, 'FOT_by_Store');
-    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const wb = getXLSX().utils.book_new();
+    const ws = getXLSX().utils.aoa_to_sheet(sheetRows);
+    getXLSX().utils.book_append_sheet(wb, ws, 'FOT_by_Store');
+    const buf = getXLSX().write(wb, { type: 'buffer', bookType: 'xlsx' });
 
     const fileName = `fot_by_store_${year}-${String(month).padStart(2, '0')}_${reportEndDate}.xlsx`;
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -3923,7 +3924,7 @@ const PORT = process.env.PORT || 3000;
 const HOST = '0.0.0.0'; // Явно указываем хост
 
 const server = app.listen(PORT, HOST, () => {
-  console.log(`Server is running on http://${HOST}:${PORT}`);
+  console.log(`Server is running on http://${HOST}:${PORT} | boot ${Date.now()-__t0}ms`);
   console.log(`Listening on all interfaces on port ${PORT}`);
 });
 
